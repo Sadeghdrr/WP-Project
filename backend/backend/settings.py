@@ -25,7 +25,7 @@ SECRET_KEY = 'django-insecure-(fzug6c@1pnjv3gz@_=i#q49#$m7#gih+*f8nmoc+bbpk-ea-1
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = [*]
+ALLOWED_HOSTS = ['*']
 
 
 # Application definition
@@ -128,5 +128,25 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 
+# Media files (user-uploaded evidence, suspect photos, etc.)
+MEDIA_URL = 'media/'
+MEDIA_ROOT = BASE_DIR / 'media'
 
 AUTH_USER_MODEL = 'accounts.User'
+
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# Django REST Framework defaults
+REST_FRAMEWORK = {
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    'DEFAULT_FILTER_BACKENDS': [
+        'django_filters.rest_framework.DjangoFilterBackend',
+    ],
+}
+
+# drf-spectacular settings
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'LA Noire Police Department API',
+    'DESCRIPTION': 'Backend API for the LA Noire police department management system.',
+    'VERSION': '1.0.0',
+}
