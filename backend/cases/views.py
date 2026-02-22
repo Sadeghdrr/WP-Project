@@ -19,11 +19,15 @@ ViewSets
 
 from __future__ import annotations
 
+import logging
+
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+
+from core.domain.exceptions import NotFound, PermissionDenied
 
 from .models import Case, CaseComplainant
 from .serializers import (
@@ -57,6 +61,8 @@ from .services import (
     CaseWorkflowService,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class CaseViewSet(viewsets.ViewSet):
     """
@@ -84,19 +90,18 @@ class CaseViewSet(viewsets.ViewSet):
     def _get_case(self, pk: int) -> Case:
         """
         Retrieve a case by PK.  Raises HTTP 404 if not found.
-
-        Implementation Contract
-        -----------------------
-        from django.shortcuts import get_object_or_404
-        return get_object_or_404(Case, pk=pk)
         """
-        raise NotImplementedError
+        from django.shortcuts import get_object_or_404
+
+        return get_object_or_404(Case, pk=pk)
 
     def _get_complainant(self, case: Case, complainant_pk: int) -> CaseComplainant:
         """
         Retrieve a CaseComplainant by PK scoped to a case.  Raises 404.
         """
-        raise NotImplementedError
+        from django.shortcuts import get_object_or_404
+
+        return get_object_or_404(CaseComplainant, pk=complainant_pk, case=case)
 
     # ── Standard CRUD ────────────────────────────────────────────────
 
@@ -105,15 +110,14 @@ class CaseViewSet(viewsets.ViewSet):
         GET /api/cases/
 
         List cases visible to the authenticated user, with optional filtering.
-
-        Steps
-        -----
-        1. Validate query params with ``CaseFilterSerializer(data=request.query_params)``.
-        2. Get queryset via ``CaseQueryService.get_filtered_queryset(request.user, filters)``.
-        3. Serialize with ``CaseListSerializer(qs, many=True)``.
-        4. Return HTTP 200.
         """
-        raise NotImplementedError
+        filter_serializer = CaseFilterSerializer(data=request.query_params)
+        filter_serializer.is_valid(raise_exception=True)
+        filters = filter_serializer.validated_data
+
+        qs = CaseQueryService.get_filtered_queryset(request.user, filters)
+        serializer = CaseListSerializer(qs, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
     def create(self, request: Request) -> Response:
         """
@@ -142,16 +146,10 @@ class CaseViewSet(viewsets.ViewSet):
 
         Return the full case detail with all nested sub-resources and
         computed formula fields.
-
-        Steps
-        -----
-        1. ``case = self._get_case(pk)``.
-        2. Prefetch complainants, witnesses, and status_logs (or structure
-           the queryset in the service to avoid N+1).
-        3. Serialize with ``CaseDetailSerializer(case, context={"request": request})``.
-        4. Return HTTP 200.
         """
-        raise NotImplementedError
+        case = CaseQueryService.get_case_detail(request.user, pk)
+        serializer = CaseDetailSerializer(case, context={"request": request})
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
     def partial_update(self, request: Request, pk: int = None) -> Response:
         """

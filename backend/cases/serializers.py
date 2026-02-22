@@ -82,13 +82,14 @@ class CaseFilterSerializer(serializers.Serializer):
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         """
         Ensure ``created_after <= created_before`` when both are provided.
-
-        Implementation Contract
-        -----------------------
-        If both present and ``created_after > created_before`` raise
-        ``ValidationError("created_after must be earlier than created_before.")``.
         """
-        raise NotImplementedError
+        after = attrs.get("created_after")
+        before = attrs.get("created_before")
+        if after and before and after > before:
+            raise serializers.ValidationError(
+                "created_after must be earlier than created_before."
+            )
+        return attrs
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -137,15 +138,13 @@ class CaseListSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_at", "updated_at"]
 
     def get_assigned_detective_name(self, obj: Case) -> str | None:
-        """
-        Return the detective's full name or ``None`` if unassigned.
-
-        Implementation Contract
-        -----------------------
-        Return ``f"{obj.assigned_detective.first_name} {obj.assigned_detective.last_name}"``
-        or ``None`` if ``obj.assigned_detective`` is ``None``.
-        """
-        raise NotImplementedError
+        """Return the detective's full name or ``None`` if unassigned."""
+        if obj.assigned_detective is None:
+            return None
+        return (
+            f"{obj.assigned_detective.first_name} "
+            f"{obj.assigned_detective.last_name}"
+        ).strip()
 
 
 class CaseStatusLogSerializer(serializers.ModelSerializer):
@@ -168,7 +167,11 @@ class CaseStatusLogSerializer(serializers.ModelSerializer):
 
     def get_changed_by_name(self, obj: CaseStatusLog) -> str | None:
         """Return full name of the actor or None."""
-        raise NotImplementedError
+        if obj.changed_by is None:
+            return None
+        return (
+            f"{obj.changed_by.first_name} {obj.changed_by.last_name}"
+        ).strip()
 
 
 class CaseComplainantSerializer(serializers.ModelSerializer):
@@ -192,7 +195,9 @@ class CaseComplainantSerializer(serializers.ModelSerializer):
 
     def get_user_display(self, obj: CaseComplainant) -> str:
         """Return user's full name."""
-        raise NotImplementedError
+        return (
+            f"{obj.user.first_name} {obj.user.last_name}"
+        ).strip()
 
 
 class CaseWitnessSerializer(serializers.ModelSerializer):
@@ -299,14 +304,11 @@ class CaseDetailSerializer(serializers.ModelSerializer):
         """
         Invoke ``CaseCalculationService.get_calculations_dict`` and return
         a serialised dict of the two formula outputs.
-
-        Implementation Contract
-        -----------------------
+        """
         from .services import CaseCalculationService
+
         data = CaseCalculationService.get_calculations_dict(obj)
         return CaseCalculationsSerializer(data).data
-        """
-        raise NotImplementedError
 
 
 # ═══════════════════════════════════════════════════════════════════

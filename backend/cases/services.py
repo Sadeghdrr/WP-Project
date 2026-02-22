@@ -67,9 +67,12 @@ import datetime
 from typing import Any
 
 from django.db import transaction
-from django.db.models import Count, Max, Q, QuerySet
+from django.db.models import Count, Max, Prefetch, Q, QuerySet
 from django.utils import timezone
 
+from core.constants import REWARD_MULTIPLIER
+from core.domain.access import apply_role_filter, get_user_role_name
+from core.domain.exceptions import NotFound, PermissionDenied
 from core.permissions_constants import CasesPerms
 
 from .models import (
@@ -82,8 +85,6 @@ from .models import (
     ComplainantStatus,
     CrimeLevel,
 )
-
-from core.constants import REWARD_MULTIPLIER
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -128,6 +129,58 @@ MAX_REJECTION_COUNT: int = 3
 # ═══════════════════════════════════════════════════════════════════
 
 
+# ── Role-scoped visibility constants ────────────────────────────────
+
+#: Statuses visible to Cadets (early complaint pipeline).
+CADET_VISIBLE_STATUSES: set[str] = {
+    CaseStatus.COMPLAINT_REGISTERED,
+    CaseStatus.CADET_REVIEW,
+    CaseStatus.RETURNED_TO_COMPLAINANT,
+    CaseStatus.RETURNED_TO_CADET,
+}
+
+#: Statuses excluded for Officer-level roles (complaint-only early stages).
+OFFICER_EXCLUDED_STATUSES: set[str] = {
+    CaseStatus.COMPLAINT_REGISTERED,
+    CaseStatus.CADET_REVIEW,
+    CaseStatus.RETURNED_TO_COMPLAINANT,
+    CaseStatus.VOIDED,
+}
+
+#: Statuses visible to Judges.
+JUDGE_VISIBLE_STATUSES: set[str] = {
+    CaseStatus.JUDICIARY,
+    CaseStatus.CLOSED,
+}
+
+#: Role → queryset filter config for ``apply_role_filter``.
+CASE_SCOPE_CONFIG: dict[str, Any] = {
+    # Civilians — only cases where they are a complainant
+    "complainant":    lambda qs, u: qs.filter(complainants__user=u),
+    "base_user":      lambda qs, u: qs.filter(complainants__user=u),
+    # Cadet — early complaint stages
+    "cadet":          lambda qs, u: qs.filter(status__in=CADET_VISIBLE_STATUSES),
+    # Officers — everything past the complaint-screening phase
+    "police_officer": lambda qs, u: qs.exclude(status__in=OFFICER_EXCLUDED_STATUSES),
+    "patrol_officer": lambda qs, u: qs.exclude(status__in=OFFICER_EXCLUDED_STATUSES),
+    # Detective — only their assigned cases
+    "detective":      lambda qs, u: qs.filter(assigned_detective=u),
+    # Sergeant — their assigned cases
+    "sergeant":       lambda qs, u: qs.filter(
+                          Q(assigned_sergeant=u) | Q(assigned_detective__isnull=False)
+                      ),
+    # Senior / admin roles — unrestricted
+    "captain":        lambda qs, u: qs,
+    "police_chief":   lambda qs, u: qs,
+    "system_admin":   lambda qs, u: qs,
+    # Judge — only judiciary/closed cases assigned to them
+    "judge":          lambda qs, u: qs.filter(
+                          status__in=JUDGE_VISIBLE_STATUSES,
+                          assigned_judge=u,
+                      ),
+}
+
+
 class CaseQueryService:
     """
     Constructs filtered, annotated querysets for listing cases.
@@ -136,8 +189,47 @@ class CaseQueryService:
     live here so the view stays thin.
     """
 
+    # ── Shared select_related fields ────────────────────────────────
+    _LIST_SELECT_RELATED: list[str] = [
+        "created_by",
+        "assigned_detective",
+        "assigned_sergeant",
+        "assigned_captain",
+    ]
+
+    _DETAIL_SELECT_RELATED: list[str] = [
+        "created_by",
+        "approved_by",
+        "assigned_detective",
+        "assigned_sergeant",
+        "assigned_captain",
+        "assigned_judge",
+    ]
+
     @staticmethod
+    def _apply_filters(qs: QuerySet, filters: dict[str, Any]) -> QuerySet:
+        """Apply explicit query-parameter filters on top of a scoped queryset."""
+        if status := filters.get("status"):
+            qs = qs.filter(status=status)
+        if crime_level := filters.get("crime_level"):
+            qs = qs.filter(crime_level=crime_level)
+        if detective := filters.get("detective"):
+            qs = qs.filter(assigned_detective_id=detective)
+        if creation_type := filters.get("creation_type"):
+            qs = qs.filter(creation_type=creation_type)
+        if created_after := filters.get("created_after"):
+            qs = qs.filter(created_at__date__gte=created_after)
+        if created_before := filters.get("created_before"):
+            qs = qs.filter(created_at__date__lte=created_before)
+        if search := filters.get("search"):
+            qs = qs.filter(
+                Q(title__icontains=search) | Q(description__icontains=search)
+            )
+        return qs
+
+    @classmethod
     def get_filtered_queryset(
+        cls,
         requesting_user: Any,
         filters: dict[str, Any],
     ) -> QuerySet:
@@ -151,46 +243,90 @@ class CaseQueryService:
             scoping before applying explicit filters.
         filters : dict
             Cleaned query-parameter dict from ``CaseFilterSerializer``.
-            Supported keys:
-            - ``status``         : str  (``CaseStatus`` value)
-            - ``crime_level``    : int  (``CrimeLevel`` value)
-            - ``detective``      : int  (user PK)
-            - ``creation_type``  : str  (``CaseCreationType`` value)
-            - ``created_after``  : date
-            - ``created_before`` : date
-            - ``search``         : str  (full-text on title/description)
 
         Returns
         -------
         QuerySet[Case]
-            Filtered, ``select_related`` queryset ready for serialisation.
-
-        Role Scoping Rules
-        ------------------
-        - **Complainant / Base User**: sees only cases they are a
-          complainant on.
-        - **Cadet**: sees cases in ``COMPLAINT_REGISTERED`` or
-          ``CADET_REVIEW`` status.
-        - **Officer**: sees cases in ``OFFICER_REVIEW`` or above.
-        - **Detective**: sees cases where
-          ``assigned_detective == requesting_user``.
-        - **Sergeant**: sees cases where
-          ``assigned_sergeant == requesting_user`` or detective cases
-          under their supervision.
-        - **Captain / Chief / Admin**: unrestricted (all cases).
-        - **Judge**: sees cases in ``JUDICIARY`` or ``CLOSED`` status
-          that are assigned to them.
-
-        Implementation Contract
-        -----------------------
-        1. Determine the user's highest-ranked role.
-        2. Apply the appropriate scope filter.
-        3. Apply explicit ``filters`` on top of the scoped queryset.
-        4. ``select_related("created_by", "assigned_detective",
-                            "assigned_sergeant", "assigned_captain")``.
-        5. Return queryset.
+            Filtered, annotated, ``select_related`` queryset ready for
+            serialisation by ``CaseListSerializer``.
         """
-        raise NotImplementedError
+        # 1. Base queryset
+        qs = Case.objects.all()
+
+        # 2. Role-scoped filtering
+        qs = apply_role_filter(
+            qs,
+            requesting_user,
+            scope_config=CASE_SCOPE_CONFIG,
+            default="none",
+        )
+
+        # 3. Explicit filters on top of scoped queryset
+        qs = cls._apply_filters(qs, filters)
+
+        # 4. DB optimisations — select_related + annotation
+        qs = (
+            qs
+            .select_related(*cls._LIST_SELECT_RELATED)
+            .annotate(complainant_count=Count("complainants"))
+            .distinct()
+        )
+
+        return qs
+
+    @classmethod
+    def get_case_detail(
+        cls,
+        requesting_user: Any,
+        case_id: int,
+    ) -> Case:
+        """
+        Return a single ``Case`` instance with all nested sub-resources
+        pre-fetched, scoped to the requesting user's role.
+
+        Parameters
+        ----------
+        requesting_user : User
+            From ``request.user``.
+        case_id : int
+            Primary key of the case.
+
+        Returns
+        -------
+        Case
+            Fully pre-fetched case instance.
+
+        Raises
+        ------
+        core.domain.exceptions.NotFound
+            If the case does not exist or is not visible to the user.
+        """
+        # 1. Build role-scoped base queryset
+        qs = apply_role_filter(
+            Case.objects.all(),
+            requesting_user,
+            scope_config=CASE_SCOPE_CONFIG,
+            default="none",
+        )
+
+        # 2. Optimise for the detail serializer
+        qs = qs.select_related(*cls._DETAIL_SELECT_RELATED).prefetch_related(
+            Prefetch(
+                "complainants",
+                queryset=CaseComplainant.objects.select_related("user", "reviewed_by"),
+            ),
+            "witnesses",
+            Prefetch(
+                "status_logs",
+                queryset=CaseStatusLog.objects.select_related("changed_by"),
+            ),
+        )
+
+        # 3. Fetch or raise
+        try:
+            return qs.get(pk=case_id)
+        except Case.DoesNotExist:
+            raise NotFound(f"Case #{case_id} not found or not accessible.")
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -1105,7 +1241,9 @@ class CaseCalculationService:
         - The final "max across all cases" aggregation for the Most-Wanted page
           is performed in the *suspects* app, not here.
         """
-        raise NotImplementedError
+        degree = case.crime_level
+        days = (timezone.now().date() - case.created_at.date()).days
+        return degree * max(days, 0)
 
     @staticmethod
     def calculate_reward(case: Case) -> int:
@@ -1132,7 +1270,8 @@ class CaseCalculationService:
         1. ``threshold = CaseCalculationService.calculate_tracking_threshold(case)``.
         2. Return ``threshold * REWARD_MULTIPLIER``.
         """
-        raise NotImplementedError
+        threshold = CaseCalculationService.calculate_tracking_threshold(case)
+        return threshold * REWARD_MULTIPLIER
 
     @staticmethod
     def get_calculations_dict(case: Case) -> dict[str, int]:
@@ -1154,4 +1293,13 @@ class CaseCalculationService:
         Delegate to ``calculate_tracking_threshold`` and ``calculate_reward``;
         include the two sub-inputs for transparency.
         """
-        raise NotImplementedError
+        degree = case.crime_level
+        days = max((timezone.now().date() - case.created_at.date()).days, 0)
+        threshold = CaseCalculationService.calculate_tracking_threshold(case)
+        reward = CaseCalculationService.calculate_reward(case)
+        return {
+            "crime_level_degree": degree,
+            "days_since_creation": days,
+            "tracking_threshold": threshold,
+            "reward_rials": reward,
+        }
