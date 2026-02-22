@@ -32,10 +32,72 @@ from __future__ import annotations
 from typing import Any
 
 from django.contrib.contenttypes.models import ContentType
-from django.db import transaction
-from django.db.models import QuerySet
+from django.db import IntegrityError, transaction
+from django.db.models import Count, Prefetch, Q, QuerySet
+
+from core.domain.exceptions import DomainError, NotFound, PermissionDenied
 
 from .models import BoardConnection, BoardItem, BoardNote, DetectiveBoard
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  Shared permission helpers
+# ═══════════════════════════════════════════════════════════════════
+
+# Role names that imply supervisory read/write access to any board
+# belonging to cases they are assigned to.
+_SUPERVISOR_ROLES = frozenset({"Sergeant", "Captain", "Police Chief"})
+_ADMIN_ROLE = "System Admin"
+
+
+def _is_admin(user: Any) -> bool:
+    """Return True if the user is a superuser or has the System Admin role."""
+    return user.is_superuser or (user.role is not None and user.role.name == _ADMIN_ROLE)
+
+
+def _can_view_board(user: Any, board: DetectiveBoard) -> bool:
+    """
+    Read access:
+    - The board's detective.
+    - A supervisor (Sergeant/Captain/Chief) assigned to the same case.
+    - An admin / superuser.
+    """
+    if _is_admin(user):
+        return True
+    if board.detective_id == user.pk:
+        return True
+    if user.role and user.role.name in _SUPERVISOR_ROLES:
+        case = board.case
+        return _is_assigned_to_case(user, case)
+    return False
+
+
+def _can_edit_board(user: Any, board: DetectiveBoard) -> bool:
+    """
+    Write access:
+    - The board's detective (primary editor).
+    - A supervisor assigned to the same case.
+    - An admin / superuser.
+    """
+    return _can_view_board(user, board)
+
+
+def _is_assigned_to_case(user: Any, case: Any) -> bool:
+    """Check whether *user* is one of the assigned personnel on *case*."""
+    return user.pk in {
+        getattr(case, "assigned_detective_id", None),
+        getattr(case, "assigned_sergeant_id", None),
+        getattr(case, "assigned_captain_id", None),
+        getattr(case, "assigned_judge_id", None),
+        getattr(case, "created_by_id", None),
+        getattr(case, "approved_by_id", None),
+    }
+
+
+def _enforce_edit(user: Any, board: DetectiveBoard) -> None:
+    """Raise ``PermissionDenied`` if *user* may not edit *board*."""
+    if not _can_edit_board(user, board):
+        raise PermissionDenied("You do not have permission to modify this board.")
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -50,79 +112,84 @@ class BoardWorkspaceService:
     the Next.js canvas renderer.
     """
 
+    # ------------------------------------------------------------------
+    #  get_or_create_board
+    # ------------------------------------------------------------------
+    @staticmethod
+    @transaction.atomic
+    def get_or_create_board(case_id: int, user: Any) -> DetectiveBoard:
+        """
+        Return the board for *case_id*, creating it implicitly if none
+        exists yet.  Only the assigned detective (or a supervisor/admin)
+        may trigger creation.
+        """
+        from cases.models import Case  # avoid circular import at module level
+
+        try:
+            case = Case.objects.get(pk=case_id)
+        except Case.DoesNotExist:
+            raise NotFound(f"Case {case_id} does not exist.")
+
+        board, created = DetectiveBoard.objects.get_or_create(
+            case=case,
+            defaults={"detective": user},
+        )
+
+        if not _can_view_board(user, board):
+            raise PermissionDenied("You do not have permission to access this board.")
+
+        return board
+
+    # ------------------------------------------------------------------
+    #  list_boards
+    # ------------------------------------------------------------------
     @staticmethod
     def list_boards(requesting_user: Any) -> QuerySet:
         """
-        Return boards visible to ``requesting_user``.
-
-        Access Rules (to be enforced here, not in the view)
-        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        - A Detective sees only boards where ``board.detective == requesting_user``.
-        - A Sergeant, Captain, or Police Chief sees boards for all cases
-          they are assigned to.
-        - An Admin sees all boards.
-
-        Performance
-        -----------
-        Annotate the queryset with ``item_count`` and ``connection_count``
-        using ``Count`` so that ``DetectiveBoardListSerializer`` can expose
-        these without extra queries.
-
-        Parameters
-        ----------
-        requesting_user : User
-            The currently authenticated user from ``request.user``.
-
-        Returns
-        -------
-        QuerySet[DetectiveBoard]
-            Filtered and annotated queryset.
-
-        Implementation Contract
-        -----------------------
-        1. Start from ``DetectiveBoard.objects.select_related("case", "detective")``.
-        2. Annotate with ``Count("items", distinct=True)`` and
-           ``Count("connections", distinct=True)``.
-        3. Apply role-based filter (detective ownership or case assignment).
-        4. Return the queryset (do NOT call ``.all()`` redundantly).
+        Return boards visible to *requesting_user* annotated with
+        ``item_count`` and ``connection_count``.
         """
-        raise NotImplementedError
+        qs = (
+            DetectiveBoard.objects
+            .select_related("case", "detective")
+            .annotate(
+                item_count=Count("items", distinct=True),
+                connection_count=Count("connections", distinct=True),
+            )
+        )
 
+        if _is_admin(requesting_user):
+            return qs
+
+        if requesting_user.role and requesting_user.role.name in _SUPERVISOR_ROLES:
+            return qs.filter(
+                Q(detective=requesting_user)
+                | Q(case__assigned_detective=requesting_user)
+                | Q(case__assigned_sergeant=requesting_user)
+                | Q(case__assigned_captain=requesting_user)
+            )
+
+        # Default (Detective or any other role): own boards only
+        return qs.filter(detective=requesting_user)
+
+    # ------------------------------------------------------------------
+    #  create_board
+    # ------------------------------------------------------------------
     @staticmethod
     @transaction.atomic
     def create_board(validated_data: dict[str, Any], requesting_user: Any) -> DetectiveBoard:
-        """
-        Create a new ``DetectiveBoard`` for a given case.
+        """Create a new ``DetectiveBoard`` for a given case."""
+        case = validated_data["case"]
+        if DetectiveBoard.objects.filter(case=case).exists():
+            raise DomainError("A board already exists for this case.")
 
-        Parameters
-        ----------
-        validated_data : dict
-            Cleaned data from ``DetectiveBoardCreateUpdateSerializer``
-            containing at minimum ``{"case": <Case instance>}``.
-        requesting_user : User
-            The Detective creating the board (set as ``detective``).
+        validated_data["detective"] = requesting_user
+        board = DetectiveBoard.objects.create(**validated_data)
+        return board
 
-        Returns
-        -------
-        DetectiveBoard
-            The newly created and persisted board.
-
-        Raises
-        ------
-        django.core.exceptions.ValidationError
-            If a board already exists for ``validated_data["case"]``
-            (enforced here because the serializer only does a stub check).
-
-        Implementation Contract
-        -----------------------
-        1. Check ``DetectiveBoard.objects.filter(case=validated_data["case"]).exists()``.
-           Raise ``ValidationError`` if True.
-        2. Set ``validated_data["detective"] = requesting_user``.
-        3. ``board = DetectiveBoard.objects.create(**validated_data)``.
-        4. Return ``board``.
-        """
-        raise NotImplementedError
-
+    # ------------------------------------------------------------------
+    #  update_board
+    # ------------------------------------------------------------------
     @staticmethod
     @transaction.atomic
     def update_board(
@@ -130,124 +197,108 @@ class BoardWorkspaceService:
         validated_data: dict[str, Any],
         requesting_user: Any,
     ) -> DetectiveBoard:
-        """
-        Partially update a ``DetectiveBoard`` (currently only metadata fields).
+        """Partially update board metadata (``detective`` and ``case`` are immutable)."""
+        _enforce_edit(requesting_user, board)
 
-        Parameters
-        ----------
-        board : DetectiveBoard
-            The existing board instance to update.
-        validated_data : dict
-            Partial cleaned data.  ``detective`` and ``case`` are immutable
-            after creation; reject attempts to change them.
-        requesting_user : User
-            Used to verify ownership / rank.
+        validated_data.pop("detective", None)
+        validated_data.pop("case", None)
 
-        Returns
-        -------
-        DetectiveBoard
-            The updated board instance.
+        update_fields = []
+        for field, value in validated_data.items():
+            setattr(board, field, value)
+            update_fields.append(field)
 
-        Implementation Contract
-        -----------------------
-        1. Strip ``detective`` and ``case`` from ``validated_data`` if present.
-        2. Apply remaining fields, call ``board.save(update_fields=[...])``.
-        3. Return the updated board.
-        """
-        raise NotImplementedError
+        if update_fields:
+            board.save(update_fields=update_fields)
+        return board
 
+    # ------------------------------------------------------------------
+    #  delete_board
+    # ------------------------------------------------------------------
     @staticmethod
     def delete_board(board: DetectiveBoard, requesting_user: Any) -> None:
-        """
-        Delete a ``DetectiveBoard`` and all its child records (cascade).
+        """Delete a board — only the owning detective or an admin may do so."""
+        if board.detective_id != requesting_user.pk and not _is_admin(requesting_user):
+            raise PermissionDenied("You do not have permission to delete this board.")
+        board.delete()
 
-        Parameters
-        ----------
-        board : DetectiveBoard
-            Board to delete.
-        requesting_user : User
-            Must be the board's detective or an admin-level user.
-
-        Raises
-        ------
-        PermissionError
-            If ``requesting_user`` is not authorised to delete this board.
-
-        Implementation Contract
-        -----------------------
-        1. Assert ``requesting_user == board.detective`` or user has admin role.
-        2. ``board.delete()`` — CASCADE in the model handles children.
-        """
-        raise NotImplementedError
-
+    # ------------------------------------------------------------------
+    #  get_full_board_graph  (snapshot)
+    # ------------------------------------------------------------------
     @staticmethod
     def get_full_board_graph(board_id: int) -> DetectiveBoard:
         """
-        **Critical read path — must be fully optimised.**
+        Return a ``DetectiveBoard`` with **all** related items, connections,
+        and notes pre-fetched in ≤ 3 DB queries.
 
-        Return a single ``DetectiveBoard`` with *all* related items,
-        connections, and notes pre-fetched so that ``FullBoardStateSerializer``
-        does not issue any additional database queries.
-
-        This is the endpoint called by the Next.js canvas on every mount
-        and after every mutation that invalidates the local cache.
-
-        Parameters
-        ----------
-        board_id : int
-            Primary key of the requested ``DetectiveBoard``.
-
-        Returns
-        -------
-        DetectiveBoard
-            The board with ``.items``, ``.connections``, and ``.notes``
-            already evaluated in memory.
-
-        Raises
-        ------
-        DetectiveBoard.DoesNotExist
-            Propagated to the view which converts it to a 404 response.
-
-        Implementation Contract
-        -----------------------
-        1. Build the queryset::
-
-               qs = (
-                   DetectiveBoard.objects
-                   .select_related("case", "detective")
-                   .prefetch_related(
-                       Prefetch(
-                           "items",
-                           queryset=BoardItem.objects
-                               .select_related("content_type")
-                               .order_by("id"),
-                       ),
-                       Prefetch(
-                           "connections",
-                           queryset=BoardConnection.objects
-                               .select_related("from_item", "to_item")
-                               .order_by("id"),
-                       ),
-                       Prefetch(
-                           "notes",
-                           queryset=BoardNote.objects
-                               .select_related("created_by")
-                               .order_by("id"),
-                       ),
-                   )
-               )
-
-        2. Return ``qs.get(pk=board_id)`` — let ``DoesNotExist`` propagate.
-
-        Notes
-        -----
-        The ``GenericForeignKey`` (``content_object``) is NOT automatically
-        prefetched by Django when using ``prefetch_related`` on ``items``.
-        After step 2, call ``prefetch_related_objects(board.items.all(), "content_object")``
-        or use ``GenericRelatedObjectManager`` helpers.  This is the only
-        place where the N+1 footgun for GFK needs to be addressed explicitly.
+        The ``GenericForeignKey`` on ``BoardItem`` is handled by manually
+        grouping ``content_type`` + ``object_id`` pairs and bulk-fetching
+        them per content-type to avoid N+1.
         """
-        raise NotImplementedError
+        board = (
+            DetectiveBoard.objects
+            .select_related("case", "detective")
+            .prefetch_related(
+                Prefetch(
+                    "items",
+                    queryset=BoardItem.objects
+                        .select_related("content_type")
+                        .order_by("id"),
+                ),
+                Prefetch(
+                    "connections",
+                    queryset=BoardConnection.objects
+                        .select_related("from_item", "to_item")
+                        .order_by("id"),
+                ),
+                Prefetch(
+                    "notes",
+                    queryset=BoardNote.objects
+                        .select_related("created_by")
+                        .order_by("id"),
+                ),
+            )
+            .get(pk=board_id)
+        )
+
+        # ── GFK bulk resolution (N+1 prevention) ───────────────────
+        items = list(board.items.all())
+        if items:
+            # Group object_ids by content_type to batch-fetch in one
+            # query per content-type.
+            ct_map: dict[int, list[int]] = {}
+            for item in items:
+                ct_map.setdefault(item.content_type_id, []).append(item.object_id)
+
+            obj_cache: dict[tuple[int, int], Any] = {}
+            for ct_id, obj_ids in ct_map.items():
+                ct = ContentType.objects.get_for_id(ct_id)
+                model_cls = ct.model_class()
+                if model_cls is not None:
+                    objs = model_cls.objects.in_bulk(obj_ids)
+                    for oid, obj in objs.items():
+                        obj_cache[(ct_id, oid)] = obj
+
+            # Patch resolved objects onto each item so
+            # ``GenericObjectRelatedField.to_representation`` can read them
+            # without additional queries.
+            for item in items:
+                item._prefetched_content_object = obj_cache.get(
+                    (item.content_type_id, item.object_id)
+                )
+
+        return board
+
+    # ------------------------------------------------------------------
+    #  get_board_snapshot  (alias kept for compatibility)
+    # ------------------------------------------------------------------
+    @staticmethod
+    def get_board_snapshot(board_id: int, actor: Any) -> DetectiveBoard:
+        """Alias for ``get_full_board_graph`` that also checks read access."""
+        board = BoardWorkspaceService.get_full_board_graph(board_id)
+        if not _can_view_board(actor, board):
+            raise PermissionDenied("You do not have permission to view this board.")
+        return board
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -270,47 +321,22 @@ class BoardItemService:
         position_y: float,
         requesting_user: Any,
     ) -> BoardItem:
-        """
-        Pin a new item to the detective board.
+        """Pin a new item to the detective board."""
+        _enforce_edit(requesting_user, board)
 
-        Parameters
-        ----------
-        board : DetectiveBoard
-            Target board.
-        content_type : ContentType
-            Resolved ``ContentType`` for the linked object (provided by
-            ``GenericObjectRelatedField.to_internal_value``).
-        object_id : int
-            PK of the linked object.
-        position_x : float
-            Initial X coordinate on the canvas.
-        position_y : float
-            Initial Y coordinate on the canvas.
-        requesting_user : Any
-            Must be the board's detective or a Sergeant.
+        if BoardItem.objects.filter(
+            board=board, content_type=content_type, object_id=object_id
+        ).exists():
+            raise DomainError("This object is already pinned to the board.")
 
-        Returns
-        -------
-        BoardItem
-            The newly created pin.
-
-        Raises
-        ------
-        PermissionError
-            If the user is not allowed to modify this board.
-        django.core.exceptions.ValidationError
-            If the same object is already pinned to this board (prevent
-            duplicate pins).
-
-        Implementation Contract
-        -----------------------
-        1. Guard: verify ``requesting_user`` has write access to ``board``.
-        2. Guard: ``BoardItem.objects.filter(board=board, content_type=content_type, object_id=object_id).exists()``
-           → raise ``ValidationError("This object is already pinned to the board.")``.
-        3. ``item = BoardItem.objects.create(board=board, content_type=content_type, object_id=object_id, position_x=position_x, position_y=position_y)``.
-        4. Return ``item``.
-        """
-        raise NotImplementedError
+        item = BoardItem.objects.create(
+            board=board,
+            content_type=content_type,
+            object_id=object_id,
+            position_x=position_x,
+            position_y=position_y,
+        )
+        return item
 
     @staticmethod
     @transaction.atomic
@@ -320,89 +346,35 @@ class BoardItemService:
         requesting_user: Any,
     ) -> list[BoardItem]:
         """
-        **Performance-critical path — bulk drag-and-drop save.**
-
-        Update the (position_x, position_y) of multiple ``BoardItem``s in a
-        **single database round-trip** via ``QuerySet.bulk_update``.
-
-        Parameters
-        ----------
-        board : DetectiveBoard
-            The board that owns all items in the batch.
-        items_data : list[dict]
-            Cleaned list from ``BatchCoordinateUpdateSerializer``::
-
-                [
-                    {"id": 1, "position_x": 100.0, "position_y": 200.0},
-                    {"id": 2, "position_x": 350.5, "position_y": 80.0},
-                    ...
-                ]
-
-        requesting_user : Any
-            Must have write access to ``board``.
-
-        Returns
-        -------
-        list[BoardItem]
-            The updated ``BoardItem`` instances (after bulk_update).
-
-        Raises
-        ------
-        PermissionError
-            If the user is not allowed to modify this board.
-        django.core.exceptions.ValidationError
-            If any ``id`` in ``items_data`` does not belong to ``board``.
-
-        Implementation Contract
-        -----------------------
-        1. Guard: verify ``requesting_user`` has write access to ``board``.
-        2. Extract ``ids = [d["id"] for d in items_data]``.
-        3. Fetch ``items = list(BoardItem.objects.filter(board=board, pk__in=ids))``.
-        4. Guard: assert ``len(items) == len(ids)``; if not, raise
-           ``ValidationError`` listing the missing IDs (foreign items or
-           items belonging to a *different* board are silently excluded by
-           the ``board=board`` filter — surfacing this is important security
-           hygiene).
-        5. Build a lookup dict ``item_map = {item.id: item for item in items}``.
-        6. For each ``d`` in ``items_data``:
-           ``item_map[d["id"]].position_x = d["position_x"]``
-           ``item_map[d["id"]].position_y = d["position_y"]``
-        7. ``BoardItem.objects.bulk_update(items, fields=["position_x", "position_y"])``.
-           This issues a **single** ``UPDATE`` statement on all rows.
-        8. Return ``items``.
-
-        Notes
-        -----
-        Django's ``bulk_update`` does NOT trigger ``Model.save()`` signals.
-        If the project later adds signal-based cache invalidation, a
-        ``post_bulk_update`` custom signal (or a manual cache.delete call
-        in step 8) will be required.
+        Bulk drag-and-drop save.  Updates (position_x, position_y) for
+        multiple ``BoardItem``s in a **single** ``bulk_update`` call.
         """
-        raise NotImplementedError
+        _enforce_edit(requesting_user, board)
+
+        ids = [d["id"] for d in items_data]
+        items = list(BoardItem.objects.filter(board=board, pk__in=ids))
+
+        if len(items) != len(ids):
+            found_ids = {item.id for item in items}
+            missing = sorted(set(ids) - found_ids)
+            raise DomainError(
+                f"The following item IDs do not belong to this board: {missing}"
+            )
+
+        item_map = {item.id: item for item in items}
+        for d in items_data:
+            item_map[d["id"]].position_x = d["position_x"]
+            item_map[d["id"]].position_y = d["position_y"]
+
+        BoardItem.objects.bulk_update(items, fields=["position_x", "position_y"])
+        return items
 
     @staticmethod
     @transaction.atomic
     def remove_item(item: BoardItem, requesting_user: Any) -> None:
-        """
-        Remove a ``BoardItem`` from the board.
-
-        Deleting an item will CASCADE and remove all ``BoardConnection``
-        records that reference it (FK ``on_delete=CASCADE``), which is the
-        correct behaviour (dangling connections must not remain).
-
-        Parameters
-        ----------
-        item : BoardItem
-            The item to delete.
-        requesting_user : Any
-            Must have write access to the item's board.
-
-        Implementation Contract
-        -----------------------
-        1. Guard ownership.
-        2. ``item.delete()``.
-        """
-        raise NotImplementedError
+        """Remove a ``BoardItem`` from the board (cascades connections)."""
+        _enforce_edit(requesting_user, item.board)
+        item.delete()
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -424,48 +396,26 @@ class BoardConnectionService:
         label: str,
         requesting_user: Any,
     ) -> BoardConnection:
-        """
-        Draw a red-line connection between two board items.
+        """Draw a red-line connection between two board items."""
+        _enforce_edit(requesting_user, board)
 
-        Parameters
-        ----------
-        board : DetectiveBoard
-            The board that must own both items.
-        from_item : BoardItem
-            Source pin.
-        to_item : BoardItem
-            Target pin.
-        label : str
-            Optional annotation on the line (can be empty string).
-        requesting_user : Any
-            Must have write access to ``board``.
+        if from_item.board_id != board.pk or to_item.board_id != board.pk:
+            raise DomainError("Both items must belong to the same board.")
 
-        Returns
-        -------
-        BoardConnection
-            The newly created connection.
+        if from_item.pk == to_item.pk:
+            raise DomainError("A board item cannot be connected to itself.")
 
-        Raises
-        ------
-        PermissionError
-            If the user is not allowed to modify ``board``.
-        django.core.exceptions.ValidationError
-            * If ``from_item.board != board`` or ``to_item.board != board``
-              (cross-board connection attempt).
-            * If the connection already exists (the model's ``unique_together``
-              will raise ``IntegrityError``; catch and convert here).
-            * If ``from_item == to_item`` (self-loop, also caught by the
-              serializer but double-checked here for safety).
+        try:
+            connection = BoardConnection.objects.create(
+                board=board,
+                from_item=from_item,
+                to_item=to_item,
+                label=label,
+            )
+        except IntegrityError:
+            raise DomainError("This connection already exists.")
 
-        Implementation Contract
-        -----------------------
-        1. Guard: ``requesting_user`` write access.
-        2. Assert both items belong to ``board``.
-        3. Assert ``from_item != to_item``.
-        4. ``BoardConnection.objects.create(board=board, from_item=from_item, to_item=to_item, label=label)``.
-        5. Return the connection.
-        """
-        raise NotImplementedError
+        return connection
 
     @staticmethod
     @transaction.atomic
@@ -473,22 +423,9 @@ class BoardConnectionService:
         connection: BoardConnection,
         requesting_user: Any,
     ) -> None:
-        """
-        Remove a red-line connection.
-
-        Parameters
-        ----------
-        connection : BoardConnection
-            Connection to delete.
-        requesting_user : Any
-            Must have write access to the connection's board.
-
-        Implementation Contract
-        -----------------------
-        1. Guard ownership.
-        2. ``connection.delete()``.
-        """
-        raise NotImplementedError
+        """Remove a red-line connection."""
+        _enforce_edit(requesting_user, connection.board)
+        connection.delete()
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -509,38 +446,26 @@ class BoardNoteService:
         requesting_user: Any,
     ) -> BoardNote:
         """
-        Create a new sticky note and attach it to the board.
-
-        A ``BoardNote`` is automatically pinned to the board as a
-        ``BoardItem`` via ``GenericForeignKey`` so it appears on the canvas
-        at a default or specified position.
-
-        Parameters
-        ----------
-        board : DetectiveBoard
-            Target board.
-        validated_data : dict
-            Cleaned data from ``BoardNoteCreateUpdateSerializer``
-            (fields: ``title``, ``content``).
-        requesting_user : Any
-            The detective creating the note (stored as ``created_by``).
-
-        Returns
-        -------
-        BoardNote
-            The created note.
-
-        Implementation Contract
-        -----------------------
-        1. Guard write access.
-        2. Set ``validated_data["board"] = board``.
-        3. Set ``validated_data["created_by"] = requesting_user``.
-        4. ``note = BoardNote.objects.create(**validated_data)``.
-        5. Optionally auto-create a ``BoardItem`` pointing to the note
-           so it is visible on the canvas at coordinates (0, 0) by default.
-        6. Return ``note``.
+        Create a new sticky note and auto-pin it as a ``BoardItem``
+        so it is immediately visible on the canvas.
         """
-        raise NotImplementedError
+        _enforce_edit(requesting_user, board)
+
+        validated_data["board"] = board
+        validated_data["created_by"] = requesting_user
+        note = BoardNote.objects.create(**validated_data)
+
+        # Auto-create a BoardItem referencing this note via GFK
+        ct = ContentType.objects.get_for_model(BoardNote)
+        BoardItem.objects.create(
+            board=board,
+            content_type=ct,
+            object_id=note.pk,
+            position_x=0.0,
+            position_y=0.0,
+        )
+
+        return note
 
     @staticmethod
     @transaction.atomic
@@ -549,65 +474,35 @@ class BoardNoteService:
         validated_data: dict[str, Any],
         requesting_user: Any,
     ) -> BoardNote:
-        """
-        Update an existing sticky note's title and/or content.
+        """Update an existing sticky note's title and/or content."""
+        if note.created_by_id != requesting_user.pk and not _is_admin(requesting_user):
+            raise PermissionDenied("You do not have permission to update this note.")
 
-        Parameters
-        ----------
-        note : BoardNote
-            Existing note to update.
-        validated_data : dict
-            Partial cleaned data (``title`` and/or ``content``).
-        requesting_user : Any
-            Must be the note's ``created_by`` or an admin.
+        update_fields: list[str] = []
+        for field in ("title", "content"):
+            if field in validated_data:
+                setattr(note, field, validated_data[field])
+                update_fields.append(field)
 
-        Returns
-        -------
-        BoardNote
-            The updated note.
-
-        Implementation Contract
-        -----------------------
-        1. Guard: ``requesting_user == note.created_by`` or admin.
-        2. Apply ``title`` and ``content`` from ``validated_data`` if present.
-        3. ``note.save(update_fields=[...])``.
-        4. Return ``note``.
-        """
-        raise NotImplementedError
+        if update_fields:
+            note.save(update_fields=update_fields)
+        return note
 
     @staticmethod
     @transaction.atomic
     def delete_note(note: BoardNote, requesting_user: Any) -> None:
         """
-        Delete a sticky note and clean up its associated ``BoardItem``.
-
-        .. warning::
-
-            Django's ``GenericForeignKey`` does **NOT** cascade on delete.
-            The ``BoardItem`` that references this note via
-            ``content_type`` + ``object_id`` will become an orphan if we
-            don't explicitly remove it first.  The service MUST handle
-            this cleanup manually.
-
-        Parameters
-        ----------
-        note : BoardNote
-            Note to delete.
-        requesting_user : Any
-            Must be ``note.created_by`` or an admin.
-
-        Implementation Contract
-        -----------------------
-        1. Guard ownership.
-        2. Fetch and delete the associated ``BoardItem``::
-
-               ct = ContentType.objects.get_for_model(note)
-               BoardItem.objects.filter(
-                   board=note.board,
-                   content_type=ct,
-                   object_id=note.pk,
-               ).delete()
-
-        3. ``note.delete()``.
+        Delete a sticky note and its associated ``BoardItem`` (GFK does
+        **not** cascade, so manual cleanup is required).
         """
-        raise NotImplementedError
+        if note.created_by_id != requesting_user.pk and not _is_admin(requesting_user):
+            raise PermissionDenied("You do not have permission to delete this note.")
+
+        ct = ContentType.objects.get_for_model(note)
+        BoardItem.objects.filter(
+            board=note.board,
+            content_type=ct,
+            object_id=note.pk,
+        ).delete()
+
+        note.delete()

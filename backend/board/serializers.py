@@ -39,6 +39,22 @@ from .models import BoardConnection, BoardItem, BoardNote, DetectiveBoard
 
 
 # ═══════════════════════════════════════════════════════════════════
+#  URL-prefix registry for detail_url construction
+# ═══════════════════════════════════════════════════════════════════
+
+_DETAIL_URL_MAP: dict[str, str] = {
+    "cases.case": "/api/cases/",
+    "suspects.suspect": "/api/suspects/",
+    "evidence.evidence": "/api/evidence/",
+    "evidence.testimonyevidence": "/api/evidence/testimony/",
+    "evidence.biologicalevidence": "/api/evidence/biological/",
+    "evidence.vehicleevidence": "/api/evidence/vehicle/",
+    "evidence.identityevidence": "/api/evidence/identity/",
+    "board.boardnote": "/api/boards/notes/",
+}
+
+
+# ═══════════════════════════════════════════════════════════════════
 #  Generic Object Field
 # ═══════════════════════════════════════════════════════════════════
 
@@ -47,39 +63,6 @@ class GenericObjectRelatedField(serializers.Field):
     """
     Custom DRF field to serialize/deserialize Django ``GenericForeignKey``
     fields on ``BoardItem``.
-
-    Read Behaviour (serialisation)
-    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    Inspects the resolved ``content_object`` and returns a lightweight
-    dictionary::
-
-        {
-            "content_type_id": 7,
-            "app_label":       "evidence",
-            "model":           "biologicalevidence",
-            "object_id":       42,
-            "display_name":    "Hair Sample #42",
-            "detail_url":      "/api/evidence/biological/42/"
-        }
-
-    The ``display_name`` is derived by calling ``str()`` on the object.
-    The ``detail_url`` is constructed from a registry of known app routers
-    so that the frontend can deep-link without knowing the URL structure.
-
-    Write Behaviour (deserialisation)
-    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    Expects a dict with exactly two keys::
-
-        { "content_type_id": <int>, "object_id": <int> }
-
-    Validation steps:
-    1. Assert ``content_type_id`` resolves to a real ``ContentType`` record.
-    2. Assert the model class identified by that ``ContentType`` is in the
-       ``ALLOWED_CONTENT_TYPES`` allowlist (prevent linking arbitrary models).
-    3. Query ``Model.objects.filter(pk=object_id).exists()`` to confirm the
-       target object exists.
-    4. Return a tuple ``(content_type, object_id)`` for the service layer to
-       consume.
     """
 
     # Models that may be pinned to a detective board.
@@ -96,69 +79,78 @@ class GenericObjectRelatedField(serializers.Field):
         ]
     )
 
-    def to_representation(self, value: Any) -> dict[str, Any]:
+    def to_representation(self, value: Any) -> dict[str, Any] | None:
         """
         Convert a resolved ``content_object`` into a JSON-serialisable dict.
-
-        Parameters
-        ----------
-        value : Any
-            The Python object stored on ``BoardItem.content_object``.
-
-        Returns
-        -------
-        dict
-            A compact summary dict. Returns ``None`` if the linked object
-            has been deleted (orphan protection).
-
-        Implementation Contract
-        -----------------------
-        1. Return ``None`` (or raise ``ValidationError``) if ``value`` is
-           ``None`` (deleted referenced object).
-        2. Retrieve the ``ContentType`` for ``value`` via
-           ``ContentType.objects.get_for_model(value)``.
-        3. Build the ``detail_url`` from a hardcoded mapping
-           ``{app_label}.{model_name}`` → URL prefix.
-        4. Return the dict described in the class docstring.
         """
-        raise NotImplementedError
+        # Support the pre-fetched cache set by get_full_board_graph.
+        # When value is None (GFK not resolved), try to read the
+        # ``_prefetched_content_object`` attribute that the service layer
+        # patches onto each BoardItem instance.
+        if value is None:
+            # Walk up to the serializer that holds the BoardItem instance.
+            item_serializer = self.parent
+            if item_serializer is not None:
+                instance = item_serializer.instance
+                if instance is not None:
+                    value = getattr(instance, "_prefetched_content_object", None)
+            if value is None:
+                return None
+
+        ct = ContentType.objects.get_for_model(value)
+        key = f"{ct.app_label}.{ct.model}"
+        prefix = _DETAIL_URL_MAP.get(key, f"/api/{ct.app_label}/{ct.model}/")
+        detail_url = f"{prefix}{value.pk}/"
+        # Normalise double slashes
+        detail_url = detail_url.replace("//", "/")
+
+        return {
+            "content_type_id": ct.pk,
+            "app_label": ct.app_label,
+            "model": ct.model,
+            "object_id": value.pk,
+            "display_name": str(value),
+            "detail_url": detail_url,
+        }
 
     def to_internal_value(self, data: Any) -> dict[str, Any]:
         """
         Validate and transform write payload into a content-type/object-id
         pair.
-
-        Parameters
-        ----------
-        data : Any
-            Raw value from the incoming request body.  Must be a dict with
-            ``content_type_id`` (int) and ``object_id`` (int).
-
-        Returns
-        -------
-        dict
-            ``{"content_type": <ContentType>, "object_id": <int>}`` —
-            ready for the service layer.
-
-        Raises
-        ------
-        serializers.ValidationError
-            If the content type is unknown, not in the allowlist, or the
-            target object does not exist.
-
-        Implementation Contract
-        -----------------------
-        1. Validate ``data`` is a dict; raise ``ValidationError`` otherwise.
-        2. Extract and coerce ``content_type_id`` and ``object_id``.
-        3. ``ContentType.objects.get(pk=content_type_id)`` — raise 400 if
-           DoesNotExist.
-        4. Build the ``"app_label.model"`` key and check against
-           ``ALLOWED_CONTENT_TYPES``.
-        5. ``ct.model_class().objects.filter(pk=object_id).exists()`` — raise
-           400 if False.
-        6. Return ``{"content_type": ct, "object_id": object_id}``.
         """
-        raise NotImplementedError
+        if not isinstance(data, dict):
+            raise serializers.ValidationError(
+                "Expected a dict with 'content_type_id' and 'object_id'."
+            )
+
+        try:
+            content_type_id = int(data["content_type_id"])
+            object_id = int(data["object_id"])
+        except (KeyError, TypeError, ValueError):
+            raise serializers.ValidationError(
+                "Both 'content_type_id' (int) and 'object_id' (int) are required."
+            )
+
+        try:
+            ct = ContentType.objects.get(pk=content_type_id)
+        except ContentType.DoesNotExist:
+            raise serializers.ValidationError(
+                f"ContentType with id {content_type_id} does not exist."
+            )
+
+        key = f"{ct.app_label}.{ct.model}"
+        if key not in self.ALLOWED_CONTENT_TYPES:
+            raise serializers.ValidationError(
+                f"Content type '{key}' is not allowed on the detective board."
+            )
+
+        model_cls = ct.model_class()
+        if model_cls is None or not model_cls.objects.filter(pk=object_id).exists():
+            raise serializers.ValidationError(
+                f"Object with id {object_id} does not exist for type '{key}'."
+            )
+
+        return {"content_type": ct, "object_id": object_id}
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -208,14 +200,12 @@ class DetectiveBoardCreateUpdateSerializer(serializers.ModelSerializer):
     def validate_case(self, value: Any) -> Any:
         """
         Ensure that no board already exists for the given case.
-
-        Implementation Contract
-        -----------------------
-        Delegate uniqueness check to the service layer; raise
-        ``serializers.ValidationError`` with a human-readable message if a
-        board already exists (``DetectiveBoard.objects.filter(case=value).exists()``).
         """
-        raise NotImplementedError
+        if DetectiveBoard.objects.filter(case=value).exists():
+            raise serializers.ValidationError(
+                "A detective board already exists for this case."
+            )
+        return value
 
 
 class BoardNoteInlineSerializer(serializers.ModelSerializer):
@@ -384,13 +374,11 @@ class BatchCoordinateUpdateSerializer(serializers.Serializer):
     def validate_items(self, value: list[dict]) -> list[dict]:
         """
         Ensure item IDs are unique within the batch.
-
-        Implementation Contract
-        -----------------------
-        Extract the list of ``id`` values; if ``len(ids) != len(set(ids))``
-        raise ``ValidationError("Duplicate item IDs in batch.")``.
         """
-        raise NotImplementedError
+        ids = [item["id"] for item in value]
+        if len(ids) != len(set(ids)):
+            raise serializers.ValidationError("Duplicate item IDs in batch.")
+        return value
 
 
 class BoardItemResponseSerializer(serializers.ModelSerializer):
@@ -441,15 +429,12 @@ class BoardConnectionCreateSerializer(serializers.ModelSerializer):
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         """
         Prevent self-loop connections (from_item == to_item).
-
-        Implementation Contract
-        -----------------------
-        If ``attrs["from_item"] == attrs["to_item"]`` raise
-        ``ValidationError("A BoardItem cannot be connected to itself.")``.
-        Further cross-board ownership validation MUST be done in the service
-        layer (where access to ``board_id`` from the URL context is available).
         """
-        raise NotImplementedError
+        if attrs["from_item"] == attrs["to_item"]:
+            raise serializers.ValidationError(
+                "A BoardItem cannot be connected to itself."
+            )
+        return attrs
 
 
 class BoardConnectionResponseSerializer(serializers.ModelSerializer):
