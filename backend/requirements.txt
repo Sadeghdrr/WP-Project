@@ -23,3 +23,7 @@ sqlparse==0.5.5
 typing_extensions==4.15.0
 uritemplate==4.2.0
 drf-nested-routers>=0.93.4
+
+# ── Testing ────────────────────────────────────────────────────────
+pytest>=8.0
+pytest-django>=4.8
