@@ -77,18 +77,22 @@ class EvidenceFilterSerializer(serializers.Serializer):
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         """
         Ensure ``created_after <= created_before`` when both are provided.
-
-        Implementation Contract
-        -----------------------
-        If both present and ``created_after > created_before``, raise
-        ``ValidationError("created_after must be earlier than created_before.")``.
-
-        Also validate that ``is_verified`` is only used together with
-        ``evidence_type == "biological"`` or when no ``evidence_type`` is
-        specified (in the latter case, the queryset is automatically
-        scoped to biological evidence).
         """
-        raise NotImplementedError
+        created_after = attrs.get("created_after")
+        created_before = attrs.get("created_before")
+        if created_after and created_before and created_after > created_before:
+            raise serializers.ValidationError(
+                "created_after must be earlier than created_before."
+            )
+
+        is_verified = attrs.get("is_verified")
+        evidence_type = attrs.get("evidence_type")
+        if is_verified is not None and evidence_type and evidence_type != "biological":
+            raise serializers.ValidationError(
+                "is_verified filter can only be used with evidence_type 'biological'."
+            )
+
+        return attrs
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -152,15 +156,10 @@ class EvidenceListSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_registered_by_name(self, obj: Evidence) -> str | None:
-        """
-        Return the registrar's full name.
-
-        Implementation Contract
-        -----------------------
-        Return ``obj.registered_by.get_full_name()`` or ``None`` if the
-        FK is somehow unset (should never happen given PROTECT).
-        """
-        raise NotImplementedError
+        """Return the registrar's full name."""
+        if obj.registered_by:
+            return obj.registered_by.get_full_name()
+        return None
 
 
 # ── Type-specific read serializers ──────────────────────────────────
@@ -201,7 +200,9 @@ class TestimonyEvidenceDetailSerializer(serializers.ModelSerializer):
 
     def get_registered_by_name(self, obj: TestimonyEvidence) -> str | None:
         """Return registrar's full name."""
-        raise NotImplementedError
+        if obj.registered_by:
+            return obj.registered_by.get_full_name()
+        return None
 
 
 class BiologicalEvidenceDetailSerializer(serializers.ModelSerializer):
@@ -243,18 +244,15 @@ class BiologicalEvidenceDetailSerializer(serializers.ModelSerializer):
 
     def get_registered_by_name(self, obj: BiologicalEvidence) -> str | None:
         """Return registrar's full name."""
-        raise NotImplementedError
+        if obj.registered_by:
+            return obj.registered_by.get_full_name()
+        return None
 
     def get_verified_by_name(self, obj: BiologicalEvidence) -> str | None:
-        """
-        Return the Coroner's full name who verified this evidence, or ``None``.
-
-        Implementation Contract
-        -----------------------
-        If ``obj.verified_by`` is not None, return their full name.
-        Otherwise return ``None``.
-        """
-        raise NotImplementedError
+        """Return the Coroner's full name who verified this evidence, or ``None``."""
+        if obj.verified_by:
+            return obj.verified_by.get_full_name()
+        return None
 
 
 class VehicleEvidenceDetailSerializer(serializers.ModelSerializer):
@@ -295,7 +293,9 @@ class VehicleEvidenceDetailSerializer(serializers.ModelSerializer):
 
     def get_registered_by_name(self, obj: VehicleEvidence) -> str | None:
         """Return registrar's full name."""
-        raise NotImplementedError
+        if obj.registered_by:
+            return obj.registered_by.get_full_name()
+        return None
 
 
 class IdentityEvidenceDetailSerializer(serializers.ModelSerializer):
@@ -334,7 +334,9 @@ class IdentityEvidenceDetailSerializer(serializers.ModelSerializer):
 
     def get_registered_by_name(self, obj: IdentityEvidence) -> str | None:
         """Return registrar's full name."""
-        raise NotImplementedError
+        if obj.registered_by:
+            return obj.registered_by.get_full_name()
+        return None
 
 
 class OtherEvidenceDetailSerializer(serializers.ModelSerializer):
@@ -370,7 +372,9 @@ class OtherEvidenceDetailSerializer(serializers.ModelSerializer):
 
     def get_registered_by_name(self, obj: Evidence) -> str | None:
         """Return registrar's full name."""
-        raise NotImplementedError
+        if obj.registered_by:
+            return obj.registered_by.get_full_name()
+        return None
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -519,36 +523,22 @@ class VehicleEvidenceCreateSerializer(serializers.ModelSerializer):
         """
         Enforce the **XOR constraint** between ``license_plate`` and
         ``serial_number`` at the serializer level.
-
-        This is the **API-boundary validation** — it runs before the
-        service layer and before the DB constraint, providing clear,
-        user-friendly error messages to the frontend.
-
-        Implementation Contract
-        -----------------------
-        1. Extract ``plate = attrs.get("license_plate", "").strip()``.
-        2. Extract ``serial = attrs.get("serial_number", "").strip()``.
-        3. ``has_plate = bool(plate)``; ``has_serial = bool(serial)``.
-        4. If ``has_plate and has_serial``:
-           raise ``ValidationError(
-               "Provide either a license plate or a serial number, not both."
-           )``.
-        5. If ``not has_plate and not has_serial``:
-           raise ``ValidationError(
-               "Either a license plate or a serial number must be provided."
-           )``.
-        6. Return ``attrs`` (with stripped values written back).
-
-        Technical Notes
-        ---------------
-        - The DB ``CheckConstraint`` (``vehicle_plate_xor_serial``) is the
-          last line of defence. This serializer check prevents hitting the
-          DB at all on invalid input.
-        - On update (PATCH), partial data may be sent.  The update
-          serializer must merge existing instance values with incoming
-          data before running this check.
         """
-        raise NotImplementedError
+        plate = attrs.get("license_plate", "").strip()
+        serial = attrs.get("serial_number", "").strip()
+        has_plate = bool(plate)
+        has_serial = bool(serial)
+        if has_plate and has_serial:
+            raise serializers.ValidationError(
+                "Provide either a license plate or a serial number, not both."
+            )
+        if not has_plate and not has_serial:
+            raise serializers.ValidationError(
+                "Either a license plate or a serial number must be provided."
+            )
+        attrs["license_plate"] = plate
+        attrs["serial_number"] = serial
+        return attrs
 
 
 class IdentityEvidenceCreateSerializer(serializers.ModelSerializer):
@@ -579,14 +569,15 @@ class IdentityEvidenceCreateSerializer(serializers.ModelSerializer):
         """
         Ensure ``document_details`` is a flat dict of string keys and
         string values (if provided).
-
-        Implementation Contract
-        -----------------------
-        1. If not ``isinstance(value, dict)`` → raise ``ValidationError``.
-        2. For each key, value pair: assert both are strings.
-        3. Return value.
         """
-        raise NotImplementedError
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("document_details must be a JSON object.")
+        for k, v in value.items():
+            if not isinstance(k, str) or not isinstance(v, str):
+                raise serializers.ValidationError(
+                    "All keys and values in document_details must be strings."
+                )
+        return value
 
 
 class OtherEvidenceCreateSerializer(serializers.ModelSerializer):
@@ -650,31 +641,8 @@ class EvidencePolymorphicCreateSerializer(serializers.Serializer):
         cls,
         evidence_type: str,
     ) -> type[serializers.Serializer]:
-        """
-        Return the serializer class matching the given ``evidence_type``.
-
-        Parameters
-        ----------
-        evidence_type : str
-            Must be one of ``EvidenceType`` values.
-
-        Returns
-        -------
-        type[serializers.Serializer]
-            The matching create serializer class.
-
-        Raises
-        ------
-        KeyError
-            If ``evidence_type`` is not in ``_SERIALIZER_MAP``.
-            Should never happen after ``is_valid()`` passes on this
-            serializer.
-
-        Implementation Contract
-        -----------------------
+        """Return the serializer class matching the given ``evidence_type``."""
         return cls._SERIALIZER_MAP[evidence_type]
-        """
-        raise NotImplementedError
 
 
 # ── Update Serializers ──────────────────────────────────────────────
@@ -727,16 +695,26 @@ class VehicleEvidenceUpdateSerializer(serializers.ModelSerializer):
         """
         Enforce XOR constraint on partial updates by merging incoming values
         with existing instance data before checking.
-
-        Implementation Contract
-        -----------------------
-        1. If self.instance is None, skip (should only run on update).
-        2. Merge: ``plate = attrs.get("license_plate", self.instance.license_plate).strip()``
-        3. Merge: ``serial = attrs.get("serial_number", self.instance.serial_number).strip()``
-        4. Apply same XOR logic as VehicleEvidenceCreateSerializer.validate.
-        5. Return ``attrs``.
         """
-        raise NotImplementedError
+        if self.instance is None:
+            return attrs
+        plate = attrs.get("license_plate", self.instance.license_plate).strip()
+        serial = attrs.get("serial_number", self.instance.serial_number).strip()
+        has_plate = bool(plate)
+        has_serial = bool(serial)
+        if has_plate and has_serial:
+            raise serializers.ValidationError(
+                "Provide either a license plate or a serial number, not both."
+            )
+        if not has_plate and not has_serial:
+            raise serializers.ValidationError(
+                "Either a license plate or a serial number must be provided."
+            )
+        if "license_plate" in attrs:
+            attrs["license_plate"] = plate
+        if "serial_number" in attrs:
+            attrs["serial_number"] = serial
+        return attrs
 
 
 class BiologicalEvidenceUpdateSerializer(serializers.ModelSerializer):
@@ -788,7 +766,14 @@ class IdentityEvidenceUpdateSerializer(serializers.ModelSerializer):
         """
         Same flat-dict validation as ``IdentityEvidenceCreateSerializer``.
         """
-        raise NotImplementedError
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("document_details must be a JSON object.")
+        for k, v in value.items():
+            if not isinstance(k, str) or not isinstance(v, str):
+                raise serializers.ValidationError(
+                    "All keys and values in document_details must be strings."
+                )
+        return value
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -854,24 +839,17 @@ class VerifyBiologicalEvidenceSerializer(serializers.Serializer):
     )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        """
-        Cross-field validation:
-
-        - If ``decision == "approve"`` and ``forensic_result`` is blank,
-          raise ``ValidationError``.
-        - If ``decision == "reject"`` and ``notes`` is blank, raise
-          ``ValidationError``.
-
-        Implementation Contract
-        -----------------------
-        1. ``decision = attrs["decision"]``
-        2. If ``decision == "approve"`` and not ``attrs.get("forensic_result", "").strip()``:
-           raise ``ValidationError({"forensic_result": "Forensic result is required when approving."})``.
-        3. If ``decision == "reject"`` and not ``attrs.get("notes", "").strip()``:
-           raise ``ValidationError({"notes": "A rejection reason is required."})``.
-        4. Return attrs.
-        """
-        raise NotImplementedError
+        """Cross-field validation for verification decisions."""
+        decision = attrs["decision"]
+        if decision == "approve" and not attrs.get("forensic_result", "").strip():
+            raise serializers.ValidationError(
+                {"forensic_result": "Forensic result is required when approving."}
+            )
+        if decision == "reject" and not attrs.get("notes", "").strip():
+            raise serializers.ValidationError(
+                {"notes": "A rejection reason is required."}
+            )
+        return attrs
 
 
 class LinkCaseSerializer(serializers.Serializer):
@@ -927,15 +905,12 @@ class EvidenceFileUploadSerializer(serializers.ModelSerializer):
         }
 
     def validate_file_type(self, value: str) -> str:
-        """
-        Ensure ``file_type`` is a valid ``FileType`` choice.
-
-        Implementation Contract
-        -----------------------
-        Check ``value in FileType.values``; raise ``ValidationError``
-        if not valid.
-        """
-        raise NotImplementedError
+        """Ensure ``file_type`` is a valid ``FileType`` choice."""
+        if value not in FileType.values:
+            raise serializers.ValidationError(
+                f"Invalid file type '{value}'. Must be one of: {', '.join(FileType.values)}."
+            )
+        return value
 
 
 class ChainOfCustodyEntrySerializer(serializers.Serializer):

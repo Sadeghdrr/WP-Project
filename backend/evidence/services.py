@@ -26,12 +26,16 @@ Permission Constants (from ``core.permissions_constants.EvidencePerms``)
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Q, QuerySet
-from django.utils import timezone
 
+from core.domain.access import apply_role_filter, get_user_role_name, ScopeConfig
+from core.domain.exceptions import DomainError, NotFound, PermissionDenied
+from core.domain.notifications import NotificationService
 from core.permissions_constants import EvidencePerms
 
 from .models import (
@@ -43,6 +47,38 @@ from .models import (
     TestimonyEvidence,
     VehicleEvidence,
 )
+
+logger = logging.getLogger(__name__)
+
+# ── Role-scoped queryset configuration for evidence visibility ──────
+_EVIDENCE_SCOPE_CONFIG: ScopeConfig = {
+    # Unrestricted roles
+    "system_admin": lambda qs, u: qs,
+    "police_chief": lambda qs, u: qs,
+    "captain": lambda qs, u: qs,
+    "judge": lambda qs, u: qs,
+    # Detective sees evidence on their assigned cases
+    "detective": lambda qs, u: qs.filter(case__assigned_detective=u),
+    # Sergeant sees evidence on cases they supervise
+    "sergeant": lambda qs, u: qs.filter(case__assigned_sergeant=u),
+    # Coroner sees all biological evidence plus evidence on cases they examine
+    "coroner": lambda qs, u: qs.filter(
+        Q(evidence_type=EvidenceType.BIOLOGICAL)
+        | Q(case__assigned_detective=u)
+    ),
+    # Cadet sees evidence on cases currently in their review queue
+    "cadet": lambda qs, u: qs.filter(case__created_by=u),
+    # Police Officer / Patrol Officer
+    "police_officer": lambda qs, u: qs.filter(case__created_by=u),
+    "patrol_officer": lambda qs, u: qs.filter(case__created_by=u),
+    # Complainant / Witness see evidence only on their associated cases
+    "complainant": lambda qs, u: qs.filter(
+        Q(case__complainants__user=u) | Q(case__created_by=u)
+    ).distinct(),
+    "witness": lambda qs, u: qs.filter(case__witnesses__user=u).distinct(),
+    # Base User — minimal visibility
+    "base_user": lambda qs, u: qs.filter(case__created_by=u),
+}
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -65,96 +101,94 @@ class EvidenceQueryService:
     ) -> QuerySet[Evidence]:
         """
         Build a role-scoped, filtered queryset of ``Evidence`` objects.
-
-        Parameters
-        ----------
-        requesting_user : User
-            From ``request.user``.  Used to apply role-based visibility
-            scoping before applying explicit filters.
-        filters : dict
-            Cleaned query-parameter dict from ``EvidenceFilterSerializer``.
-            Supported keys:
-            - ``evidence_type``  : str   (``EvidenceType`` value)
-            - ``case``           : int   (case PK)
-            - ``registered_by``  : int   (user PK)
-            - ``is_verified``    : bool  (biological evidence only)
-            - ``search``         : str   (full-text on title/description)
-            - ``created_after``  : date
-            - ``created_before`` : date
-
-        Returns
-        -------
-        QuerySet[Evidence]
-            Filtered, ``select_related`` queryset ready for serialisation.
-
-        Role Scoping Rules
-        ------------------
-        - **Base User / Complainant / Witness**: sees only evidence on
-          cases they are associated with (as complainant or witness).
-        - **Cadet**: sees evidence on cases currently in their review queue.
-        - **Detective**: sees evidence on cases assigned to them.
-        - **Sergeant**: sees evidence on cases they supervise.
-        - **Captain / Chief / Admin / Judge**: unrestricted visibility.
-        - **Coroner**: sees all biological evidence (any case) plus
-          evidence on cases they have been called to examine.
-
-        Implementation Contract
-        -----------------------
-        1. Determine the user's role.
-        2. Apply the role-specific base queryset scope.
-        3. Apply explicit ``filters`` on top of the scoped queryset:
-           a. ``evidence_type`` → exact match.
-           b. ``case``          → ``case_id`` exact match.
-           c. ``registered_by`` → ``registered_by_id`` exact match.
-           d. ``is_verified``   → join to ``BiologicalEvidence`` child,
-              filter on ``biologicalevidence__is_verified``.
-           e. ``search``        → ``Q(title__icontains=...) | Q(description__icontains=...)``.
-           f. ``created_after``  → ``created_at__date__gte``.
-           g. ``created_before`` → ``created_at__date__lte``.
-        4. ``select_related("registered_by", "case")``.
-        5. ``prefetch_related("files")``.
-        6. Return queryset.
         """
-        raise NotImplementedError
+        # 1. Start with all evidence, apply role-based scoping
+        qs = Evidence.objects.all()
+        qs = apply_role_filter(
+            qs,
+            requesting_user,
+            scope_config=_EVIDENCE_SCOPE_CONFIG,
+            default="none",
+        )
+
+        # 2. Apply explicit filters
+        evidence_type = filters.get("evidence_type")
+        if evidence_type:
+            qs = qs.filter(evidence_type=evidence_type)
+
+        case_id = filters.get("case")
+        if case_id is not None:
+            qs = qs.filter(case_id=case_id)
+
+        registered_by = filters.get("registered_by")
+        if registered_by is not None:
+            qs = qs.filter(registered_by_id=registered_by)
+
+        is_verified = filters.get("is_verified")
+        if is_verified is not None:
+            qs = qs.filter(biologicalevidence__is_verified=is_verified)
+
+        search = filters.get("search")
+        if search:
+            qs = qs.filter(
+                Q(title__icontains=search) | Q(description__icontains=search)
+            )
+
+        created_after = filters.get("created_after")
+        if created_after is not None:
+            qs = qs.filter(created_at__date__gte=created_after)
+
+        created_before = filters.get("created_before")
+        if created_before is not None:
+            qs = qs.filter(created_at__date__lte=created_before)
+
+        # 3. Optimise with select_related / prefetch_related
+        qs = qs.select_related("registered_by", "case").prefetch_related("files")
+
+        return qs
 
     @staticmethod
     def get_evidence_detail(pk: int) -> Evidence:
         """
-        Retrieve a single evidence item by PK with all related data
-        pre-fetched for detail serialisation.
+        Retrieve a single evidence item by PK, resolved to its most
+        specific child type with all related data pre-fetched.
 
-        Parameters
-        ----------
-        pk : int
-            Primary key of the evidence item.
-
-        Returns
-        -------
-        Evidence
-            The evidence instance (may be a child type via multi-table
-            inheritance).
-
-        Raises
-        ------
-        Evidence.DoesNotExist
-            If no evidence with the given PK exists.
-
-        Implementation Contract
-        -----------------------
-        1. ``evidence = Evidence.objects.select_related(
-               "registered_by", "case"
-           ).prefetch_related("files").get(pk=pk)``.
-        2. Attempt to access the child table to return the most specific
-           type:
-           - ``evidence.testimonyevidence``
-           - ``evidence.biologicalevidence``
-           - ``evidence.vehicleevidence``
-           - ``evidence.identityevidence``
-           Catch ``<ChildModel>.DoesNotExist`` for each; if all fail,
-           return the base ``Evidence`` instance (it's an "Other" type).
-        3. Return the resolved instance.
+        Raises ``NotFound`` if no evidence with the given PK exists.
         """
-        raise NotImplementedError
+        try:
+            evidence = (
+                Evidence.objects
+                .select_related("registered_by", "case")
+                .prefetch_related("files")
+                .get(pk=pk)
+            )
+        except Evidence.DoesNotExist:
+            raise NotFound(f"Evidence with id {pk} not found.")
+
+        # Resolve to the most specific child type
+        child_accessors = [
+            "testimonyevidence",
+            "biologicalevidence",
+            "vehicleevidence",
+            "identityevidence",
+        ]
+        for accessor in child_accessors:
+            try:
+                child = getattr(evidence, accessor)
+                # Re-attach prefetched caches to avoid extra queries
+                child._prefetched_objects_cache = getattr(
+                    evidence, "_prefetched_objects_cache", {}
+                )
+                return child
+            except (Evidence.DoesNotExist, AttributeError,
+                    TestimonyEvidence.DoesNotExist,
+                    BiologicalEvidence.DoesNotExist,
+                    VehicleEvidence.DoesNotExist,
+                    IdentityEvidence.DoesNotExist):
+                continue
+
+        # No child found — it's an "Other" type
+        return evidence
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -181,6 +215,69 @@ class EvidenceProcessingService:
         EvidenceType.OTHER: Evidence,
     }
 
+    # ── Type-specific validation methods ─────────────────────────────
+
+    @staticmethod
+    def _validate_vehicle(data: dict[str, Any]) -> None:
+        """Enforce license_plate XOR serial_number."""
+        plate = data.get("license_plate", "").strip()
+        serial = data.get("serial_number", "").strip()
+        has_plate = bool(plate)
+        has_serial = bool(serial)
+        if has_plate and has_serial:
+            raise DomainError(
+                "Provide either a license plate or a serial number, not both."
+            )
+        if not has_plate and not has_serial:
+            raise DomainError(
+                "Either a license plate or a serial number must be provided."
+            )
+
+    @staticmethod
+    def _validate_biological(data: dict[str, Any]) -> None:
+        """Ensure forensic_result is empty on creation (pending verification)."""
+        if data.get("forensic_result", "").strip():
+            raise DomainError(
+                "Forensic result must be empty on creation. "
+                "It will be filled by the Coroner during verification."
+            )
+
+    @staticmethod
+    def _validate_testimony(data: dict[str, Any]) -> None:
+        """Require statement_text (transcript)."""
+        statement = data.get("statement_text", "").strip()
+        if not statement:
+            raise DomainError(
+                "A transcript (statement_text) is required for testimony evidence."
+            )
+
+    @staticmethod
+    def _validate_identity(data: dict[str, Any]) -> None:
+        """Require owner_full_name."""
+        owner = data.get("owner_full_name", "").strip()
+        if not owner:
+            raise DomainError(
+                "Owner's full name (owner_full_name) is required for identity-document evidence."
+            )
+        # Validate document_details if present
+        details = data.get("document_details")
+        if details is not None:
+            if not isinstance(details, dict):
+                raise DomainError("document_details must be a JSON object (dict).")
+            for k, v in details.items():
+                if not isinstance(k, str) or not isinstance(v, str):
+                    raise DomainError(
+                        "All keys and values in document_details must be strings."
+                    )
+
+    #: Maps evidence_type to its type-specific validator
+    _VALIDATORS: dict[str, Any] = {
+        EvidenceType.VEHICLE: _validate_vehicle.__func__,
+        EvidenceType.BIOLOGICAL: _validate_biological.__func__,
+        EvidenceType.TESTIMONY: _validate_testimony.__func__,
+        EvidenceType.IDENTITY: _validate_identity.__func__,
+    }
+
     @staticmethod
     @transaction.atomic
     def process_new_evidence(
@@ -190,65 +287,58 @@ class EvidenceProcessingService:
     ) -> Evidence:
         """
         Create a new evidence item of the specified type.
-
-        This is the **single entry point** for evidence creation across
-        all five evidence types.  The view determines ``evidence_type``
-        from the request, validates the payload with the appropriate
-        child serializer, and passes the cleaned data here.
-
-        Parameters
-        ----------
-        evidence_type : str
-            One of ``EvidenceType`` values (``"testimony"``,
-            ``"biological"``, ``"vehicle"``, ``"identity"``, ``"other"``).
-        validated_data : dict
-            Cleaned data from the type-specific create serializer.
-            Common fields: ``case``, ``title``, ``description``.
-            Type-specific fields are passed as-is (e.g.,
-            ``statement_text`` for testimony, ``vehicle_model`` etc.
-            for vehicle).
-        requesting_user : User
-            The authenticated user creating the evidence.  Must have
-            ``evidence.add_evidence`` permission (or the type-specific
-            add permission).
-
-        Returns
-        -------
-        Evidence
-            The newly created evidence instance (of the appropriate
-            child type for non-"other" types).
-
-        Raises
-        ------
-        PermissionError
-            If ``requesting_user`` lacks the ``ADD_EVIDENCE`` permission
-            (checked as ``f"evidence.{EvidencePerms.ADD_EVIDENCE}"``).
-        django.core.exceptions.ValidationError
-            If ``evidence_type`` is not a valid ``EvidenceType`` value.
-        django.db.IntegrityError
-            If vehicle XOR constraint is violated at the DB level
-            (should be caught earlier by the serializer).
-
-        Implementation Contract
-        -----------------------
-        1. Assert ``requesting_user.has_perm(f"evidence.{EvidencePerms.ADD_EVIDENCE}")``.
-        2. Resolve model class: ``model_cls = _MODEL_MAP[evidence_type]``.
-        3. Inject ``registered_by = requesting_user`` into ``validated_data``.
-        4. For "other" type: also inject ``evidence_type = EvidenceType.OTHER``
-           (child models set their type in ``save()``).
-        5. ``evidence = model_cls.objects.create(**validated_data)``.
-        6. Dispatch notification to the case's assigned detective (if any)
-           about new evidence being added (§4.4).
-        7. Return ``evidence``.
-
-        Notes on Polymorphic Dispatch
-        -----------------------------
-        The ``_MODEL_MAP`` ensures the correct child table is used.
-        Multi-table inheritance means each child model's ``save()``
-        sets ``evidence_type`` automatically, except for ``Evidence``
-        (the "other" type) which needs it set explicitly.
         """
-        raise NotImplementedError
+        # 1. Permission check
+        if not requesting_user.has_perm(f"evidence.{EvidencePerms.ADD_EVIDENCE}"):
+            raise PermissionDenied("You do not have permission to add evidence.")
+
+        # 2. Validate evidence_type
+        valid_types = {choice[0] for choice in EvidenceType.choices}
+        if evidence_type not in valid_types:
+            raise DomainError(f"Invalid evidence type: {evidence_type}")
+
+        # 3. Run type-specific validation
+        validator = EvidenceProcessingService._VALIDATORS.get(evidence_type)
+        if validator:
+            validator(validated_data)
+
+        # 4. Resolve model class
+        model_cls = EvidenceProcessingService._MODEL_MAP[evidence_type]
+
+        # 5. Inject registered_by
+        validated_data["registered_by"] = requesting_user
+
+        # 6. For "other" type, explicitly set evidence_type
+        #    (child models set it in their save() method)
+        if evidence_type == EvidenceType.OTHER:
+            validated_data["evidence_type"] = EvidenceType.OTHER
+
+        # 7. Create the evidence instance
+        evidence = model_cls.objects.create(**validated_data)
+
+        # 8. Dispatch notification to the case's assigned detective
+        case = evidence.case
+        if hasattr(case, "assigned_detective") and case.assigned_detective:
+            NotificationService.create(
+                actor=requesting_user,
+                recipients=case.assigned_detective,
+                event_type="evidence_added",
+                payload={
+                    "case_id": case.id,
+                    "evidence_id": evidence.id,
+                    "evidence_type": evidence_type,
+                },
+                related_object=evidence,
+            )
+
+        logger.info(
+            "Evidence #%d (%s) created for Case #%d by user %s",
+            evidence.pk,
+            evidence_type,
+            case.pk,
+            requesting_user,
+        )
+        return evidence
 
     @staticmethod
     @transaction.atomic
@@ -259,44 +349,41 @@ class EvidenceProcessingService:
     ) -> Evidence:
         """
         Update an existing evidence item's mutable fields.
-
-        Parameters
-        ----------
-        evidence : Evidence
-            The evidence instance to update (may be a child type).
-        validated_data : dict
-            Cleaned data from the appropriate update serializer
-            (``EvidenceUpdateSerializer`` or a type-specific one).
-        requesting_user : User
-            Must have ``evidence.change_evidence`` permission.
-
-        Returns
-        -------
-        Evidence
-            The updated evidence instance.
-
-        Raises
-        ------
-        PermissionError
-            If ``requesting_user`` lacks change permission.
-
-        Implementation Contract
-        -----------------------
-        1. Assert ``requesting_user.has_perm(f"evidence.{EvidencePerms.CHANGE_EVIDENCE}")``.
-        2. For each key/value in ``validated_data``:
-           ``setattr(evidence, key, value)``.
-        3. Determine ``update_fields`` = list of changed fields + ``["updated_at"]``.
-        4. ``evidence.save(update_fields=update_fields)``.
-        5. Return ``evidence``.
-
-        Notes
-        -----
-        - For vehicle evidence, the update serializer has already
-          validated the XOR constraint (merging with existing values).
-        - ``evidence_type``, ``case``, and ``registered_by`` are
-          immutable and never included in ``validated_data``.
         """
-        raise NotImplementedError
+        # 1. Permission check
+        if not requesting_user.has_perm(f"evidence.{EvidencePerms.CHANGE_EVIDENCE}"):
+            raise PermissionDenied("You do not have permission to update evidence.")
+
+        # 2. Apply type-specific validation for vehicle updates
+        if evidence.evidence_type == EvidenceType.VEHICLE:
+            # Merge incoming data with existing values for XOR check
+            merged = {}
+            merged["license_plate"] = validated_data.get(
+                "license_plate", evidence.license_plate
+            )
+            merged["serial_number"] = validated_data.get(
+                "serial_number", evidence.serial_number
+            )
+            EvidenceProcessingService._validate_vehicle(merged)
+
+        # 3. Set each field on the instance
+        update_fields = []
+        for key, value in validated_data.items():
+            setattr(evidence, key, value)
+            update_fields.append(key)
+
+        # 4. Always include updated_at
+        if update_fields:
+            update_fields.append("updated_at")
+            evidence.save(update_fields=update_fields)
+
+        logger.info(
+            "Evidence #%d updated by user %s (fields: %s)",
+            evidence.pk,
+            requesting_user,
+            ", ".join(update_fields),
+        )
+        return evidence
 
     @staticmethod
     @transaction.atomic
@@ -306,30 +393,31 @@ class EvidenceProcessingService:
     ) -> None:
         """
         Delete an evidence item permanently.
-
-        Parameters
-        ----------
-        evidence : Evidence
-            The evidence instance to delete.
-        requesting_user : User
-            Must have ``evidence.delete_evidence`` permission.
-
-        Raises
-        ------
-        PermissionError
-            If ``requesting_user`` lacks delete permission.
-        django.core.exceptions.ValidationError
-            If the evidence has been verified (biological) and should
-            not be deleted without admin override.
-
-        Implementation Contract
-        -----------------------
-        1. Assert ``requesting_user.has_perm(f"evidence.{EvidencePerms.DELETE_EVIDENCE}")``.
-        2. Guard: if evidence is biological and ``is_verified == True``,
-           only allow deletion if user is admin/superuser.
-        3. ``evidence.delete()``.
         """
-        raise NotImplementedError
+        # 1. Permission check
+        if not requesting_user.has_perm(f"evidence.{EvidencePerms.DELETE_EVIDENCE}"):
+            raise PermissionDenied("You do not have permission to delete evidence.")
+
+        # 2. Guard: verified biological evidence cannot be deleted (unless admin)
+        if evidence.evidence_type == EvidenceType.BIOLOGICAL:
+            try:
+                bio = evidence.biologicalevidence
+                if bio.is_verified and not requesting_user.is_superuser:
+                    raise DomainError(
+                        "Verified biological evidence cannot be deleted "
+                        "without admin privileges."
+                    )
+            except BiologicalEvidence.DoesNotExist:
+                pass
+
+        evidence_pk = evidence.pk
+        evidence.delete()
+
+        logger.info(
+            "Evidence #%d deleted by user %s",
+            evidence_pk,
+            requesting_user,
+        )
 
     @staticmethod
     @transaction.atomic
@@ -340,45 +428,30 @@ class EvidenceProcessingService:
     ) -> Evidence:
         """
         Link an existing evidence item to a (different) case.
-
-        Parameters
-        ----------
-        evidence : Evidence
-            The evidence item to re-link.
-        case_id : int
-            PK of the target case.
-        requesting_user : User
-            Must have change permission on the evidence.
-
-        Returns
-        -------
-        Evidence
-            The updated evidence with the new ``case`` FK.
-
-        Raises
-        ------
-        PermissionError
-            If lacking change permission.
-        django.core.exceptions.ValidationError
-            If the target case does not exist.
-
-        Implementation Contract
-        -----------------------
-        1. Assert permission.
-        2. ``from cases.models import Case``
-        3. ``target_case = Case.objects.get(pk=case_id)``
-           → wrap in try/except → raise ``ValidationError`` if not found.
-        4. ``evidence.case = target_case``.
-        5. ``evidence.save(update_fields=["case_id", "updated_at"])``.
-        6. Return evidence.
-
-        Notes
-        -----
-        This changes the FK on the evidence row.  If a true M2M link
-        is needed in the future (evidence shared across cases), a
-        junction table should be introduced.
         """
-        raise NotImplementedError
+        # 1. Permission check
+        if not requesting_user.has_perm(f"evidence.{EvidencePerms.CHANGE_EVIDENCE}"):
+            raise PermissionDenied("You do not have permission to re-link evidence.")
+
+        # 2. Fetch target case
+        from cases.models import Case
+
+        try:
+            target_case = Case.objects.get(pk=case_id)
+        except Case.DoesNotExist:
+            raise DomainError(f"Case with id {case_id} does not exist.")
+
+        # 3. Update FK
+        evidence.case = target_case
+        evidence.save(update_fields=["case_id", "updated_at"])
+
+        logger.info(
+            "Evidence #%d linked to Case #%d by user %s",
+            evidence.pk,
+            case_id,
+            requesting_user,
+        )
+        return evidence
 
     @staticmethod
     @transaction.atomic
@@ -390,50 +463,25 @@ class EvidenceProcessingService:
         """
         Unlink evidence from the specified case.
 
-        Since the current schema uses an FK (not M2M), unlinking means
-        verifying the evidence currently belongs to the given case and
-        then either:
-        a) raising a ``ValidationError`` (evidence must always belong
-           to a case), or
-        b) setting the FK to ``None`` if the schema allows it.
-
-        Parameters
-        ----------
-        evidence : Evidence
-            The evidence item.
-        case_id : int
-            PK of the case to unlink from.
-        requesting_user : User
-            Must have change permission.
-
-        Returns
-        -------
-        Evidence
-            The updated evidence instance.
-
-        Raises
-        ------
-        django.core.exceptions.ValidationError
-            If ``evidence.case_id != case_id`` (mismatch).
-        django.core.exceptions.ValidationError
-            If unlinking would leave evidence without a case and the
-            FK is non-nullable.
-
-        Implementation Contract
-        -----------------------
-        1. Assert permission.
-        2. Assert ``evidence.case_id == case_id``.
-        3. Since the FK is non-nullable with ``CASCADE``, unlinking
-           without a replacement case is invalid.  Raise a
-           ``ValidationError("Evidence must be linked to a case. "
-             "Use link-case to reassign instead.")``.
-
-        Future Consideration
-        --------------------
-        If evidence can exist without a case (schema change needed), set
-        ``evidence.case = None`` and save.
+        Since the FK is non-nullable, unlinking without a replacement
+        is not allowed.
         """
-        raise NotImplementedError
+        # 1. Permission check
+        if not requesting_user.has_perm(f"evidence.{EvidencePerms.CHANGE_EVIDENCE}"):
+            raise PermissionDenied("You do not have permission to unlink evidence.")
+
+        # 2. Verify the evidence belongs to the specified case
+        if evidence.case_id != case_id:
+            raise DomainError(
+                f"Evidence #{evidence.pk} is not linked to Case #{case_id}."
+            )
+
+        # 3. FK is non-nullable — cannot unlink without replacement
+        raise DomainError(
+            "Evidence must be linked to a case. "
+            "Use link-case to reassign instead."
+        )
+
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -445,27 +493,6 @@ class MedicalExaminerService:
     """
     Handles the Coroner verification workflow for **biological / medical**
     evidence items.
-
-    This service enforces that:
-    1. Only users with the ``Coroner`` role (and specifically the
-       ``CAN_VERIFY_EVIDENCE`` + ``CAN_REGISTER_FORENSIC_RESULT``
-       permissions) may approve or reject biological evidence.
-    2. Verification is a one-time irreversible action (once verified,
-       the item cannot be "un-verified" without admin intervention).
-    3. A ``forensic_result`` must be provided when approving.
-    4. Rejection records the rejection reason in the ``forensic_result``
-       field (or a dedicated notes mechanism).
-
-    Workflow (project-doc §4.3.2 + §3.1.2)
-    ----------------------------------------
-    1. Evidence is registered by any authorized user → ``is_verified = False``.
-    2. Coroner reviews the evidence:
-       a. **Approve**: Sets ``is_verified = True``, ``verified_by = coroner``,
-          ``forensic_result = <lab_report_text>``.
-       b. **Reject**: Sets ``is_verified = False``, ``verified_by = coroner``,
-          ``forensic_result = <rejection_notes>``.
-    3. Once approved, the evidence can be used in the detective's
-       investigation and shown on the detective board.
     """
 
     @staticmethod
@@ -479,88 +506,67 @@ class MedicalExaminerService:
     ) -> BiologicalEvidence:
         """
         Coroner approves or rejects a piece of biological evidence.
-
-        This is the **core method** of the Medical Examiner workflow.
-        It enforces role-based access, validates the evidence type,
-        performs the state change, and records the examiner's identity.
-
-        Parameters
-        ----------
-        evidence_id : int
-            PK of the ``BiologicalEvidence`` item to verify.
-        examiner_user : User
-            The authenticated user performing the verification.  Must
-            have the ``Coroner`` role and the following permissions:
-            - ``evidence.can_verify_evidence``
-            - ``evidence.can_register_forensic_result``
-        decision : str
-            ``"approve"`` or ``"reject"``.
-        forensic_result : str
-            The textual result of the forensic examination (e.g.,
-            "Blood type O+, matches suspect DNA profile.").
-            **Required** when ``decision == "approve"``.
-        notes : str
-            Additional notes or rejection reason.
-            **Required** when ``decision == "reject"``.
-
-        Returns
-        -------
-        BiologicalEvidence
-            The updated evidence item with verification fields set.
-
-        Raises
-        ------
-        PermissionError
-            If ``examiner_user`` does not have the ``CAN_VERIFY_EVIDENCE``
-            permission.
-        django.core.exceptions.ValidationError
-            - If the evidence is not ``BiologicalEvidence`` type.
-            - If the evidence is already verified (``is_verified == True``).
-            - If ``decision == "approve"`` but ``forensic_result`` is blank.
-            - If ``decision == "reject"`` but ``notes`` is blank.
-        BiologicalEvidence.DoesNotExist
-            If no biological evidence with the given PK exists.
-
-        Implementation Contract
-        -----------------------
-        1. **Permission check:**
-           ``if not examiner_user.has_perm(f"evidence.{EvidencePerms.CAN_VERIFY_EVIDENCE}"):``
-           ``    raise PermissionError("Only the Coroner can verify biological evidence.")``
-        2. **Fetch evidence:**
-           ``bio_evidence = BiologicalEvidence.objects.select_related("case").get(pk=evidence_id)``
-        3. **Idempotency guard:**
-           ``if bio_evidence.is_verified:``
-           ``    raise ValidationError("This evidence has already been verified.")``
-        4. **Decision processing:**
-           a. If ``decision == "approve"``:
-              - ``bio_evidence.is_verified = True``
-              - ``bio_evidence.forensic_result = forensic_result``
-              - ``bio_evidence.verified_by = examiner_user``
-           b. If ``decision == "reject"``:
-              - ``bio_evidence.is_verified = False``
-              - ``bio_evidence.forensic_result = f"REJECTED: {notes}"``
-              - ``bio_evidence.verified_by = examiner_user``
-        5. **Save:**
-           ``bio_evidence.save(update_fields=[``
-           ``    "is_verified", "forensic_result", "verified_by", "updated_at"``
-           ``])``
-        6. **Notifications:**
-           Dispatch a notification to the case's assigned detective
-           informing them of the verification outcome.
-        7. Return ``bio_evidence``.
-
-        Security Notes
-        --------------
-        - The permission check uses ``has_perm`` which checks the user's
-          role-based permissions via the custom ``User.has_perm`` override
-          in ``accounts.models``.
-        - The ``Coroner`` role is expected to have both
-          ``CAN_VERIFY_EVIDENCE`` and ``CAN_REGISTER_FORENSIC_RESULT``
-          permissions assigned via ``setup_rbac``.
-        - Even though the view restricts access, the service performs
-          its own check to maintain the "defence in depth" principle.
         """
-        raise NotImplementedError
+        # 1. Permission check
+        if not examiner_user.has_perm(f"evidence.{EvidencePerms.CAN_VERIFY_EVIDENCE}"):
+            raise PermissionDenied("Only the Coroner can verify biological evidence.")
+
+        # 2. Fetch evidence
+        try:
+            bio_evidence = (
+                BiologicalEvidence.objects
+                .select_related("case", "registered_by")
+                .get(pk=evidence_id)
+            )
+        except BiologicalEvidence.DoesNotExist:
+            raise NotFound(f"Biological evidence with id {evidence_id} not found.")
+
+        # 3. Idempotency guard
+        if bio_evidence.is_verified:
+            raise DomainError("This evidence has already been verified.")
+
+        # 4. Decision processing
+        if decision == "approve":
+            if not forensic_result.strip():
+                raise DomainError("Forensic result is required when approving.")
+            bio_evidence.is_verified = True
+            bio_evidence.forensic_result = forensic_result
+            bio_evidence.verified_by = examiner_user
+        elif decision == "reject":
+            if not notes.strip():
+                raise DomainError("A rejection reason is required.")
+            bio_evidence.is_verified = False
+            bio_evidence.forensic_result = f"REJECTED: {notes}"
+            bio_evidence.verified_by = examiner_user
+
+        # 5. Save
+        bio_evidence.save(update_fields=[
+            "is_verified", "forensic_result", "verified_by", "updated_at",
+        ])
+
+        # 6. Notify detective
+        case = bio_evidence.case
+        if hasattr(case, "assigned_detective") and case.assigned_detective:
+            event_msg = "approved" if decision == "approve" else "rejected"
+            NotificationService.create(
+                actor=examiner_user,
+                recipients=case.assigned_detective,
+                event_type="evidence_added",
+                payload={
+                    "case_id": case.id,
+                    "evidence_id": bio_evidence.id,
+                    "verification": event_msg,
+                },
+                related_object=bio_evidence,
+            )
+
+        logger.info(
+            "Biological evidence #%d %s by Coroner %s",
+            bio_evidence.pk,
+            decision,
+            examiner_user,
+        )
+        return bio_evidence
 
     @staticmethod
     def get_pending_verifications(
@@ -568,26 +574,16 @@ class MedicalExaminerService:
     ) -> QuerySet[BiologicalEvidence]:
         """
         Return all biological evidence items pending Coroner verification.
-
-        Parameters
-        ----------
-        examiner_user : User
-            The Coroner requesting their pending work queue.
-
-        Returns
-        -------
-        QuerySet[BiologicalEvidence]
-            All ``BiologicalEvidence`` items where ``is_verified == False``
-            and ``verified_by`` is ``None`` (not yet examined).
-
-        Implementation Contract
-        -----------------------
-        1. Assert permission.
-        2. Return ``BiologicalEvidence.objects.filter(
-               is_verified=False, verified_by__isnull=True
-           ).select_related("case", "registered_by").order_by("-created_at")``.
         """
-        raise NotImplementedError
+        if not examiner_user.has_perm(f"evidence.{EvidencePerms.CAN_VERIFY_EVIDENCE}"):
+            raise PermissionDenied("Only the Coroner can view pending verifications.")
+
+        return (
+            BiologicalEvidence.objects
+            .filter(is_verified=False, verified_by__isnull=True)
+            .select_related("case", "registered_by")
+            .order_by("-created_at")
+        )
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -608,58 +604,25 @@ class EvidenceFileService:
         validated_data: dict[str, Any],
         requesting_user: Any,
     ) -> EvidenceFile:
-        """
-        Attach a file to an evidence item.
+        """Attach a file to an evidence item."""
+        if not requesting_user.has_perm(f"evidence.{EvidencePerms.ADD_EVIDENCEFILE}"):
+            raise PermissionDenied("You do not have permission to upload evidence files.")
 
-        Parameters
-        ----------
-        evidence : Evidence
-            The evidence item to attach the file to.
-        validated_data : dict
-            Cleaned data from ``EvidenceFileUploadSerializer``.
-            Keys: ``file``, ``file_type``, ``caption``.
-        requesting_user : User
-            Must have ``ADD_EVIDENCEFILE`` permission.
-
-        Returns
-        -------
-        EvidenceFile
-            The newly created file record.
-
-        Raises
-        ------
-        PermissionError
-            If lacking add permission.
-
-        Implementation Contract
-        -----------------------
-        1. Assert ``requesting_user.has_perm(f"evidence.{EvidencePerms.ADD_EVIDENCEFILE}")``.
-        2. ``evidence_file = EvidenceFile.objects.create(
-               evidence=evidence, **validated_data
-           )``.
-        3. Return ``evidence_file``.
-        """
-        raise NotImplementedError
+        evidence_file = EvidenceFile.objects.create(
+            evidence=evidence, **validated_data
+        )
+        logger.info(
+            "File #%d attached to Evidence #%d by user %s",
+            evidence_file.pk,
+            evidence.pk,
+            requesting_user,
+        )
+        return evidence_file
 
     @staticmethod
     def get_files_for_evidence(evidence: Evidence) -> QuerySet[EvidenceFile]:
-        """
-        Return all file attachments for a given evidence item.
-
-        Parameters
-        ----------
-        evidence : Evidence
-
-        Returns
-        -------
-        QuerySet[EvidenceFile]
-            Files ordered by creation date (newest first).
-
-        Implementation Contract
-        -----------------------
+        """Return all file attachments for a given evidence item."""
         return evidence.files.order_by("-created_at")
-        """
-        raise NotImplementedError
 
     @staticmethod
     @transaction.atomic
@@ -667,23 +630,18 @@ class EvidenceFileService:
         evidence_file: EvidenceFile,
         requesting_user: Any,
     ) -> None:
-        """
-        Delete a specific file attachment.
+        """Delete a specific file attachment."""
+        if not requesting_user.has_perm(f"evidence.{EvidencePerms.DELETE_EVIDENCEFILE}"):
+            raise PermissionDenied("You do not have permission to delete evidence files.")
 
-        Parameters
-        ----------
-        evidence_file : EvidenceFile
-            The file to delete.
-        requesting_user : User
-            Must have ``DELETE_EVIDENCEFILE`` permission.
-
-        Implementation Contract
-        -----------------------
-        1. Assert permission.
-        2. ``evidence_file.file.delete(save=False)``  # remove from storage
-        3. ``evidence_file.delete()``
-        """
-        raise NotImplementedError
+        file_pk = evidence_file.pk
+        evidence_file.file.delete(save=False)
+        evidence_file.delete()
+        logger.info(
+            "Evidence file #%d deleted by user %s",
+            file_pk,
+            requesting_user,
+        )
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -694,61 +652,51 @@ class EvidenceFileService:
 class ChainOfCustodyService:
     """
     Assembles a read-only audit trail for an evidence item.
-
-    The chain of custody is constructed by aggregating:
-    - The initial registration event (who created it and when).
-    - File upload/deletion events.
-    - Verification events (for biological evidence).
-    - Case re-linking events.
-    - Any updates to the evidence record.
-
-    Since ``Evidence`` inherits from ``TimeStampedModel``, the
-    ``created_at`` and ``updated_at`` fields provide the timestamps.
-    For a more granular history, Django packages like
-    ``django-simple-history`` or ``django-auditlog`` can be integrated.
     """
 
     @staticmethod
     def get_custody_trail(evidence: Evidence) -> list[dict[str, Any]]:
         """
         Build the full chain-of-custody trail for an evidence item.
-
-        Parameters
-        ----------
-        evidence : Evidence
-            The evidence item to assemble the trail for.
-
-        Returns
-        -------
-        list[dict[str, Any]]
-            A chronologically ordered list of audit entries, each with:
-            - ``timestamp``     : datetime
-            - ``action``        : str (e.g., "Registered", "File Added",
-                                  "Verified by Coroner", "Case Re-linked")
-            - ``performed_by``  : int (user PK)
-            - ``performer_name``: str (user full name)
-            - ``details``       : str (additional context)
-
-        Implementation Contract
-        -----------------------
-        1. Start with the registration event:
-           ``{"timestamp": evidence.created_at,
-              "action": "Registered",
-              "performed_by": evidence.registered_by_id,
-              "performer_name": evidence.registered_by.get_full_name(),
-              "details": f"Evidence registered as {evidence.get_evidence_type_display()}"}``.
-        2. Add file upload events from ``evidence.files.all()``:
-           each file's ``created_at`` is an event.
-        3. If biological:
-           check ``evidence.biologicalevidence.verified_by`` — if set,
-           add a verification event at ``evidence.updated_at``.
-        4. Sort all entries by ``timestamp`` ascending.
-        5. Return the list.
-
-        Future Enhancement
-        ------------------
-        Integrate ``django-auditlog`` or ``django-simple-history`` for
-        automatic, field-level change tracking.  This method would then
-        simply query the history table.
         """
-        raise NotImplementedError
+        trail: list[dict[str, Any]] = []
+
+        # 1. Registration event
+        trail.append({
+            "timestamp": evidence.created_at,
+            "action": "Registered",
+            "performed_by": evidence.registered_by_id,
+            "performer_name": evidence.registered_by.get_full_name(),
+            "details": f"Evidence registered as {evidence.get_evidence_type_display()}",
+        })
+
+        # 2. File upload events
+        for f in evidence.files.all().order_by("created_at"):
+            trail.append({
+                "timestamp": f.created_at,
+                "action": "File Added",
+                "performed_by": evidence.registered_by_id,
+                "performer_name": evidence.registered_by.get_full_name(),
+                "details": f"{f.get_file_type_display()}: {f.caption}" if f.caption else f.get_file_type_display(),
+            })
+
+        # 3. Verification event (biological only)
+        if evidence.evidence_type == EvidenceType.BIOLOGICAL:
+            try:
+                bio = evidence if isinstance(evidence, BiologicalEvidence) else evidence.biologicalevidence
+                if bio.verified_by is not None:
+                    action_label = "Verified by Coroner" if bio.is_verified else "Rejected by Coroner"
+                    trail.append({
+                        "timestamp": bio.updated_at,
+                        "action": action_label,
+                        "performed_by": bio.verified_by_id,
+                        "performer_name": bio.verified_by.get_full_name(),
+                        "details": bio.forensic_result or "",
+                    })
+            except BiologicalEvidence.DoesNotExist:
+                pass
+
+        # 4. Sort by timestamp
+        trail.sort(key=lambda e: e["timestamp"])
+
+        return trail
