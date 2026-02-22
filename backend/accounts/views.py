@@ -18,6 +18,12 @@ View Map
 
 from __future__ import annotations
 
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiResponse,
+    extend_schema,
+    extend_schema_view,
+)
 from rest_framework import generics, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -74,6 +80,19 @@ class RegisterView(generics.CreateAPIView):
     permission_classes = [AllowAny]
     serializer_class = RegisterRequestSerializer
 
+    @extend_schema(
+        summary="Register new user",
+        description=(
+            "Public endpoint. Creates a new user account with the default "
+            "'Base User' role. No authentication required."
+        ),
+        request=RegisterRequestSerializer,
+        responses={
+            201: OpenApiResponse(response=UserDetailSerializer, description="User created successfully."),
+            400: OpenApiResponse(description="Validation error (duplicate username/email, password mismatch, etc.)."),
+        },
+        tags=["Auth"],
+    )
     def create(self, request: Request, *args, **kwargs) -> Response:
         """
         Handle user registration.
@@ -111,6 +130,20 @@ class LoginView(APIView):
 
     permission_classes = [AllowAny]
 
+    @extend_schema(
+        summary="Login and obtain JWT tokens",
+        description=(
+            "Public endpoint. Authenticates a user using any unique identifier "
+            "(username, national ID, phone number, or email) plus password. "
+            "Returns JWT access/refresh tokens and user profile."
+        ),
+        request=LoginRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=TokenResponseSerializer, description="Authentication successful. Returns JWT tokens and user info."),
+            400: OpenApiResponse(description="Invalid credentials or disabled account."),
+        },
+        tags=["Auth"],
+    )
     def post(self, request: Request) -> Response:
         """
         Handle multi-field login.
@@ -163,6 +196,18 @@ class MeView(APIView):
 
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        summary="Get current user profile",
+        description=(
+            "Returns the authenticated user's full profile including role "
+            "details and a flat permissions list. Requires authentication."
+        ),
+        responses={
+            200: OpenApiResponse(response=UserDetailSerializer, description="Current user profile."),
+            401: OpenApiResponse(description="Authentication credentials not provided."),
+        },
+        tags=["Auth"],
+    )
     def get(self, request: Request) -> Response:
         """
         Retrieve the authenticated user's profile.
@@ -183,6 +228,20 @@ class MeView(APIView):
         serializer = UserDetailSerializer(user)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+    @extend_schema(
+        summary="Update current user profile",
+        description=(
+            "Partially update the authenticated user's own profile fields "
+            "(email, phone_number, first_name, last_name). Requires authentication."
+        ),
+        request=MeUpdateSerializer,
+        responses={
+            200: OpenApiResponse(response=UserDetailSerializer, description="Profile updated successfully."),
+            400: OpenApiResponse(description="Validation error (duplicate email/phone, invalid format)."),
+            401: OpenApiResponse(description="Authentication credentials not provided."),
+        },
+        tags=["Auth"],
+    )
     def patch(self, request: Request) -> Response:
         """
         Partially update the authenticated user's own profile.
@@ -232,6 +291,24 @@ class UserViewSet(viewsets.ViewSet):
 
     # ── Standard actions ─────────────────────────────────────────
 
+    @extend_schema(
+        summary="List all users",
+        description=(
+            "List all users with optional query-param filters. "
+            "Requires authentication. Typically used by System Admin or high-ranking officers."
+        ),
+        parameters=[
+            OpenApiParameter(name="role", type=int, location=OpenApiParameter.QUERY, description="Filter by Role PK."),
+            OpenApiParameter(name="hierarchy_level", type=int, location=OpenApiParameter.QUERY, description="Filter by hierarchy level."),
+            OpenApiParameter(name="is_active", type=bool, location=OpenApiParameter.QUERY, description="Filter by active status."),
+            OpenApiParameter(name="search", type=str, location=OpenApiParameter.QUERY, description="Partial match on name, email, username, national ID."),
+        ],
+        responses={
+            200: OpenApiResponse(response=UserListSerializer(many=True), description="List of users."),
+            401: OpenApiResponse(description="Authentication credentials not provided."),
+        },
+        tags=["Users"],
+    )
     def list(self, request: Request) -> Response:
         """
         GET /api/accounts/users/
@@ -268,6 +345,18 @@ class UserViewSet(viewsets.ViewSet):
         serializer = UserListSerializer(qs, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+    @extend_schema(
+        summary="Retrieve user details",
+        description=(
+            "Get a single user's full details by ID. Requires authentication."
+        ),
+        responses={
+            200: OpenApiResponse(response=UserDetailSerializer, description="User detail."),
+            401: OpenApiResponse(description="Authentication credentials not provided."),
+            404: OpenApiResponse(description="User not found."),
+        },
+        tags=["Users"],
+    )
     def retrieve(self, request: Request, pk: str = None) -> Response:
         """
         GET /api/accounts/users/{id}/
@@ -287,6 +376,21 @@ class UserViewSet(viewsets.ViewSet):
     # ── Custom actions ───────────────────────────────────────────
 
     @action(detail=True, methods=["patch"], url_path="assign-role")
+    @extend_schema(
+        summary="Assign role to user",
+        description=(
+            "Assign a role to a user by providing a role_id. "
+            "Requires System Admin or higher hierarchy than the target user."
+        ),
+        request=AssignRoleSerializer,
+        responses={
+            200: OpenApiResponse(response=UserDetailSerializer, description="Role assigned successfully."),
+            400: OpenApiResponse(description="Validation error (invalid role_id)."),
+            403: OpenApiResponse(description="Permission denied. Requires System Admin or higher hierarchy."),
+            404: OpenApiResponse(description="User or Role not found."),
+        },
+        tags=["Users"],
+    )
     def assign_role(self, request: Request, pk: str = None) -> Response:
         """
         PATCH /api/accounts/users/{id}/assign-role/
@@ -320,6 +424,20 @@ class UserViewSet(viewsets.ViewSet):
         )
 
     @action(detail=True, methods=["patch"], url_path="activate")
+    @extend_schema(
+        summary="Activate a user",
+        description=(
+            "Re-activate a deactivated user account. "
+            "Requires System Admin or higher hierarchy level."
+        ),
+        request=None,
+        responses={
+            200: OpenApiResponse(response=UserDetailSerializer, description="User activated."),
+            403: OpenApiResponse(description="Permission denied."),
+            404: OpenApiResponse(description="User not found."),
+        },
+        tags=["Users"],
+    )
     def activate(self, request: Request, pk: str = None) -> Response:
         """
         PATCH /api/accounts/users/{id}/activate/
@@ -343,6 +461,20 @@ class UserViewSet(viewsets.ViewSet):
         )
 
     @action(detail=True, methods=["patch"], url_path="deactivate")
+    @extend_schema(
+        summary="Deactivate a user",
+        description=(
+            "Deactivate an active user account. "
+            "Requires System Admin or higher hierarchy level."
+        ),
+        request=None,
+        responses={
+            200: OpenApiResponse(response=UserDetailSerializer, description="User deactivated."),
+            403: OpenApiResponse(description="Permission denied."),
+            404: OpenApiResponse(description="User not found."),
+        },
+        tags=["Users"],
+    )
     def deactivate(self, request: Request, pk: str = None) -> Response:
         """
         PATCH /api/accounts/users/{id}/deactivate/
@@ -387,6 +519,18 @@ class RoleViewSet(viewsets.ViewSet):
 
     # ── Standard CRUD ────────────────────────────────────────────
 
+    @extend_schema(
+        summary="List all roles",
+        description=(
+            "List all roles ordered by hierarchy level. "
+            "Requires authentication. Typically restricted to System Admin."
+        ),
+        responses={
+            200: OpenApiResponse(response=RoleListSerializer(many=True), description="List of roles."),
+            401: OpenApiResponse(description="Authentication credentials not provided."),
+        },
+        tags=["Roles"],
+    )
     def list(self, request: Request) -> Response:
         """
         GET /api/accounts/roles/
@@ -403,6 +547,20 @@ class RoleViewSet(viewsets.ViewSet):
         serializer = RoleListSerializer(roles, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+    @extend_schema(
+        summary="Create a new role",
+        description=(
+            "Create a new dynamic role with a name, description, and hierarchy level. "
+            "Requires System Admin role."
+        ),
+        request=RoleDetailSerializer,
+        responses={
+            201: OpenApiResponse(response=RoleDetailSerializer, description="Role created."),
+            400: OpenApiResponse(description="Validation error."),
+            403: OpenApiResponse(description="Permission denied. Requires System Admin."),
+        },
+        tags=["Roles"],
+    )
     def create(self, request: Request) -> Response:
         """
         POST /api/accounts/roles/
@@ -425,6 +583,17 @@ class RoleViewSet(viewsets.ViewSet):
             RoleDetailSerializer(role).data, status=status.HTTP_201_CREATED
         )
 
+    @extend_schema(
+        summary="Retrieve role details",
+        description=(
+            "Get a single role with full permission details. Requires authentication."
+        ),
+        responses={
+            200: OpenApiResponse(response=RoleDetailSerializer, description="Role detail with permissions."),
+            404: OpenApiResponse(description="Role not found."),
+        },
+        tags=["Roles"],
+    )
     def retrieve(self, request: Request, pk: str = None) -> Response:
         """
         GET /api/accounts/roles/{id}/
@@ -441,6 +610,20 @@ class RoleViewSet(viewsets.ViewSet):
         serializer = RoleDetailSerializer(role)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+    @extend_schema(
+        summary="Full update of a role",
+        description=(
+            "Replace all fields of an existing role. Requires System Admin role."
+        ),
+        request=RoleDetailSerializer,
+        responses={
+            200: OpenApiResponse(response=RoleDetailSerializer, description="Role updated."),
+            400: OpenApiResponse(description="Validation error."),
+            403: OpenApiResponse(description="Permission denied."),
+            404: OpenApiResponse(description="Role not found."),
+        },
+        tags=["Roles"],
+    )
     def update(self, request: Request, pk: str = None) -> Response:
         """
         PUT /api/accounts/roles/{id}/
@@ -460,6 +643,19 @@ class RoleViewSet(viewsets.ViewSet):
             RoleDetailSerializer(role).data, status=status.HTTP_200_OK
         )
 
+    @extend_schema(
+        summary="Partial update of a role",
+        description=(
+            "Update selected fields of an existing role. Requires System Admin role."
+        ),
+        request=RoleDetailSerializer,
+        responses={
+            200: OpenApiResponse(response=RoleDetailSerializer, description="Role partially updated."),
+            400: OpenApiResponse(description="Validation error."),
+            404: OpenApiResponse(description="Role not found."),
+        },
+        tags=["Roles"],
+    )
     def partial_update(self, request: Request, pk: str = None) -> Response:
         """
         PATCH /api/accounts/roles/{id}/
@@ -481,6 +677,18 @@ class RoleViewSet(viewsets.ViewSet):
             RoleDetailSerializer(role).data, status=status.HTTP_200_OK
         )
 
+    @extend_schema(
+        summary="Delete a role",
+        description=(
+            "Delete a role if no users are assigned to it. Requires System Admin role."
+        ),
+        responses={
+            204: OpenApiResponse(description="Role deleted."),
+            400: OpenApiResponse(description="Cannot delete: users are still assigned to this role."),
+            404: OpenApiResponse(description="Role not found."),
+        },
+        tags=["Roles"],
+    )
     def destroy(self, request: Request, pk: str = None) -> Response:
         """
         DELETE /api/accounts/roles/{id}/
@@ -499,6 +707,20 @@ class RoleViewSet(viewsets.ViewSet):
     # ── Custom action ────────────────────────────────────────────
 
     @action(detail=True, methods=["post"], url_path="assign-permissions")
+    @extend_schema(
+        summary="Assign permissions to role",
+        description=(
+            "Replace the role's permission set with the given Permission IDs. "
+            "Requires System Admin role."
+        ),
+        request=RoleAssignPermissionsSerializer,
+        responses={
+            200: OpenApiResponse(response=RoleDetailSerializer, description="Permissions assigned."),
+            400: OpenApiResponse(description="Invalid permission IDs."),
+            404: OpenApiResponse(description="Role not found."),
+        },
+        tags=["Roles"],
+    )
     def assign_permissions(
         self, request: Request, pk: str = None
     ) -> Response:
@@ -535,6 +757,18 @@ class RoleViewSet(viewsets.ViewSet):
 # ═══════════════════════════════════════════════════════════════════
 
 
+@extend_schema(
+    summary="List all permissions",
+    description=(
+        "Lists all available Django permissions (PK, name, codename). "
+        "Used by the admin UI for building role permission pickers. "
+        "Requires authentication."
+    ),
+    responses={
+        200: OpenApiResponse(response=PermissionSerializer(many=True), description="List of permissions."),
+    },
+    tags=["Roles"],
+)
 class PermissionListView(generics.ListAPIView):
     """
     GET /api/accounts/permissions/

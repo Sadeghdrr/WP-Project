@@ -66,17 +66,19 @@ class SuspectFilterSerializer(serializers.Serializer):
     status = serializers.ChoiceField(
         choices=SuspectStatus.choices,
         required=False,
+        help_text="Filter by suspect lifecycle status (e.g. wanted, arrested, convicted).",
     )
-    case = serializers.IntegerField(required=False, min_value=1)
-    national_id = serializers.CharField(required=False, max_length=10)
+    case = serializers.IntegerField(required=False, min_value=1, help_text="Filter by associated case PK.")
+    national_id = serializers.CharField(required=False, max_length=10, help_text="Exact match on suspect's 10-digit national ID.")
     search = serializers.CharField(
         required=False,
         max_length=255,
         allow_blank=False,
+        help_text="Free-text search against full_name, aliases, and description.",
     )
-    most_wanted = serializers.BooleanField(required=False)
-    created_after = serializers.DateField(required=False)
-    created_before = serializers.DateField(required=False)
+    most_wanted = serializers.BooleanField(required=False, help_text="If true, return only suspects wanted for more than 30 days.")
+    created_after = serializers.DateField(required=False, help_text="ISO 8601 date. Return suspects created on or after this date.")
+    created_before = serializers.DateField(required=False, help_text="ISO 8601 date. Return suspects created on or before this date.")
     approval_status = serializers.ChoiceField(
         choices=[
             ("pending", "Pending"),
@@ -84,6 +86,7 @@ class SuspectFilterSerializer(serializers.Serializer):
             ("rejected", "Rejected"),
         ],
         required=False,
+        help_text="Filter by sergeant approval status: pending, approved, or rejected.",
     )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
@@ -516,13 +519,13 @@ class SuspectApprovalSerializer(serializers.Serializer):
 
     DECISION_CHOICES = [("approve", "Approve"), ("reject", "Reject")]
 
-    decision = serializers.ChoiceField(choices=DECISION_CHOICES)
+    decision = serializers.ChoiceField(choices=DECISION_CHOICES, help_text="'approve' to confirm the suspect, 'reject' to decline the identification.")
     rejection_message = serializers.CharField(
         required=False,
         allow_blank=True,
         default="",
         max_length=2000,
-        help_text="Required when rejecting. Sent back to the detective.",
+        help_text="Required when rejecting. Explains why the identification was rejected. Sent to the Detective.",
     )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:

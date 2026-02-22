@@ -24,6 +24,11 @@ ViewSets
 
 from __future__ import annotations
 
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiResponse,
+    extend_schema,
+)
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -133,7 +138,25 @@ class SuspectViewSet(viewsets.ViewSet):
         return SuspectProfileService.get_suspect_detail(pk)
 
     # ── Standard CRUD ────────────────────────────────────────────────
-
+    @extend_schema(
+        summary="List suspects",
+        description=(
+            "List suspects visible to the authenticated user with optional "
+            "query-parameter filtering. Requires authentication."
+        ),
+        parameters=[
+            OpenApiParameter(name="status", type=str, location=OpenApiParameter.QUERY, description="Filter by suspect status."),
+            OpenApiParameter(name="case", type=int, location=OpenApiParameter.QUERY, description="Filter by associated case PK."),
+            OpenApiParameter(name="national_id", type=str, location=OpenApiParameter.QUERY, description="Exact match on national ID."),
+            OpenApiParameter(name="search", type=str, location=OpenApiParameter.QUERY, description="Free-text search on name/aliases/description."),
+            OpenApiParameter(name="most_wanted", type=bool, location=OpenApiParameter.QUERY, description="If true, only suspects wanted > 30 days."),
+            OpenApiParameter(name="approval_status", type=str, location=OpenApiParameter.QUERY, description="Filter by approval: pending, approved, rejected."),
+        ],
+        responses={
+            200: OpenApiResponse(response=SuspectListSerializer(many=True), description="List of suspects."),
+        },
+        tags=["Suspects"],
+    )
     def list(self, request: Request) -> Response:
         """
         GET /api/suspects/
@@ -187,6 +210,20 @@ class SuspectViewSet(viewsets.ViewSet):
         serializer = SuspectListSerializer(queryset, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+    @extend_schema(
+        summary="Identify a new suspect",
+        description=(
+            "Create a new suspect and link them to a case. "
+            "Requires Detective role (CAN_IDENTIFY_SUSPECT permission)."
+        ),
+        request=SuspectCreateSerializer,
+        responses={
+            201: OpenApiResponse(response=SuspectDetailSerializer, description="Suspect created."),
+            400: OpenApiResponse(description="Validation error."),
+            403: OpenApiResponse(description="Permission denied. Requires Detective role."),
+        },
+        tags=["Suspects"],
+    )
     def create(self, request: Request) -> Response:
         """
         POST /api/suspects/
@@ -234,6 +271,18 @@ class SuspectViewSet(viewsets.ViewSet):
         output = SuspectDetailSerializer(suspect)
         return Response(output.data, status=status.HTTP_201_CREATED)
 
+    @extend_schema(
+        summary="Retrieve suspect details",
+        description=(
+            "Return full suspect detail with nested interrogations, trials, bails, "
+            "and computed ranking properties. Requires authentication."
+        ),
+        responses={
+            200: OpenApiResponse(response=SuspectDetailSerializer, description="Suspect detail."),
+            404: OpenApiResponse(description="Suspect not found."),
+        },
+        tags=["Suspects"],
+    )
     def retrieve(self, request: Request, pk: int = None) -> Response:
         """
         GET /api/suspects/{id}/
@@ -274,6 +323,20 @@ class SuspectViewSet(viewsets.ViewSet):
         serializer = SuspectDetailSerializer(suspect)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+    @extend_schema(
+        summary="Update suspect profile",
+        description=(
+            "Partially update a suspect's mutable profile fields (name, address, etc.). "
+            "Status changes use dedicated workflow endpoints. Requires Detective role."
+        ),
+        request=SuspectUpdateSerializer,
+        responses={
+            200: OpenApiResponse(response=SuspectDetailSerializer, description="Suspect updated."),
+            400: OpenApiResponse(description="Validation error."),
+            403: OpenApiResponse(description="Permission denied."),
+        },
+        tags=["Suspects"],
+    )
     def partial_update(self, request: Request, pk: int = None) -> Response:
         """
         PATCH /api/suspects/{id}/
@@ -315,6 +378,18 @@ class SuspectViewSet(viewsets.ViewSet):
     # ── Workflow @actions ─────────────────────────────────────────────
 
     @action(detail=False, methods=["get"], url_path="most-wanted")
+    @extend_schema(
+        summary="List most-wanted suspects",
+        description=(
+            "Return the Most Wanted list — suspects wanted for more than 30 days, "
+            "ranked by most_wanted_score (max_days × max_crime_degree). "
+            "Visible to all authenticated users."
+        ),
+        responses={
+            200: OpenApiResponse(response=MostWantedSerializer(many=True), description="Most wanted list."),
+        },
+        tags=["Suspects"],
+    )
     def most_wanted(self, request: Request) -> Response:
         """
         GET /api/suspects/most-wanted/
@@ -355,6 +430,20 @@ class SuspectViewSet(viewsets.ViewSet):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["post"], url_path="approve")
+    @extend_schema(
+        summary="Approve or reject suspect",
+        description=(
+            "Sergeant approves or rejects a suspect identification by the Detective. "
+            "If rejected, a rejection_message is required. Requires Sergeant role."
+        ),
+        request=SuspectApprovalSerializer,
+        responses={
+            200: OpenApiResponse(response=SuspectDetailSerializer, description="Approval decision processed."),
+            400: OpenApiResponse(description="Validation error or invalid status."),
+            403: OpenApiResponse(description="Permission denied. Requires Sergeant role."),
+        },
+        tags=["Suspects – Workflow"],
+    )
     def approve(self, request: Request, pk: int = None) -> Response:
         """
         POST /api/suspects/{id}/approve/
@@ -414,6 +503,20 @@ class SuspectViewSet(viewsets.ViewSet):
         return Response(output.data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["post"], url_path="issue-warrant")
+    @extend_schema(
+        summary="Issue arrest warrant",
+        description=(
+            "Sergeant issues an arrest warrant for an approved suspect. "
+            "The suspect must be approved and in WANTED status. Requires Sergeant role."
+        ),
+        request=ArrestWarrantSerializer,
+        responses={
+            200: OpenApiResponse(response=SuspectDetailSerializer, description="Warrant issued."),
+            400: OpenApiResponse(description="Suspect not approved or not in WANTED status."),
+            403: OpenApiResponse(description="Permission denied. Requires CAN_ISSUE_ARREST_WARRANT."),
+        },
+        tags=["Suspects – Workflow"],
+    )
     def issue_warrant(self, request: Request, pk: int = None) -> Response:
         """
         POST /api/suspects/{id}/issue-warrant/
@@ -472,6 +575,21 @@ class SuspectViewSet(viewsets.ViewSet):
         return Response(output.data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["post"], url_path="arrest")
+    @extend_schema(
+        summary="Execute suspect arrest",
+        description=(
+            "Execute the arrest of a suspect, transitioning to In Custody status. "
+            "Requires a valid warrant or a warrant_override_justification. "
+            "Requires Sergeant or Captain role."
+        ),
+        request=ArrestPayloadSerializer,
+        responses={
+            200: OpenApiResponse(response=SuspectDetailSerializer, description="Arrest executed."),
+            400: OpenApiResponse(description="Invalid status, missing warrant and no override."),
+            403: OpenApiResponse(description="Permission denied."),
+        },
+        tags=["Suspects – Workflow"],
+    )
     def arrest(self, request: Request, pk: int = None) -> Response:
         """
         POST /api/suspects/{id}/arrest/
@@ -554,6 +672,20 @@ class SuspectViewSet(viewsets.ViewSet):
         return Response(output.data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["post"], url_path="transition-status")
+    @extend_schema(
+        summary="Transition suspect status",
+        description=(
+            "Generic status transition for non-arrest lifecycle changes. "
+            "Allowed transitions depend on current status and user role."
+        ),
+        request=SuspectStatusTransitionSerializer,
+        responses={
+            200: OpenApiResponse(response=SuspectDetailSerializer, description="Status transitioned."),
+            400: OpenApiResponse(description="Invalid transition from current status."),
+            403: OpenApiResponse(description="Permission denied."),
+        },
+        tags=["Suspects – Workflow"],
+    )
     def transition_status(self, request: Request, pk: int = None) -> Response:
         """
         POST /api/suspects/{id}/transition-status/
@@ -736,6 +868,12 @@ class InterrogationViewSet(viewsets.ViewSet):
 
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        summary="List interrogations for a suspect",
+        description="Return all interrogation sessions recorded for the given suspect.",
+        responses={200: OpenApiResponse(response=InterrogationListSerializer(many=True), description="Interrogation list.")},
+        tags=["Interrogations"],
+    )
     def list(self, request: Request, suspect_pk: int = None) -> Response:
         """
         GET /api/suspects/{suspect_pk}/interrogations/
@@ -767,6 +905,19 @@ class InterrogationViewSet(viewsets.ViewSet):
         output = InterrogationListSerializer(qs, many=True)
         return Response(output.data, status=status.HTTP_200_OK)
 
+    @extend_schema(
+        summary="Create interrogation session",
+        description=(
+            "Record a new interrogation session for the suspect. "
+            "Requires CAN_CONDUCT_INTERROGATION permission."
+        ),
+        request=InterrogationCreateSerializer,
+        responses={
+            201: OpenApiResponse(response=InterrogationDetailSerializer, description="Interrogation created."),
+            400: OpenApiResponse(description="Validation error."),
+        },
+        tags=["Interrogations"],
+    )
     def create(self, request: Request, suspect_pk: int = None) -> Response:
         """
         POST /api/suspects/{suspect_pk}/interrogations/
@@ -822,6 +973,12 @@ class InterrogationViewSet(viewsets.ViewSet):
         output = InterrogationDetailSerializer(interrogation)
         return Response(output.data, status=status.HTTP_201_CREATED)
 
+    @extend_schema(
+        summary="Retrieve interrogation detail",
+        description="Fetch a single interrogation session by ID.",
+        responses={200: OpenApiResponse(response=InterrogationDetailSerializer, description="Interrogation detail.")},
+        tags=["Interrogations"],
+    )
     def retrieve(
         self, request: Request, suspect_pk: int = None, pk: int = None,
     ) -> Response:
@@ -873,6 +1030,12 @@ class TrialViewSet(viewsets.ViewSet):
 
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        summary="List trials for a suspect",
+        description="Return all trial records for the given suspect.",
+        responses={200: OpenApiResponse(response=TrialListSerializer(many=True), description="Trial list.")},
+        tags=["Trials"],
+    )
     def list(self, request: Request, suspect_pk: int = None) -> Response:
         """
         GET /api/suspects/{suspect_pk}/trials/
@@ -890,6 +1053,16 @@ class TrialViewSet(viewsets.ViewSet):
         """
         raise NotImplementedError
 
+    @extend_schema(
+        summary="Create trial record",
+        description="Record a trial verdict for the suspect. Requires CAN_JUDGE_TRIAL permission.",
+        request=TrialCreateSerializer,
+        responses={
+            201: OpenApiResponse(response=TrialDetailSerializer, description="Trial created."),
+            400: OpenApiResponse(description="Validation error."),
+        },
+        tags=["Trials"],
+    )
     def create(self, request: Request, suspect_pk: int = None) -> Response:
         """
         POST /api/suspects/{suspect_pk}/trials/
@@ -921,6 +1094,12 @@ class TrialViewSet(viewsets.ViewSet):
         """
         raise NotImplementedError
 
+    @extend_schema(
+        summary="Retrieve trial detail",
+        description="Fetch a single trial record by ID.",
+        responses={200: OpenApiResponse(response=TrialDetailSerializer, description="Trial detail.")},
+        tags=["Trials"],
+    )
     def retrieve(
         self, request: Request, suspect_pk: int = None, pk: int = None,
     ) -> Response:
@@ -964,6 +1143,12 @@ class BailViewSet(viewsets.ViewSet):
 
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        summary="List bail records for a suspect",
+        description="Return all bail/fine records for the given suspect.",
+        responses={200: OpenApiResponse(response=BailListSerializer(many=True), description="Bail list.")},
+        tags=["Bail"],
+    )
     def list(self, request: Request, suspect_pk: int = None) -> Response:
         """
         GET /api/suspects/{suspect_pk}/bails/
@@ -981,6 +1166,16 @@ class BailViewSet(viewsets.ViewSet):
         """
         raise NotImplementedError
 
+    @extend_schema(
+        summary="Create bail record",
+        description="Set a bail amount for the suspect. Requires CAN_SET_BAIL_AMOUNT permission.",
+        request=BailCreateSerializer,
+        responses={
+            201: OpenApiResponse(response=BailDetailSerializer, description="Bail created."),
+            400: OpenApiResponse(description="Validation error."),
+        },
+        tags=["Bail"],
+    )
     def create(self, request: Request, suspect_pk: int = None) -> Response:
         """
         POST /api/suspects/{suspect_pk}/bails/
@@ -1008,6 +1203,12 @@ class BailViewSet(viewsets.ViewSet):
         """
         raise NotImplementedError
 
+    @extend_schema(
+        summary="Retrieve bail detail",
+        description="Fetch a single bail record by ID.",
+        responses={200: OpenApiResponse(response=BailDetailSerializer, description="Bail detail.")},
+        tags=["Bail"],
+    )
     def retrieve(
         self, request: Request, suspect_pk: int = None, pk: int = None,
     ) -> Response:
@@ -1025,6 +1226,16 @@ class BailViewSet(viewsets.ViewSet):
         raise NotImplementedError
 
     @action(detail=True, methods=["post"], url_path="pay")
+    @extend_schema(
+        summary="Process bail payment",
+        description="Process bail payment via payment gateway callback.",
+        request=None,
+        responses={
+            200: OpenApiResponse(response=BailDetailSerializer, description="Payment processed."),
+            400: OpenApiResponse(description="Payment processing failed."),
+        },
+        tags=["Bail"],
+    )
     def pay(self, request: Request, suspect_pk: int = None, pk: int = None) -> Response:
         """
         POST /api/suspects/{suspect_pk}/bails/{id}/pay/
@@ -1085,6 +1296,12 @@ class BountyTipViewSet(viewsets.ViewSet):
 
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        summary="List bounty tips",
+        description="Return bounty tips visible to the authenticated user.",
+        responses={200: OpenApiResponse(response=BountyTipListSerializer(many=True), description="Bounty tip list.")},
+        tags=["Bounty Tips"],
+    )
     def list(self, request: Request) -> Response:
         """
         GET /api/bounty-tips/
@@ -1101,6 +1318,16 @@ class BountyTipViewSet(viewsets.ViewSet):
         """
         raise NotImplementedError
 
+    @extend_schema(
+        summary="Submit a bounty tip",
+        description="Citizen submits a tip about a suspect or case.",
+        request=BountyTipCreateSerializer,
+        responses={
+            201: OpenApiResponse(response=BountyTipDetailSerializer, description="Tip submitted."),
+            400: OpenApiResponse(description="Validation error."),
+        },
+        tags=["Bounty Tips"],
+    )
     def create(self, request: Request) -> Response:
         """
         POST /api/bounty-tips/
@@ -1131,6 +1358,12 @@ class BountyTipViewSet(viewsets.ViewSet):
         """
         raise NotImplementedError
 
+    @extend_schema(
+        summary="Retrieve bounty tip detail",
+        description="Fetch a single bounty tip by ID.",
+        responses={200: OpenApiResponse(response=BountyTipDetailSerializer, description="Tip detail.")},
+        tags=["Bounty Tips"],
+    )
     def retrieve(self, request: Request, pk: int = None) -> Response:
         """
         GET /api/bounty-tips/{id}/
@@ -1146,6 +1379,17 @@ class BountyTipViewSet(viewsets.ViewSet):
         raise NotImplementedError
 
     @action(detail=True, methods=["post"], url_path="review")
+    @extend_schema(
+        summary="Officer reviews bounty tip",
+        description="Police Officer reviews a submitted bounty tip (accept/reject).",
+        request=BountyTipReviewSerializer,
+        responses={
+            200: OpenApiResponse(response=BountyTipDetailSerializer, description="Review recorded."),
+            400: OpenApiResponse(description="Validation error."),
+            403: OpenApiResponse(description="Requires CAN_REVIEW_BOUNTY_TIP."),
+        },
+        tags=["Bounty Tips"],
+    )
     def review(self, request: Request, pk: int = None) -> Response:
         """
         POST /api/bounty-tips/{id}/review/
@@ -1175,6 +1419,20 @@ class BountyTipViewSet(viewsets.ViewSet):
         raise NotImplementedError
 
     @action(detail=True, methods=["post"], url_path="verify")
+    @extend_schema(
+        summary="Detective verifies bounty tip",
+        description=(
+            "Detective verifies a bounty tip. A unique reward code is generated "
+            "for the informant upon verification."
+        ),
+        request=BountyTipVerifySerializer,
+        responses={
+            200: OpenApiResponse(response=BountyTipDetailSerializer, description="Verification recorded."),
+            400: OpenApiResponse(description="Validation error."),
+            403: OpenApiResponse(description="Requires CAN_VERIFY_BOUNTY_TIP."),
+        },
+        tags=["Bounty Tips"],
+    )
     def verify(self, request: Request, pk: int = None) -> Response:
         """
         POST /api/bounty-tips/{id}/verify/
@@ -1207,6 +1465,19 @@ class BountyTipViewSet(viewsets.ViewSet):
         raise NotImplementedError
 
     @action(detail=False, methods=["post"], url_path="lookup-reward")
+    @extend_schema(
+        summary="Look up bounty reward",
+        description=(
+            "Look up a bounty reward using the citizen’s national ID and unique code. "
+            "Any authenticated user can verify a reward claim at the station."
+        ),
+        request=BountyRewardLookupSerializer,
+        responses={
+            200: OpenApiResponse(description="Reward info dict."),
+            400: OpenApiResponse(description="Validation error or no matching reward."),
+        },
+        tags=["Bounty Tips"],
+    )
     def lookup_reward(self, request: Request) -> Response:
         """
         POST /api/bounty-tips/lookup-reward/

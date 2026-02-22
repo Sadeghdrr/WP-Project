@@ -23,6 +23,11 @@ import logging
 
 from django.contrib.auth import get_user_model
 from django.shortcuts import get_object_or_404
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiResponse,
+    extend_schema,
+)
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -103,7 +108,26 @@ class CaseViewSet(viewsets.ViewSet):
         return get_object_or_404(CaseComplainant, pk=complainant_pk, case=case)
 
     # ── Standard CRUD ────────────────────────────────────────────────
-
+    @extend_schema(
+        summary="List cases",
+        description=(
+            "List cases visible to the authenticated user with optional filtering. "
+            "Requires authentication."
+        ),
+        parameters=[
+            OpenApiParameter(name="status", type=str, location=OpenApiParameter.QUERY, description="Filter by case status."),
+            OpenApiParameter(name="crime_level", type=int, location=OpenApiParameter.QUERY, description="Filter by crime level (1–4)."),
+            OpenApiParameter(name="detective", type=int, location=OpenApiParameter.QUERY, description="Filter by assigned detective PK."),
+            OpenApiParameter(name="creation_type", type=str, location=OpenApiParameter.QUERY, description="Filter by creation type: 'complaint' or 'crime_scene'."),
+            OpenApiParameter(name="created_after", type=str, location=OpenApiParameter.QUERY, description="ISO 8601 date. Cases created on or after."),
+            OpenApiParameter(name="created_before", type=str, location=OpenApiParameter.QUERY, description="ISO 8601 date. Cases created on or before."),
+            OpenApiParameter(name="search", type=str, location=OpenApiParameter.QUERY, description="Free-text search on title/description."),
+        ],
+        responses={
+            200: OpenApiResponse(response=CaseListSerializer(many=True), description="Filtered list of cases."),
+        },
+        tags=["Cases"],
+    )
     def list(self, request: Request) -> Response:
         """
         GET /api/cases/
@@ -118,6 +142,21 @@ class CaseViewSet(viewsets.ViewSet):
         serializer = CaseListSerializer(qs, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+    @extend_schema(
+        summary="Create a new case",
+        description=(
+            "Create a new case via complaint or crime-scene path. "
+            "Set creation_type to 'complaint' (Civilian/Complainant) or 'crime_scene' (Police Officer+). "
+            "Requires authentication."
+        ),
+        request=ComplaintCaseCreateSerializer,
+        responses={
+            201: OpenApiResponse(response=CaseDetailSerializer, description="Case created successfully."),
+            400: OpenApiResponse(description="Validation error or invalid creation_type."),
+            403: OpenApiResponse(description="Permission denied."),
+        },
+        tags=["Cases"],
+    )
     def create(self, request: Request) -> Response:
         """
         POST /api/cases/
@@ -160,6 +199,18 @@ class CaseViewSet(viewsets.ViewSet):
         out = CaseDetailSerializer(case, context={"request": request})
         return Response(out.data, status=status.HTTP_201_CREATED)
 
+    @extend_schema(
+        summary="Retrieve case details",
+        description=(
+            "Return the full case detail with nested complainants, witnesses, "
+            "status logs, and computed formula fields. Requires authentication."
+        ),
+        responses={
+            200: OpenApiResponse(response=CaseDetailSerializer, description="Full case detail."),
+            404: OpenApiResponse(description="Case not found."),
+        },
+        tags=["Cases"],
+    )
     def retrieve(self, request: Request, pk: int = None) -> Response:
         """
         GET /api/cases/{id}/
@@ -171,6 +222,20 @@ class CaseViewSet(viewsets.ViewSet):
         serializer = CaseDetailSerializer(case, context={"request": request})
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+    @extend_schema(
+        summary="Partially update case",
+        description=(
+            "Partially update mutable case metadata (title, description, "
+            "incident_date, location). Requires authentication."
+        ),
+        request=CaseUpdateSerializer,
+        responses={
+            200: OpenApiResponse(response=CaseDetailSerializer, description="Case updated."),
+            400: OpenApiResponse(description="Validation error."),
+            404: OpenApiResponse(description="Case not found."),
+        },
+        tags=["Cases"],
+    )
     def partial_update(self, request: Request, pk: int = None) -> Response:
         """
         PATCH /api/cases/{id}/
@@ -187,6 +252,18 @@ class CaseViewSet(viewsets.ViewSet):
         """
         raise NotImplementedError
 
+    @extend_schema(
+        summary="Delete a case",
+        description=(
+            "Hard-delete a case. Restricted to System Admin only."
+        ),
+        responses={
+            204: OpenApiResponse(description="Case deleted."),
+            403: OpenApiResponse(description="Permission denied. Requires Admin."),
+            404: OpenApiResponse(description="Case not found."),
+        },
+        tags=["Cases"],
+    )
     def destroy(self, request: Request, pk: int = None) -> Response:
         """
         DELETE /api/cases/{id}/
@@ -206,6 +283,20 @@ class CaseViewSet(viewsets.ViewSet):
     # ── Workflow @actions ─────────────────────────────────────────────
 
     @action(detail=True, methods=["post"], url_path="submit")
+    @extend_schema(
+        summary="Submit complaint for review",
+        description=(
+            "Complainant submits a draft complaint for initial Cadet review. "
+            "Requires Complainant role (case creator)."
+        ),
+        request=None,
+        responses={
+            200: OpenApiResponse(response=CaseDetailSerializer, description="Case submitted for review."),
+            403: OpenApiResponse(description="Permission denied. Only the case creator can submit."),
+            404: OpenApiResponse(description="Case not found."),
+        },
+        tags=["Cases – Workflow"],
+    )
     def submit(self, request: Request, pk: int = None) -> Response:
         """
         POST /api/cases/{id}/submit/
@@ -224,6 +315,20 @@ class CaseViewSet(viewsets.ViewSet):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["post"], url_path="resubmit")
+    @extend_schema(
+        summary="Resubmit returned complaint",
+        description=(
+            "Complainant edits and re-submits a case that was returned by the Cadet. "
+            "After 3 rejections the case is voided. Requires Complainant role."
+        ),
+        request=ResubmitComplaintSerializer,
+        responses={
+            200: OpenApiResponse(response=CaseDetailSerializer, description="Case re-submitted."),
+            400: OpenApiResponse(description="Validation error."),
+            403: OpenApiResponse(description="Permission denied."),
+        },
+        tags=["Cases – Workflow"],
+    )
     def resubmit(self, request: Request, pk: int = None) -> Response:
         """
         POST /api/cases/{id}/resubmit/
@@ -247,6 +352,20 @@ class CaseViewSet(viewsets.ViewSet):
         return Response(out.data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["post"], url_path="cadet-review")
+    @extend_schema(
+        summary="Cadet reviews complaint",
+        description=(
+            "Cadet approves or rejects a complaint case. If rejected, a message "
+            "is required. Requires Cadet role."
+        ),
+        request=CadetReviewSerializer,
+        responses={
+            200: OpenApiResponse(response=CaseDetailSerializer, description="Review processed."),
+            400: OpenApiResponse(description="Validation error (e.g. missing rejection message)."),
+            403: OpenApiResponse(description="Permission denied. Requires Cadet role."),
+        },
+        tags=["Cases – Workflow"],
+    )
     def cadet_review(self, request: Request, pk: int = None) -> Response:
         """
         POST /api/cases/{id}/cadet-review/
@@ -278,6 +397,20 @@ class CaseViewSet(viewsets.ViewSet):
         return Response(out.data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["post"], url_path="officer-review")
+    @extend_schema(
+        summary="Officer reviews case",
+        description=(
+            "Officer approves or rejects a case forwarded by the Cadet. "
+            "If rejected, it returns to the Cadet. Requires Police Officer role."
+        ),
+        request=OfficerReviewSerializer,
+        responses={
+            200: OpenApiResponse(response=CaseDetailSerializer, description="Review processed."),
+            400: OpenApiResponse(description="Validation error."),
+            403: OpenApiResponse(description="Permission denied. Requires Police Officer role."),
+        },
+        tags=["Cases – Workflow"],
+    )
     def officer_review(self, request: Request, pk: int = None) -> Response:
         """
         POST /api/cases/{id}/officer-review/
@@ -304,6 +437,20 @@ class CaseViewSet(viewsets.ViewSet):
         return Response(out.data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["post"], url_path="approve-crime-scene")
+    @extend_schema(
+        summary="Approve crime-scene case",
+        description=(
+            "Superior approves a crime-scene case (PENDING_APPROVAL → OPEN). "
+            "If registered by Police Chief, no approval needed. Requires a rank above the registrar."
+        ),
+        request=None,
+        responses={
+            200: OpenApiResponse(response=CaseDetailSerializer, description="Crime-scene case approved."),
+            403: OpenApiResponse(description="Permission denied. Requires superior rank."),
+            404: OpenApiResponse(description="Case not found."),
+        },
+        tags=["Cases – Workflow"],
+    )
     def approve_crime_scene(self, request: Request, pk: int = None) -> Response:
         """
         POST /api/cases/{id}/approve-crime-scene/
@@ -322,6 +469,19 @@ class CaseViewSet(viewsets.ViewSet):
         return Response(out.data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["post"], url_path="declare-suspects")
+    @extend_schema(
+        summary="Declare suspects identified",
+        description=(
+            "Detective declares suspects have been identified and escalates to "
+            "Sergeant review. Requires Detective role."
+        ),
+        request=None,
+        responses={
+            200: OpenApiResponse(response=CaseDetailSerializer, description="Suspects declared, sent for Sergeant review."),
+            403: OpenApiResponse(description="Permission denied. Requires Detective role."),
+        },
+        tags=["Cases – Workflow"],
+    )
     def declare_suspects(self, request: Request, pk: int = None) -> Response:
         """
         POST /api/cases/{id}/declare-suspects/
@@ -341,6 +501,20 @@ class CaseViewSet(viewsets.ViewSet):
         return Response(out.data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["post"], url_path="sergeant-review")
+    @extend_schema(
+        summary="Sergeant reviews suspect list",
+        description=(
+            "Sergeant approves arrest of suspects or rejects and returns to Detective. "
+            "Requires Sergeant role."
+        ),
+        request=SergeantReviewSerializer,
+        responses={
+            200: OpenApiResponse(response=CaseDetailSerializer, description="Sergeant review processed."),
+            400: OpenApiResponse(description="Validation error (missing rejection message)."),
+            403: OpenApiResponse(description="Permission denied. Requires Sergeant role."),
+        },
+        tags=["Cases – Workflow"],
+    )
     def sergeant_review(self, request: Request, pk: int = None) -> Response:
         """
         POST /api/cases/{id}/sergeant-review/
@@ -367,6 +541,20 @@ class CaseViewSet(viewsets.ViewSet):
         return Response(out.data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["post"], url_path="forward-judiciary")
+    @extend_schema(
+        summary="Forward case to judiciary",
+        description=(
+            "Captain or Police Chief forwards the case to the judiciary for trial. "
+            "For critical-level crimes, Police Chief approval is required. "
+            "Requires Captain or Police Chief role."
+        ),
+        request=None,
+        responses={
+            200: OpenApiResponse(response=CaseDetailSerializer, description="Case forwarded to judiciary."),
+            403: OpenApiResponse(description="Permission denied. Requires Captain or Police Chief."),
+        },
+        tags=["Cases – Workflow"],
+    )
     def forward_judiciary(self, request: Request, pk: int = None) -> Response:
         """
         POST /api/cases/{id}/forward-judiciary/
@@ -386,6 +574,20 @@ class CaseViewSet(viewsets.ViewSet):
         return Response(out.data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["post"], url_path="transition")
+    @extend_schema(
+        summary="Generic case state transition",
+        description=(
+            "Centralized state-transition endpoint for transitions without a dedicated action. "
+            "The service layer validates allowed transitions based on current status and user role."
+        ),
+        request=CaseTransitionSerializer,
+        responses={
+            200: OpenApiResponse(response=CaseDetailSerializer, description="Transition applied."),
+            400: OpenApiResponse(description="Invalid transition or missing message."),
+            403: OpenApiResponse(description="Permission denied."),
+        },
+        tags=["Cases – Workflow"],
+    )
     def transition(self, request: Request, pk: int = None) -> Response:
         """
         POST /api/cases/{id}/transition/
@@ -422,6 +624,21 @@ class CaseViewSet(viewsets.ViewSet):
     # ── Assignment @actions ───────────────────────────────────────────
 
     @action(detail=True, methods=["post"], url_path="assign-detective")
+    @extend_schema(
+        summary="Assign detective to case",
+        description=(
+            "Assign a detective to an open case and move it to INVESTIGATION status. "
+            "Requires Sergeant or higher rank."
+        ),
+        request=AssignPersonnelSerializer,
+        responses={
+            200: OpenApiResponse(response=CaseDetailSerializer, description="Detective assigned."),
+            400: OpenApiResponse(description="Validation error."),
+            403: OpenApiResponse(description="Permission denied."),
+            404: OpenApiResponse(description="Case or user not found."),
+        },
+        tags=["Cases – Assignment"],
+    )
     def assign_detective(self, request: Request, pk: int = None) -> Response:
         """
         POST /api/cases/{id}/assign-detective/
@@ -445,6 +662,19 @@ class CaseViewSet(viewsets.ViewSet):
         return Response(out.data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["delete"], url_path="unassign-detective")
+    @extend_schema(
+        summary="Unassign detective from case",
+        description=(
+            "Remove the currently assigned detective from the case. "
+            "Requires Sergeant or higher rank."
+        ),
+        responses={
+            200: OpenApiResponse(response=CaseDetailSerializer, description="Detective unassigned."),
+            403: OpenApiResponse(description="Permission denied."),
+            404: OpenApiResponse(description="Case not found."),
+        },
+        tags=["Cases – Assignment"],
+    )
     def unassign_detective(self, request: Request, pk: int = None) -> Response:
         """
         DELETE /api/cases/{id}/unassign-detective/
@@ -463,6 +693,19 @@ class CaseViewSet(viewsets.ViewSet):
         return Response(out.data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["post"], url_path="assign-sergeant")
+    @extend_schema(
+        summary="Assign sergeant to case",
+        description=(
+            "Assign a sergeant to the case. Requires Captain or higher rank."
+        ),
+        request=AssignPersonnelSerializer,
+        responses={
+            200: OpenApiResponse(response=CaseDetailSerializer, description="Sergeant assigned."),
+            400: OpenApiResponse(description="Validation error."),
+            403: OpenApiResponse(description="Permission denied."),
+        },
+        tags=["Cases – Assignment"],
+    )
     def assign_sergeant(self, request: Request, pk: int = None) -> Response:
         """
         POST /api/cases/{id}/assign-sergeant/
@@ -484,6 +727,19 @@ class CaseViewSet(viewsets.ViewSet):
         return Response(out.data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["post"], url_path="assign-captain")
+    @extend_schema(
+        summary="Assign captain to case",
+        description=(
+            "Assign a captain to the case. Requires Police Chief or Admin."
+        ),
+        request=AssignPersonnelSerializer,
+        responses={
+            200: OpenApiResponse(response=CaseDetailSerializer, description="Captain assigned."),
+            400: OpenApiResponse(description="Validation error."),
+            403: OpenApiResponse(description="Permission denied."),
+        },
+        tags=["Cases – Assignment"],
+    )
     def assign_captain(self, request: Request, pk: int = None) -> Response:
         """
         POST /api/cases/{id}/assign-captain/
@@ -501,6 +757,19 @@ class CaseViewSet(viewsets.ViewSet):
         return Response(out.data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["post"], url_path="assign-judge")
+    @extend_schema(
+        summary="Assign judge to case",
+        description=(
+            "Assign a judge to the case for trial. Requires Captain or higher rank."
+        ),
+        request=AssignPersonnelSerializer,
+        responses={
+            200: OpenApiResponse(response=CaseDetailSerializer, description="Judge assigned."),
+            400: OpenApiResponse(description="Validation error."),
+            403: OpenApiResponse(description="Permission denied."),
+        },
+        tags=["Cases – Assignment"],
+    )
     def assign_judge(self, request: Request, pk: int = None) -> Response:
         """
         POST /api/cases/{id}/assign-judge/
@@ -523,6 +792,21 @@ class CaseViewSet(viewsets.ViewSet):
         detail=True,
         methods=["get", "post"],
         url_path="complainants",
+    )
+    @extend_schema(
+        summary="List or add complainants",
+        description=(
+            "GET: List all complainants for a case. "
+            "POST: Add a new complainant (provide user_id). "
+            "Requires authentication."
+        ),
+        request=AddComplainantSerializer,
+        responses={
+            200: OpenApiResponse(response=CaseComplainantSerializer(many=True), description="List of complainants."),
+            201: OpenApiResponse(response=CaseComplainantSerializer, description="Complainant added."),
+            404: OpenApiResponse(description="Case or user not found."),
+        },
+        tags=["Cases – Complainants"],
     )
     def complainants(self, request: Request, pk: int = None) -> Response:
         """
@@ -570,6 +854,20 @@ class CaseViewSet(viewsets.ViewSet):
         methods=["post"],
         url_path=r"complainants/(?P<complainant_pk>[^/.]+)/review",
     )
+    @extend_schema(
+        summary="Review complainant info",
+        description=(
+            "Cadet approves or rejects an individual complainant's information. "
+            "Requires Cadet role."
+        ),
+        request=ComplainantReviewSerializer,
+        responses={
+            200: OpenApiResponse(response=CaseComplainantSerializer, description="Complainant review processed."),
+            400: OpenApiResponse(description="Validation error."),
+            403: OpenApiResponse(description="Permission denied. Requires Cadet role."),
+        },
+        tags=["Cases – Complainants"],
+    )
     def review_complainant(
         self,
         request: Request,
@@ -610,6 +908,21 @@ class CaseViewSet(viewsets.ViewSet):
         methods=["get", "post"],
         url_path="witnesses",
     )
+    @extend_schema(
+        summary="List or add witnesses",
+        description=(
+            "GET: List all witnesses for a case. "
+            "POST: Add a witness (full_name, phone_number, national_id). "
+            "Requires authentication. Adding witnesses is typically for crime-scene cases."
+        ),
+        request=CaseWitnessCreateSerializer,
+        responses={
+            200: OpenApiResponse(response=CaseWitnessSerializer(many=True), description="List of witnesses."),
+            201: OpenApiResponse(response=CaseWitnessSerializer, description="Witness added."),
+            400: OpenApiResponse(description="Validation error."),
+        },
+        tags=["Cases – Witnesses"],
+    )
     def witnesses(self, request: Request, pk: int = None) -> Response:
         """
         GET  /api/cases/{id}/witnesses/ — list witnesses.
@@ -645,6 +958,18 @@ class CaseViewSet(viewsets.ViewSet):
     # ── Sub-resource @actions — Audit & Calculations ─────────────────
 
     @action(detail=True, methods=["get"], url_path="status-log")
+    @extend_schema(
+        summary="Get case status audit log",
+        description=(
+            "Return the immutable status-transition audit trail for the case, "
+            "ordered chronologically (newest first). Requires authentication."
+        ),
+        responses={
+            200: OpenApiResponse(response=CaseStatusLogSerializer(many=True), description="Status transition log."),
+            404: OpenApiResponse(description="Case not found."),
+        },
+        tags=["Cases"],
+    )
     def status_log(self, request: Request, pk: int = None) -> Response:
         """
         GET /api/cases/{id}/status-log/
@@ -665,6 +990,19 @@ class CaseViewSet(viewsets.ViewSet):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["get"], url_path="calculations")
+    @extend_schema(
+        summary="Get case calculations",
+        description=(
+            "Return computed reward and tracking-threshold values for the case. "
+            "Includes crime_level_degree, days_since_creation, tracking_threshold, "
+            "and reward_rials. Requires authentication."
+        ),
+        responses={
+            200: OpenApiResponse(response=CaseCalculationsSerializer, description="Case formula outputs."),
+            404: OpenApiResponse(description="Case not found."),
+        },
+        tags=["Cases"],
+    )
     def calculations(self, request: Request, pk: int = None) -> Response:
         """
         GET /api/cases/{id}/calculations/

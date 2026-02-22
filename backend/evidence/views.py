@@ -26,6 +26,12 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiResponse,
+    extend_schema,
+)
+
 from .models import (
     BiologicalEvidence,
     Evidence,
@@ -122,6 +128,20 @@ class EvidenceViewSet(viewsets.ViewSet):
 
     # ── Standard CRUD ────────────────────────────────────────────────
 
+    @extend_schema(
+        summary="List evidence items",
+        description="Return evidence items with optional filters (type, status, case, date range, search).",
+        parameters=[
+            OpenApiParameter(name="evidence_type", type=str, required=False, description="Filter by evidence type."),
+            OpenApiParameter(name="verification_status", type=str, required=False, description="Filter by verification status."),
+            OpenApiParameter(name="case", type=int, required=False, description="Filter by linked case ID."),
+            OpenApiParameter(name="collected_after", type=str, required=False, description="ISO date — collected on or after."),
+            OpenApiParameter(name="collected_before", type=str, required=False, description="ISO date — collected on or before."),
+            OpenApiParameter(name="search", type=str, required=False, description="Free-text search across evidence fields."),
+        ],
+        responses={200: OpenApiResponse(response=EvidenceListSerializer(many=True), description="Evidence list.")},
+        tags=["Evidence"],
+    )
     def list(self, request: Request) -> Response:
         """GET /api/evidence/ — List evidence with optional filters."""
         filter_serializer = EvidenceFilterSerializer(data=request.query_params)
@@ -134,6 +154,20 @@ class EvidenceViewSet(viewsets.ViewSet):
         serializer = EvidenceListSerializer(queryset, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+    @extend_schema(
+        summary="Create evidence (polymorphic)",
+        description=(
+            "Create a new evidence item. The `evidence_type` field acts as a discriminator "
+            "to determine which child serializer validates the rest of the payload. "
+            "Supported types: testimony, biological, vehicle, identity, other."
+        ),
+        request=EvidencePolymorphicCreateSerializer,
+        responses={
+            201: OpenApiResponse(response=EvidenceListSerializer, description="Evidence created."),
+            400: OpenApiResponse(description="Validation error."),
+        },
+        tags=["Evidence"],
+    )
     def create(self, request: Request) -> Response:
         """POST /api/evidence/ — Create polymorphic evidence."""
         # 1. Validate evidence_type discriminator
@@ -163,6 +197,12 @@ class EvidenceViewSet(viewsets.ViewSet):
         response_serializer = detail_serializer_class(evidence)
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
 
+    @extend_schema(
+        summary="Retrieve evidence detail",
+        description="Fetch full detail for a single evidence item, resolved to its polymorphic subtype.",
+        responses={200: OpenApiResponse(response=EvidenceListSerializer, description="Evidence detail (type-specific).")},
+        tags=["Evidence"],
+    )
     def retrieve(self, request: Request, pk: int = None) -> Response:
         """GET /api/evidence/{id}/ — Evidence detail."""
         evidence = self._get_evidence(pk)
@@ -170,6 +210,16 @@ class EvidenceViewSet(viewsets.ViewSet):
         serializer = detail_serializer_class(evidence)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+    @extend_schema(
+        summary="Partial update evidence",
+        description="Update evidence fields. The update serializer is selected based on the evidence type.",
+        request=EvidenceUpdateSerializer,
+        responses={
+            200: OpenApiResponse(response=EvidenceListSerializer, description="Evidence updated."),
+            400: OpenApiResponse(description="Validation error."),
+        },
+        tags=["Evidence"],
+    )
     def partial_update(self, request: Request, pk: int = None) -> Response:
         """PATCH /api/evidence/{id}/ — Partial update."""
         evidence = self._get_evidence(pk)
@@ -186,6 +236,12 @@ class EvidenceViewSet(viewsets.ViewSet):
         response_serializer = detail_serializer_class(updated)
         return Response(response_serializer.data, status=status.HTTP_200_OK)
 
+    @extend_schema(
+        summary="Delete evidence",
+        description="Delete an evidence item.",
+        responses={204: OpenApiResponse(description="Deleted.")},
+        tags=["Evidence"],
+    )
     def destroy(self, request: Request, pk: int = None) -> Response:
         """DELETE /api/evidence/{id}/ — Delete evidence."""
         evidence = self._get_evidence(pk)
@@ -195,6 +251,16 @@ class EvidenceViewSet(viewsets.ViewSet):
     # ── Workflow @actions ─────────────────────────────────────────────
 
     @action(detail=True, methods=["post"], url_path="verify")
+    @extend_schema(
+        summary="Verify biological evidence",
+        description="Medical examiner / coroner verifies biological evidence with a forensic result.",
+        request=VerifyBiologicalEvidenceSerializer,
+        responses={
+            200: OpenApiResponse(response=BiologicalEvidenceDetailSerializer, description="Verification recorded."),
+            400: OpenApiResponse(description="Validation error or wrong evidence type."),
+        },
+        tags=["Evidence"],
+    )
     def verify(self, request: Request, pk: int = None) -> Response:
         """POST /api/evidence/{id}/verify/ — Coroner verifies biological evidence."""
         serializer = VerifyBiologicalEvidenceSerializer(data=request.data)
@@ -213,6 +279,13 @@ class EvidenceViewSet(viewsets.ViewSet):
         return Response(response_serializer.data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["post"], url_path="link-case")
+    @extend_schema(
+        summary="Link evidence to a case",
+        description="Associate an evidence item with a case.",
+        request=LinkCaseSerializer,
+        responses={200: OpenApiResponse(response=EvidenceListSerializer, description="Evidence linked.")},
+        tags=["Evidence"],
+    )
     def link_case(self, request: Request, pk: int = None) -> Response:
         """POST /api/evidence/{id}/link-case/ — Link evidence to a case."""
         evidence = self._get_evidence(pk)
@@ -229,6 +302,13 @@ class EvidenceViewSet(viewsets.ViewSet):
         return Response(response_serializer.data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["post"], url_path="unlink-case")
+    @extend_schema(
+        summary="Unlink evidence from a case",
+        description="Remove the association between an evidence item and a case.",
+        request=UnlinkCaseSerializer,
+        responses={200: OpenApiResponse(response=EvidenceListSerializer, description="Evidence unlinked.")},
+        tags=["Evidence"],
+    )
     def unlink_case(self, request: Request, pk: int = None) -> Response:
         """POST /api/evidence/{id}/unlink-case/ — Unlink evidence from a case."""
         evidence = self._get_evidence(pk)
@@ -247,6 +327,19 @@ class EvidenceViewSet(viewsets.ViewSet):
     # ── File management @actions ──────────────────────────────────────
 
     @action(detail=True, methods=["get", "post"], url_path="files")
+    @extend_schema(
+        summary="List or upload evidence files",
+        description=(
+            "GET: List all files attached to this evidence item.\n"
+            "POST: Upload a new file (multipart/form-data)."
+        ),
+        request=EvidenceFileUploadSerializer,
+        responses={
+            200: OpenApiResponse(response=EvidenceFileReadSerializer(many=True), description="File list."),
+            201: OpenApiResponse(response=EvidenceFileReadSerializer, description="File uploaded."),
+        },
+        tags=["Evidence"],
+    )
     def files(self, request: Request, pk: int = None) -> Response:
         """
         GET  /api/evidence/{id}/files/ — list attached files.
@@ -271,6 +364,12 @@ class EvidenceViewSet(viewsets.ViewSet):
     # ── Audit / history @actions ──────────────────────────────────────
 
     @action(detail=True, methods=["get"], url_path="chain-of-custody")
+    @extend_schema(
+        summary="Chain of custody audit trail",
+        description="Return the full chain-of-custody log for an evidence item.",
+        responses={200: OpenApiResponse(response=ChainOfCustodyEntrySerializer(many=True), description="Custody log.")},
+        tags=["Evidence"],
+    )
     def chain_of_custody(self, request: Request, pk: int = None) -> Response:
         """GET /api/evidence/{id}/chain-of-custody/ — Audit trail."""
         logs = ChainOfCustodyService.get_chain_of_custody(pk, request.user)

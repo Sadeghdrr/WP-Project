@@ -21,6 +21,11 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from drf_spectacular.utils import (
+    OpenApiResponse,
+    extend_schema,
+)
+
 from .models import BoardConnection, BoardItem, BoardNote, DetectiveBoard
 from .serializers import (
     BatchCoordinateUpdateSerializer,
@@ -64,6 +69,16 @@ class DetectiveBoardViewSet(viewsets.ModelViewSet):
             return FullBoardStateSerializer
         return DetectiveBoardCreateUpdateSerializer
 
+    @extend_schema(
+        summary="Create a detective board",
+        description="Create a new detective board for an existing case.",
+        request=DetectiveBoardCreateUpdateSerializer,
+        responses={
+            201: OpenApiResponse(response=DetectiveBoardListSerializer, description="Board created."),
+            400: OpenApiResponse(description="Validation error."),
+        },
+        tags=["Detective Board"],
+    )
     def create(self, request: Request, *args, **kwargs) -> Response:
         serializer = DetectiveBoardCreateUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -75,6 +90,16 @@ class DetectiveBoardViewSet(viewsets.ModelViewSet):
             status=status.HTTP_201_CREATED,
         )
 
+    @extend_schema(
+        summary="Partial update board metadata",
+        description="Update title or other metadata fields of a detective board.",
+        request=DetectiveBoardCreateUpdateSerializer,
+        responses={
+            200: OpenApiResponse(response=DetectiveBoardListSerializer, description="Board updated."),
+            400: OpenApiResponse(description="Validation error."),
+        },
+        tags=["Detective Board"],
+    )
     def partial_update(self, request: Request, *args, **kwargs) -> Response:
         board = self.get_object()
         serializer = DetectiveBoardCreateUpdateSerializer(
@@ -86,12 +111,28 @@ class DetectiveBoardViewSet(viewsets.ModelViewSet):
         )
         return Response(DetectiveBoardListSerializer(board).data)
 
+    @extend_schema(
+        summary="Delete a detective board",
+        description="Delete a detective board and all its nested items.",
+        responses={204: OpenApiResponse(description="Deleted.")},
+        tags=["Detective Board"],
+    )
     def destroy(self, request: Request, *args, **kwargs) -> Response:
         board = self.get_object()
         BoardWorkspaceService.delete_board(board, request.user)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(detail=True, methods=["get"], url_path="full")
+    @extend_schema(
+        summary="Full board graph (single request)",
+        description=(
+            "Return the complete board graph — metadata, items (with resolved "
+            "GenericForeignKey summaries), connections, and notes — in a single response. "
+            "Designed for the Next.js canvas to call on mount."
+        ),
+        responses={200: OpenApiResponse(response=FullBoardStateSerializer, description="Full board state.")},
+        tags=["Detective Board"],
+    )
     def full_state(self, request: Request, pk: int = None) -> Response:
         board = BoardWorkspaceService.get_board_snapshot(int(pk), request.user)
         serializer = FullBoardStateSerializer(board, context={"request": request})
@@ -113,6 +154,16 @@ class BoardItemViewSet(viewsets.ViewSet):
     def _get_board(self, board_pk: int) -> DetectiveBoard:
         return get_object_or_404(DetectiveBoard, pk=board_pk)
 
+    @extend_schema(
+        summary="Add a pin to the board",
+        description="Pin a content object (evidence, suspect, etc.) onto the detective board.",
+        request=BoardItemCreateSerializer,
+        responses={
+            201: OpenApiResponse(response=BoardItemResponseSerializer, description="Pin created."),
+            400: OpenApiResponse(description="Validation error."),
+        },
+        tags=["Detective Board – Items"],
+    )
     def create(self, request: Request, board_pk: int = None) -> Response:
         board = self._get_board(board_pk)
         serializer = BoardItemCreateSerializer(data=request.data)
@@ -132,12 +183,35 @@ class BoardItemViewSet(viewsets.ViewSet):
             status=status.HTTP_201_CREATED,
         )
 
+    @extend_schema(
+        summary="Remove a pin from the board",
+        description="Remove a board item (pin) by ID.",
+        responses={204: OpenApiResponse(description="Pin removed.")},
+        tags=["Detective Board – Items"],
+    )
     def destroy(self, request: Request, board_pk: int = None, pk: int = None) -> Response:
         item = get_object_or_404(BoardItem, pk=pk, board__pk=board_pk)
         BoardItemService.remove_item(item, request.user)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
-    @action(detail=False, methods=["patch"], url_path="batch-coordinates")
+    @action(
+        detail=False,
+        methods=["patch"],
+        url_path="batch-coordinates",
+    )
+    @extend_schema(
+        summary="Batch update pin coordinates",
+        description=(
+            "Drag-and-drop save endpoint. Accepts an array of item ID + new position pairs "
+            "and performs a single bulk update."
+        ),
+        request=BatchCoordinateUpdateSerializer,
+        responses={
+            200: OpenApiResponse(response=BoardItemResponseSerializer(many=True), description="Updated positions."),
+            400: OpenApiResponse(description="Validation error."),
+        },
+        tags=["Detective Board – Items"],
+    )
     def batch_update_coordinates(
         self, request: Request, board_pk: int = None
     ) -> Response:
@@ -168,6 +242,16 @@ class BoardConnectionViewSet(viewsets.ViewSet):
 
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        summary="Create a board connection",
+        description="Draw a red-line connection between two board items.",
+        request=BoardConnectionCreateSerializer,
+        responses={
+            201: OpenApiResponse(response=BoardConnectionResponseSerializer, description="Connection created."),
+            400: OpenApiResponse(description="Validation error."),
+        },
+        tags=["Detective Board – Connections"],
+    )
     def create(self, request: Request, board_pk: int = None) -> Response:
         board = get_object_or_404(DetectiveBoard, pk=board_pk)
         serializer = BoardConnectionCreateSerializer(data=request.data)
@@ -185,6 +269,12 @@ class BoardConnectionViewSet(viewsets.ViewSet):
             status=status.HTTP_201_CREATED,
         )
 
+    @extend_schema(
+        summary="Delete a board connection",
+        description="Remove a red-line connection from the board.",
+        responses={204: OpenApiResponse(description="Connection removed.")},
+        tags=["Detective Board – Connections"],
+    )
     def destroy(
         self, request: Request, board_pk: int = None, pk: int = None
     ) -> Response:
@@ -207,6 +297,16 @@ class BoardNoteViewSet(viewsets.ViewSet):
 
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        summary="Create a sticky note",
+        description="Add a new sticky note to the detective board.",
+        request=BoardNoteCreateUpdateSerializer,
+        responses={
+            201: OpenApiResponse(response=BoardNoteResponseSerializer, description="Note created."),
+            400: OpenApiResponse(description="Validation error."),
+        },
+        tags=["Detective Board – Notes"],
+    )
     def create(self, request: Request, board_pk: int = None) -> Response:
         board = get_object_or_404(DetectiveBoard, pk=board_pk)
         serializer = BoardNoteCreateUpdateSerializer(data=request.data)
@@ -220,12 +320,28 @@ class BoardNoteViewSet(viewsets.ViewSet):
             status=status.HTTP_201_CREATED,
         )
 
+    @extend_schema(
+        summary="Retrieve a sticky note",
+        description="Fetch a single board note by ID.",
+        responses={200: OpenApiResponse(response=BoardNoteResponseSerializer, description="Note detail.")},
+        tags=["Detective Board – Notes"],
+    )
     def retrieve(
         self, request: Request, board_pk: int = None, pk: int = None
     ) -> Response:
         note = get_object_or_404(BoardNote, pk=pk, board__pk=board_pk)
         return Response(BoardNoteResponseSerializer(note).data)
 
+    @extend_schema(
+        summary="Update a sticky note",
+        description="Partially update a sticky note’s title and/or content.",
+        request=BoardNoteCreateUpdateSerializer,
+        responses={
+            200: OpenApiResponse(response=BoardNoteResponseSerializer, description="Note updated."),
+            400: OpenApiResponse(description="Validation error."),
+        },
+        tags=["Detective Board – Notes"],
+    )
     def partial_update(
         self, request: Request, board_pk: int = None, pk: int = None
     ) -> Response:
@@ -239,6 +355,12 @@ class BoardNoteViewSet(viewsets.ViewSet):
         )
         return Response(BoardNoteResponseSerializer(note).data)
 
+    @extend_schema(
+        summary="Delete a sticky note",
+        description="Remove a sticky note from the detective board.",
+        responses={204: OpenApiResponse(description="Note deleted.")},
+        tags=["Detective Board – Notes"],
+    )
     def destroy(
         self, request: Request, board_pk: int = None, pk: int = None
     ) -> Response:

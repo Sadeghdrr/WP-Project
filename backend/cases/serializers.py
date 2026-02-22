@@ -65,22 +65,26 @@ class CaseFilterSerializer(serializers.Serializer):
     status = serializers.ChoiceField(
         choices=CaseStatus.choices,
         required=False,
+        help_text="Filter by case status. Options: " + ", ".join([c[0] for c in CaseStatus.choices]) + ".",
     )
     crime_level = serializers.ChoiceField(
         choices=CrimeLevel.choices,
         required=False,
+        help_text="Filter by crime level. 1=Level 3 (minor), 2=Level 2, 3=Level 1, 4=Critical.",
     )
-    detective = serializers.IntegerField(required=False, min_value=1)
+    detective = serializers.IntegerField(required=False, min_value=1, help_text="PK of the assigned detective to filter by.")
     creation_type = serializers.ChoiceField(
         choices=CaseCreationType.choices,
         required=False,
+        help_text="Filter by creation type: 'complaint' or 'crime_scene'.",
     )
-    created_after = serializers.DateField(required=False)
-    created_before = serializers.DateField(required=False)
+    created_after = serializers.DateField(required=False, help_text="ISO 8601 date. Return cases created on or after this date.")
+    created_before = serializers.DateField(required=False, help_text="ISO 8601 date. Return cases created on or before this date.")
     search = serializers.CharField(
         required=False,
         max_length=255,
         allow_blank=False,
+        help_text="Free-text search against case title and description.",
     )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
@@ -467,13 +471,13 @@ class CaseTransitionSerializer(serializers.Serializer):
     that check is enforced in ``CaseWorkflowService.transition_state``.
     """
 
-    target_status = serializers.ChoiceField(choices=CaseStatus.choices)
+    target_status = serializers.ChoiceField(choices=CaseStatus.choices, help_text="Target workflow status for the case.")
     message = serializers.CharField(
         required=False,
         allow_blank=True,
         default="",
         max_length=2000,
-        help_text="Required for rejection transitions.",
+        help_text="Required for rejection transitions. Explains the reason for rejecting.",
     )
 
 
@@ -487,12 +491,13 @@ class CadetReviewSerializer(serializers.Serializer):
 
     DECISION_CHOICES = [("approve", "Approve"), ("reject", "Reject")]
 
-    decision = serializers.ChoiceField(choices=DECISION_CHOICES)
+    decision = serializers.ChoiceField(choices=DECISION_CHOICES, help_text="'approve' to forward the case, 'reject' to return it to the complainant.")
     message = serializers.CharField(
         required=False,
         allow_blank=True,
         default="",
         max_length=2000,
+        help_text="Rejection reason sent back to the complainant. Required when decision is 'reject'.",
     )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
@@ -521,12 +526,13 @@ class OfficerReviewSerializer(serializers.Serializer):
 
     DECISION_CHOICES = [("approve", "Approve"), ("reject", "Reject")]
 
-    decision = serializers.ChoiceField(choices=DECISION_CHOICES)
+    decision = serializers.ChoiceField(choices=DECISION_CHOICES, help_text="'approve' to open the case, 'reject' to send it back to the Cadet.")
     message = serializers.CharField(
         required=False,
         allow_blank=True,
         default="",
         max_length=2000,
+        help_text="Rejection reason sent back to the Cadet. Required when decision is 'reject'.",
     )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
@@ -577,7 +583,7 @@ class AssignPersonnelSerializer(serializers.Serializer):
     relevant service method.
     """
 
-    user_id = serializers.IntegerField(min_value=1)
+    user_id = serializers.IntegerField(min_value=1, help_text="PK of the user to assign to this case role (must have the appropriate rank).")
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -591,7 +597,7 @@ class AddComplainantSerializer(serializers.Serializer):
     ``user_id`` is the PK of the user to add as an additional complainant.
     """
 
-    user_id = serializers.IntegerField(min_value=1)
+    user_id = serializers.IntegerField(min_value=1, help_text="PK of the user to register as an additional complainant on this case.")
 
 
 class ComplainantReviewSerializer(serializers.Serializer):

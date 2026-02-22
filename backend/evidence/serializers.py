@@ -63,17 +63,19 @@ class EvidenceFilterSerializer(serializers.Serializer):
     evidence_type = serializers.ChoiceField(
         choices=EvidenceType.choices,
         required=False,
+        help_text="Filter by evidence type: testimony, biological, vehicle, identity, other.",
     )
-    case = serializers.IntegerField(required=False, min_value=1)
-    registered_by = serializers.IntegerField(required=False, min_value=1)
-    is_verified = serializers.BooleanField(required=False)
+    case = serializers.IntegerField(required=False, min_value=1, help_text="Filter by associated case PK.")
+    registered_by = serializers.IntegerField(required=False, min_value=1, help_text="Filter by registrar user PK.")
+    is_verified = serializers.BooleanField(required=False, help_text="Filter biological evidence by verification status. Only valid with evidence_type='biological'.")
     search = serializers.CharField(
         required=False,
         max_length=255,
         allow_blank=False,
+        help_text="Free-text search against evidence title and description.",
     )
-    created_after = serializers.DateField(required=False)
-    created_before = serializers.DateField(required=False)
+    created_after = serializers.DateField(required=False, help_text="ISO 8601 date. Return evidence created on or after this date.")
+    created_before = serializers.DateField(required=False, help_text="ISO 8601 date. Return evidence created on or before this date.")
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         """
@@ -626,7 +628,7 @@ class EvidencePolymorphicCreateSerializer(serializers.Serializer):
     after extracting ``evidence_type`` from ``request.data``.
     """
 
-    evidence_type = serializers.ChoiceField(choices=EvidenceType.choices)
+    evidence_type = serializers.ChoiceField(choices=EvidenceType.choices, help_text="Discriminator field. Determines which type-specific fields are expected: testimony, biological, vehicle, identity, other.")
 
     #: Maps each ``EvidenceType`` value to its dedicated create serializer.
     _SERIALIZER_MAP: dict[str, type[serializers.Serializer]] = {

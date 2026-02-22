@@ -20,6 +20,12 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiResponse,
+    extend_schema,
+)
+
 from .serializers import (
     DashboardStatsSerializer,
     GlobalSearchResponseSerializer,
@@ -58,6 +64,15 @@ class DashboardStatsView(APIView):
 
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        summary="Dashboard statistics",
+        description=(
+            "Return aggregated dashboard statistics scoped to the authenticated user’s role. "
+            "Captains and Police Chiefs see department-wide metrics; Detectives see only their assigned cases."
+        ),
+        responses={200: OpenApiResponse(response=DashboardStatsSerializer, description="Dashboard stats.")},
+        tags=["Dashboard"],
+    )
     def get(self, request: Request) -> Response:
         """
         Handle GET request — delegate to
@@ -107,6 +122,23 @@ class GlobalSearchView(APIView):
 
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        summary="Global search",
+        description=(
+            "Perform a unified search across Cases, Suspects, and Evidence. "
+            "Results are categorised and scoped to the user’s permissions."
+        ),
+        parameters=[
+            OpenApiParameter(name="q", type=str, required=True, description="Search term (min 2 chars)."),
+            OpenApiParameter(name="category", type=str, required=False, description="Restrict to: cases, suspects, or evidence."),
+            OpenApiParameter(name="limit", type=int, required=False, description="Max results per category (default 10, max 50)."),
+        ],
+        responses={
+            200: OpenApiResponse(response=GlobalSearchResponseSerializer, description="Search results."),
+            400: OpenApiResponse(description="Missing or invalid query parameter."),
+        },
+        tags=["Search"],
+    )
     def get(self, request: Request) -> Response:
         """
         Handle GET request — validate parameters and delegate to
@@ -178,6 +210,15 @@ class SystemConstantsView(APIView):
 
     permission_classes = [AllowAny]
 
+    @extend_schema(
+        summary="System constants",
+        description=(
+            "Return all system-wide choice enumerations and the role hierarchy "
+            "so the frontend can dynamically build dropdowns, filters, and labels."
+        ),
+        responses={200: OpenApiResponse(response=SystemConstantsSerializer, description="System constants.")},
+        tags=["System"],
+    )
     def get(self, request: Request) -> Response:
         """
         Handle GET request — delegate to ``SystemConstantsService``.
@@ -207,6 +248,12 @@ class NotificationViewSet(viewsets.ViewSet):
 
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        summary="List notifications",
+        description="Return all notifications for the authenticated user.",
+        responses={200: OpenApiResponse(response=NotificationSerializer(many=True), description="Notification list.")},
+        tags=["Notifications"],
+    )
     def list(self, request: Request) -> Response:
         """
         Return all notifications for the authenticated user.
@@ -223,6 +270,13 @@ class NotificationViewSet(viewsets.ViewSet):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["post"], url_path="read")
+    @extend_schema(
+        summary="Mark notification as read",
+        description="Mark a single notification as read by ID.",
+        request=None,
+        responses={200: OpenApiResponse(response=NotificationSerializer, description="Updated notification.")},
+        tags=["Notifications"],
+    )
     def mark_as_read(self, request: Request, pk: int = None) -> Response:
         """
         Mark a single notification as read.

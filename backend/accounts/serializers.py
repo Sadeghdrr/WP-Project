@@ -116,6 +116,7 @@ class LoginRequestSerializer(serializers.Serializer):
     password = serializers.CharField(
         write_only=True,
         style={"input_type": "password"},
+        help_text="User account password.",
     )
 
 
@@ -401,7 +402,7 @@ class AssignRoleSerializer(serializers.Serializer):
     """
 
     role_id = serializers.IntegerField(
-        help_text="PK of the Role to assign to this user.",
+        help_text="PK of the Role to assign to this user. Must reference an existing Role.",
     )
 
     def validate_role_id(self, value: int) -> int:
