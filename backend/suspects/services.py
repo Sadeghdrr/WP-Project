@@ -43,7 +43,7 @@ from django.utils import timezone
 
 from core.domain.exceptions import DomainError, InvalidTransition, NotFound, PermissionDenied
 from core.domain.notifications import NotificationService
-from core.permissions_constants import SuspectsPerms
+from core.permissions_constants import CasesPerms, SuspectsPerms
 
 from .models import (
     Bail,
@@ -1068,16 +1068,18 @@ class ArrestAndWarrantService:
             )
 
         # ── Permission check for specific transition ────────────────
-        perm_codename = ArrestAndWarrantService._TRANSITION_PERMISSION_MAP.get(
+        perm_entry = ArrestAndWarrantService._TRANSITION_PERMISSION_MAP.get(
             (current, new_status),
         )
-        if perm_codename and not requesting_user.has_perm(
-            f"suspects.{perm_codename}"
-        ):
-            raise PermissionDenied(
-                f"You do not have permission for the transition "
-                f"'{current}' → '{new_status}'."
-            )
+        if perm_entry:
+            app_label, perm_codename = perm_entry
+            if not requesting_user.has_perm(
+                f"{app_label}.{perm_codename}"
+            ):
+                raise PermissionDenied(
+                    f"You do not have permission for the transition "
+                    f"'{current}' → '{new_status}'."
+                )
 
         # ── Execute transition ──────────────────────────────────────
         old_status = suspect.status
@@ -1101,20 +1103,28 @@ class ArrestAndWarrantService:
         return suspect
 
     #: Maps each (current_status, new_status) pair to the required
-    #: permission codename.
-    _TRANSITION_PERMISSION_MAP: dict[tuple[str, str], str] = {
+    #: permission as (app_label, codename).
+    _TRANSITION_PERMISSION_MAP: dict[tuple[str, str], tuple[str, str]] = {
         (SuspectStatus.ARRESTED, SuspectStatus.UNDER_INTERROGATION):
-            SuspectsPerms.CAN_CONDUCT_INTERROGATION,
-        (SuspectStatus.UNDER_INTERROGATION, SuspectStatus.UNDER_TRIAL):
-            SuspectsPerms.CAN_RENDER_VERDICT,
+            ("suspects", SuspectsPerms.CAN_CONDUCT_INTERROGATION),
+        (SuspectStatus.UNDER_INTERROGATION, SuspectStatus.PENDING_CAPTAIN_VERDICT):
+            ("suspects", SuspectsPerms.CAN_SCORE_GUILT),
+        (SuspectStatus.PENDING_CAPTAIN_VERDICT, SuspectStatus.PENDING_CHIEF_APPROVAL):
+            ("suspects", SuspectsPerms.CAN_RENDER_VERDICT),
+        (SuspectStatus.PENDING_CAPTAIN_VERDICT, SuspectStatus.UNDER_TRIAL):
+            ("suspects", SuspectsPerms.CAN_RENDER_VERDICT),
+        (SuspectStatus.PENDING_CHIEF_APPROVAL, SuspectStatus.UNDER_TRIAL):
+            ("cases", CasesPerms.CAN_APPROVE_CRITICAL_CASE),
+        (SuspectStatus.PENDING_CHIEF_APPROVAL, SuspectStatus.UNDER_INTERROGATION):
+            ("cases", CasesPerms.CAN_APPROVE_CRITICAL_CASE),
         (SuspectStatus.UNDER_TRIAL, SuspectStatus.CONVICTED):
-            SuspectsPerms.CAN_JUDGE_TRIAL,
+            ("suspects", SuspectsPerms.CAN_JUDGE_TRIAL),
         (SuspectStatus.UNDER_TRIAL, SuspectStatus.ACQUITTED):
-            SuspectsPerms.CAN_JUDGE_TRIAL,
+            ("suspects", SuspectsPerms.CAN_JUDGE_TRIAL),
         (SuspectStatus.ARRESTED, SuspectStatus.RELEASED):
-            SuspectsPerms.CAN_SET_BAIL_AMOUNT,
+            ("suspects", SuspectsPerms.CAN_SET_BAIL_AMOUNT),
         (SuspectStatus.CONVICTED, SuspectStatus.RELEASED):
-            SuspectsPerms.CAN_SET_BAIL_AMOUNT,
+            ("suspects", SuspectsPerms.CAN_SET_BAIL_AMOUNT),
     }
 
     #: Legal transitions in the suspect lifecycle state machine.
@@ -1124,7 +1134,17 @@ class ArrestAndWarrantService:
             SuspectStatus.UNDER_INTERROGATION,
             SuspectStatus.RELEASED,
         },
-        SuspectStatus.UNDER_INTERROGATION: {SuspectStatus.UNDER_TRIAL},
+        SuspectStatus.UNDER_INTERROGATION: {
+            SuspectStatus.PENDING_CAPTAIN_VERDICT,
+        },
+        SuspectStatus.PENDING_CAPTAIN_VERDICT: {
+            SuspectStatus.UNDER_TRIAL,
+            SuspectStatus.PENDING_CHIEF_APPROVAL,
+        },
+        SuspectStatus.PENDING_CHIEF_APPROVAL: {
+            SuspectStatus.UNDER_TRIAL,
+            SuspectStatus.UNDER_INTERROGATION,
+        },
         SuspectStatus.UNDER_TRIAL: {
             SuspectStatus.CONVICTED,
             SuspectStatus.ACQUITTED,
@@ -1158,28 +1178,101 @@ class InterrogationService:
         """
         Return all interrogation sessions for a given suspect.
 
-        Parameters
-        ----------
-        suspect_id : int
-            PK of the suspect.
-        requesting_user : User
-            Used for permission-based scoping.
-
-        Returns
-        -------
-        QuerySet[Interrogation]
-            Interrogations ordered by ``-created_at``.
-
-        Implementation Contract
-        -----------------------
-        1. Assert the user has ``VIEW_INTERROGATION`` permission.
-        2. Return ``Interrogation.objects.filter(
-               suspect_id=suspect_id
-           ).select_related(
-               "detective", "sergeant", "suspect", "case"
-           ).order_by("-created_at")``.
+        Role-based scoping:
+        - Detective: sees interrogations on cases assigned to them.
+        - Sergeant: sees interrogations on cases they supervise.
+        - Captain / Chief / Admin / Judge: unrestricted.
         """
-        raise NotImplementedError
+        qs = Interrogation.objects.filter(
+            suspect_id=suspect_id,
+        ).select_related(
+            "detective", "sergeant", "suspect", "case",
+        ).order_by("-created_at")
+
+        user = requesting_user
+        role_name = ""
+        if hasattr(user, "role") and user.role:
+            role_name = user.role.name.lower()
+
+        high_level_roles = {
+            "captain", "police chief", "admin",
+            "system administrator", "judge",
+        }
+        if role_name not in high_level_roles and not user.is_superuser:
+            if role_name == "detective":
+                qs = qs.filter(
+                    Q(case__assigned_detective=user) | Q(detective=user),
+                )
+            elif role_name == "sergeant":
+                qs = qs.filter(
+                    Q(case__assigned_sergeant=user) | Q(sergeant=user),
+                )
+            else:
+                qs = qs.filter(
+                    Q(case__created_by=user)
+                    | Q(case__complainants__user=user),
+                ).distinct()
+
+        return qs
+
+    @staticmethod
+    def get_interrogation_detail(
+        interrogation_id: int,
+    ) -> Interrogation:
+        """Retrieve a single interrogation by PK with related data."""
+        try:
+            return Interrogation.objects.select_related(
+                "detective", "sergeant", "suspect", "case",
+            ).get(pk=interrogation_id)
+        except Interrogation.DoesNotExist:
+            raise NotFound(
+                f"Interrogation with id {interrogation_id} not found.",
+            )
+
+    @staticmethod
+    def list_interrogations(
+        requesting_user: Any,
+        filters: dict[str, Any] | None = None,
+    ) -> QuerySet[Interrogation]:
+        """
+        Return all interrogations visible to the requesting user,
+        with optional filters (case, suspect).
+        """
+        qs = Interrogation.objects.select_related(
+            "detective", "sergeant", "suspect", "case",
+        ).order_by("-created_at")
+
+        user = requesting_user
+        role_name = ""
+        if hasattr(user, "role") and user.role:
+            role_name = user.role.name.lower()
+
+        high_level_roles = {
+            "captain", "police chief", "admin",
+            "system administrator", "judge",
+        }
+        if role_name not in high_level_roles and not user.is_superuser:
+            if role_name == "detective":
+                qs = qs.filter(
+                    Q(case__assigned_detective=user) | Q(detective=user),
+                )
+            elif role_name == "sergeant":
+                qs = qs.filter(
+                    Q(case__assigned_sergeant=user) | Q(sergeant=user),
+                )
+            else:
+                qs = qs.filter(
+                    Q(case__created_by=user)
+                    | Q(case__complainants__user=user),
+                ).distinct()
+
+        if filters:
+            if "case" in filters:
+                qs = qs.filter(case_id=filters["case"])
+            if "suspect" in filters:
+                qs = qs.filter(suspect_id=filters["suspect"])
+
+        return qs
 
     @staticmethod
     @transaction.atomic
@@ -1191,51 +1284,466 @@ class InterrogationService:
         """
         Create a new interrogation session for a suspect.
 
+        Validates:
+        - Actor has CAN_CONDUCT_INTERROGATION permission.
+        - Suspect is in ARRESTED or UNDER_INTERROGATION status.
+        - Scores are integers 1-10 (also enforced in serializer).
+
+        Transitions suspect to UNDER_INTERROGATION if currently ARRESTED.
+        """
+        # ── Permission check ────────────────────────────────────────
+        if not requesting_user.has_perm(
+            f"suspects.{SuspectsPerms.CAN_CONDUCT_INTERROGATION}"
+        ):
+            raise PermissionDenied(
+                "You do not have permission to conduct interrogations."
+            )
+
+        # ── Fetch suspect with lock ─────────────────────────────────
+        try:
+            suspect = Suspect.objects.select_for_update().select_related(
+                "case",
+            ).get(pk=suspect_id)
+        except Suspect.DoesNotExist:
+            raise NotFound(f"Suspect with id {suspect_id} not found.")
+
+        # ── Status guard ────────────────────────────────────────────
+        eligible_statuses = {
+            SuspectStatus.ARRESTED,
+            SuspectStatus.UNDER_INTERROGATION,
+        }
+        if suspect.status not in eligible_statuses:
+            raise DomainError(
+                f"Cannot interrogate a suspect in "
+                f"'{suspect.get_status_display()}' status. "
+                f"Suspect must be Arrested or Under Interrogation."
+            )
+
+        # ── Score validation (defence-in-depth) ─────────────────────
+        det_score = validated_data.get("detective_guilt_score")
+        sgt_score = validated_data.get("sergeant_guilt_score")
+        for label, score in [
+            ("detective_guilt_score", det_score),
+            ("sergeant_guilt_score", sgt_score),
+        ]:
+            if score is not None and not (1 <= score <= 10):
+                raise DomainError(
+                    f"{label} must be an integer between 1 and 10 inclusive."
+                )
+
+        # ── Transition to UNDER_INTERROGATION if ARRESTED ───────────
+        if suspect.status == SuspectStatus.ARRESTED:
+            old_status = suspect.status
+            suspect.status = SuspectStatus.UNDER_INTERROGATION
+            suspect.save(update_fields=["status", "updated_at"])
+            SuspectStatusLog.objects.create(
+                suspect=suspect,
+                from_status=old_status,
+                to_status=SuspectStatus.UNDER_INTERROGATION,
+                changed_by=requesting_user,
+                notes="Automatic transition upon interrogation creation.",
+            )
+
+        # ── Resolve detective and sergeant from case assignment ─────
+        case = suspect.case
+        detective = case.assigned_detective or requesting_user
+        sergeant = case.assigned_sergeant or requesting_user
+
+        # ── Create the interrogation record ─────────────────────────
+        interrogation = Interrogation.objects.create(
+            suspect=suspect,
+            case=case,
+            detective=detective,
+            sergeant=sergeant,
+            detective_guilt_score=validated_data["detective_guilt_score"],
+            sergeant_guilt_score=validated_data["sergeant_guilt_score"],
+            notes=validated_data.get("notes", ""),
+        )
+
+        # ── Notify the Captain with the guilt scores ────────────────
+        captain = getattr(case, "assigned_captain", None)
+        if captain:
+            NotificationService.create(
+                actor=requesting_user,
+                recipients=captain,
+                event_type="interrogation_created",
+                payload={
+                    "suspect_id": suspect.id,
+                    "suspect_name": suspect.full_name,
+                    "case_id": case.id,
+                    "case_title": case.title,
+                    "detective_guilt_score": validated_data["detective_guilt_score"],
+                    "sergeant_guilt_score": validated_data["sergeant_guilt_score"],
+                    "created_by": requesting_user.get_full_name(),
+                },
+                related_object=interrogation,
+            )
+
+        logger.info(
+            "Interrogation created for suspect %s (pk=%d) by %s — "
+            "det_score=%d, sgt_score=%d",
+            suspect.full_name, suspect.id, requesting_user,
+            validated_data["detective_guilt_score"],
+            validated_data["sergeant_guilt_score"],
+        )
+        return interrogation
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  Verdict Service — Captain decision + Chief approval gate
+# ═══════════════════════════════════════════════════════════════════
+
+
+class VerdictService:
+    """
+    Implements the Captain's final verdict workflow and the mandatory
+    Police Chief approval gate for cases with CRITICAL crime level.
+
+    Workflow (project-doc §4.5)
+    ----------------------------
+    1. After interrogation, scores are sent to the Captain.
+    2. Captain gives the final verdict.
+    3. If crime_level == CRITICAL → status becomes PENDING_CHIEF_APPROVAL
+       and a notification is sent to the Police Chief.
+    4. If crime_level != CRITICAL → verdict applied directly and suspect
+       moves to UNDER_TRIAL.
+    5. Police Chief approves → suspect moves to UNDER_TRIAL.
+    6. Police Chief rejects → suspect reverts to UNDER_INTERROGATION.
+    """
+
+    @staticmethod
+    @transaction.atomic
+    def submit_captain_verdict(
+        actor: Any,
+        suspect_id: int,
+        verdict: str,
+        notes: str = "",
+    ) -> Suspect:
+        """
+        Captain submits their verdict on a suspect after reviewing
+        interrogation scores and evidence.
+
         Parameters
         ----------
+        actor : User
+            Must be a Captain (have CAN_RENDER_VERDICT permission).
         suspect_id : int
-            PK of the suspect being interrogated.
-        validated_data : dict
-            Cleaned data from ``InterrogationCreateSerializer``.
-            Keys: ``detective_guilt_score``, ``sergeant_guilt_score``,
-            ``notes``.
-        requesting_user : User
-            The user (Detective or Sergeant) creating the record.
-            Must have ``CAN_CONDUCT_INTERROGATION`` permission.
+            PK of the suspect.
+        verdict : str
+            ``"guilty"`` or ``"innocent"`` — the Captain's assessment.
+        notes : str
+            Captain's notes justifying the decision.
 
         Returns
         -------
-        Interrogation
-            The newly created interrogation session.
-
-        Raises
-        ------
-        PermissionError
-            If the user lacks ``CAN_CONDUCT_INTERROGATION``.
-        django.core.exceptions.ValidationError
-            - If the suspect is not in ``ARRESTED`` or
-              ``UNDER_INTERROGATION`` status.
-            - If the suspect is not approved by a sergeant.
-
-        Implementation Contract
-        -----------------------
-        1. Assert ``CAN_CONDUCT_INTERROGATION`` permission.
-        2. Fetch suspect: ``suspect = Suspect.objects.get(pk=suspect_id)``.
-        3. Guard: suspect status must be ``ARRESTED`` or
-           ``UNDER_INTERROGATION``.
-        4. If suspect is ``ARRESTED``, transition to
-           ``UNDER_INTERROGATION`` (call
-           ``ArrestAndWarrantService.transition_status``).
-        5. Inject:
-           - ``suspect = suspect``
-           - ``case = suspect.case``
-           - ``detective = requesting_user`` (or resolve from case assignment)
-           - ``sergeant = requesting_user`` (or resolve from case assignment)
-        6. ``interrogation = Interrogation.objects.create(**validated_data)``.
-        7. Dispatch notification to the Captain with the guilt scores.
-        8. Return ``interrogation``.
+        Suspect
+            The updated suspect instance.
         """
-        raise NotImplementedError
+        # ── Permission check: must be Captain ───────────────────────
+        if not actor.has_perm(
+            f"suspects.{SuspectsPerms.CAN_RENDER_VERDICT}"
+        ):
+            raise PermissionDenied(
+                "Only a Captain (or higher) can render a verdict."
+            )
+
+        role_name = ""
+        if hasattr(actor, "role") and actor.role:
+            role_name = actor.role.name.lower()
+        if role_name not in ("captain", "police chief", "system administrator") \
+                and not actor.is_superuser:
+            raise PermissionDenied(
+                "Only a Captain can submit a verdict at this stage."
+            )
+
+        # ── Fetch suspect with row lock ─────────────────────────────
+        try:
+            suspect = Suspect.objects.select_for_update().select_related(
+                "case", "identified_by",
+            ).get(pk=suspect_id)
+        except Suspect.DoesNotExist:
+            raise NotFound(f"Suspect with id {suspect_id} not found.")
+
+        # ── Status guard ────────────────────────────────────────────
+        eligible = {
+            SuspectStatus.UNDER_INTERROGATION,
+            SuspectStatus.PENDING_CAPTAIN_VERDICT,
+        }
+        if suspect.status not in eligible:
+            raise DomainError(
+                f"Cannot render verdict for suspect in "
+                f"'{suspect.get_status_display()}' status. "
+                f"Suspect must be Under Interrogation or "
+                f"Pending Captain Verdict."
+            )
+
+        case = suspect.case
+
+        # ── Import CrimeLevel here to avoid top-level circular import
+        from cases.models import CrimeLevel
+
+        old_status = suspect.status
+
+        if case.crime_level == CrimeLevel.CRITICAL:
+            # CRITICAL: Captain's verdict requires Chief approval
+            suspect.status = SuspectStatus.PENDING_CHIEF_APPROVAL
+            suspect.save(update_fields=["status", "updated_at"])
+
+            SuspectStatusLog.objects.create(
+                suspect=suspect,
+                from_status=old_status,
+                to_status=SuspectStatus.PENDING_CHIEF_APPROVAL,
+                changed_by=actor,
+                notes=(
+                    f"Captain verdict: {verdict}. "
+                    f"Awaiting Police Chief approval (CRITICAL case). "
+                    f"Notes: {notes}"
+                ),
+            )
+
+            # Notify the Police Chief
+            from django.contrib.auth import get_user_model
+            User = get_user_model()
+            chiefs = User.objects.filter(
+                role__name__iexact="Police Chief",
+                is_active=True,
+            )
+            if chiefs.exists():
+                NotificationService.create(
+                    actor=actor,
+                    recipients=list(chiefs),
+                    event_type="chief_approval_required",
+                    payload={
+                        "suspect_id": suspect.id,
+                        "suspect_name": suspect.full_name,
+                        "case_id": case.id,
+                        "case_title": case.title,
+                        "captain_verdict": verdict,
+                        "captain_notes": notes,
+                        "captain_name": actor.get_full_name(),
+                    },
+                    related_object=suspect,
+                )
+
+            logger.info(
+                "Captain %s submitted verdict '%s' for suspect %s "
+                "(pk=%d) on CRITICAL case — awaiting Chief approval",
+                actor, verdict, suspect.full_name, suspect.id,
+            )
+        else:
+            # Non-CRITICAL: apply verdict directly → UNDER_TRIAL
+            suspect.status = SuspectStatus.UNDER_TRIAL
+            suspect.save(update_fields=["status", "updated_at"])
+
+            SuspectStatusLog.objects.create(
+                suspect=suspect,
+                from_status=old_status,
+                to_status=SuspectStatus.UNDER_TRIAL,
+                changed_by=actor,
+                notes=(
+                    f"Captain verdict: {verdict}. "
+                    f"Forwarded to judiciary. Notes: {notes}"
+                ),
+            )
+
+            # Notify detective and sergeant
+            recipients = []
+            detective = suspect.identified_by
+            if detective:
+                recipients.append(detective)
+            sergeant = getattr(case, "assigned_sergeant", None)
+            if sergeant:
+                recipients.append(sergeant)
+
+            if recipients:
+                NotificationService.create(
+                    actor=actor,
+                    recipients=recipients,
+                    event_type="captain_verdict_applied",
+                    payload={
+                        "suspect_id": suspect.id,
+                        "suspect_name": suspect.full_name,
+                        "case_id": case.id,
+                        "case_title": case.title,
+                        "verdict": verdict,
+                        "notes": notes,
+                    },
+                    related_object=suspect,
+                )
+
+            logger.info(
+                "Captain %s submitted verdict '%s' for suspect %s "
+                "(pk=%d) — forwarded to trial",
+                actor, verdict, suspect.full_name, suspect.id,
+            )
+
+        return suspect
+
+    @staticmethod
+    @transaction.atomic
+    def process_chief_approval(
+        actor: Any,
+        suspect_id: int,
+        decision: str,
+        notes: str = "",
+    ) -> Suspect:
+        """
+        Police Chief approves or rejects the Captain's verdict for
+        a CRITICAL crime case.
+
+        Parameters
+        ----------
+        actor : User
+            Must be a Police Chief (have CAN_APPROVE_CRITICAL_CASE).
+        suspect_id : int
+            PK of the suspect.
+        decision : str
+            ``"approve"`` or ``"reject"``.
+        notes : str
+            Chief's notes/reason.
+
+        Returns
+        -------
+        Suspect
+            The updated suspect instance.
+        """
+        # ── Permission check: must be Police Chief ──────────────────
+        if not actor.has_perm(
+            f"cases.{CasesPerms.CAN_APPROVE_CRITICAL_CASE}"
+        ):
+            raise PermissionDenied(
+                "Only the Police Chief can approve or reject "
+                "verdicts for critical cases."
+            )
+
+        role_name = ""
+        if hasattr(actor, "role") and actor.role:
+            role_name = actor.role.name.lower()
+        if role_name not in ("police chief", "system administrator") \
+                and not actor.is_superuser:
+            raise PermissionDenied(
+                "Only the Police Chief can process this approval."
+            )
+
+        # ── Fetch suspect with row lock ─────────────────────────────
+        try:
+            suspect = Suspect.objects.select_for_update().select_related(
+                "case", "identified_by",
+            ).get(pk=suspect_id)
+        except Suspect.DoesNotExist:
+            raise NotFound(f"Suspect with id {suspect_id} not found.")
+
+        # ── Status guard ────────────────────────────────────────────
+        if suspect.status != SuspectStatus.PENDING_CHIEF_APPROVAL:
+            raise DomainError(
+                f"Suspect is not pending Chief approval. "
+                f"Current status: '{suspect.get_status_display()}'."
+            )
+
+        case = suspect.case
+        old_status = suspect.status
+
+        if decision == "approve":
+            suspect.status = SuspectStatus.UNDER_TRIAL
+            suspect.save(update_fields=["status", "updated_at"])
+
+            SuspectStatusLog.objects.create(
+                suspect=suspect,
+                from_status=old_status,
+                to_status=SuspectStatus.UNDER_TRIAL,
+                changed_by=actor,
+                notes=(
+                    f"Police Chief approved. "
+                    f"Forwarded to judiciary. Notes: {notes}"
+                ),
+            )
+
+            # Notify Captain and Detective
+            recipients = []
+            captain = getattr(case, "assigned_captain", None)
+            if captain:
+                recipients.append(captain)
+            detective = suspect.identified_by
+            if detective:
+                recipients.append(detective)
+
+            if recipients:
+                NotificationService.create(
+                    actor=actor,
+                    recipients=recipients,
+                    event_type="chief_verdict_approved",
+                    payload={
+                        "suspect_id": suspect.id,
+                        "suspect_name": suspect.full_name,
+                        "case_id": case.id,
+                        "case_title": case.title,
+                        "notes": notes,
+                    },
+                    related_object=suspect,
+                )
+
+            logger.info(
+                "Police Chief %s approved verdict for suspect %s "
+                "(pk=%d) — forwarded to trial",
+                actor, suspect.full_name, suspect.id,
+            )
+
+        elif decision == "reject":
+            if not notes.strip():
+                raise DomainError(
+                    "Notes are required when rejecting a verdict."
+                )
+
+            suspect.status = SuspectStatus.UNDER_INTERROGATION
+            suspect.save(update_fields=["status", "updated_at"])
+
+            SuspectStatusLog.objects.create(
+                suspect=suspect,
+                from_status=old_status,
+                to_status=SuspectStatus.UNDER_INTERROGATION,
+                changed_by=actor,
+                notes=(
+                    f"Police Chief rejected verdict. "
+                    f"Reverted to interrogation. Notes: {notes}"
+                ),
+            )
+
+            # Notify Captain and Detective
+            recipients = []
+            captain = getattr(case, "assigned_captain", None)
+            if captain:
+                recipients.append(captain)
+            detective = suspect.identified_by
+            if detective:
+                recipients.append(detective)
+
+            if recipients:
+                NotificationService.create(
+                    actor=actor,
+                    recipients=recipients,
+                    event_type="chief_verdict_rejected",
+                    payload={
+                        "suspect_id": suspect.id,
+                        "suspect_name": suspect.full_name,
+                        "case_id": case.id,
+                        "case_title": case.title,
+                        "rejection_notes": notes,
+                    },
+                    related_object=suspect,
+                )
+
+            logger.info(
+                "Police Chief %s rejected verdict for suspect %s "
+                "(pk=%d) — reverted to interrogation",
+                actor, suspect.full_name, suspect.id,
+            )
+        else:
+            raise DomainError(
+                f"Invalid decision '{decision}'. "
+                f"Must be 'approve' or 'reject'."
+            )
+
+        return suspect
 
 
 # ═══════════════════════════════════════════════════════════════════

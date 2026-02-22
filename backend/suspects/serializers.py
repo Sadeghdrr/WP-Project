@@ -693,6 +693,74 @@ class SuspectStatusTransitionSerializer(serializers.Serializer):
     )
 
 
+class CaptainVerdictSerializer(serializers.Serializer):
+    """
+    Request body for ``POST /api/suspects/{id}/captain-verdict/``.
+
+    Used by the **Captain** to render a verdict on a suspect after
+    reviewing interrogation scores and evidence.
+
+    Fields
+    ------
+    ``verdict`` : str
+        ``"guilty"`` or ``"innocent"`` — Captain's assessment.
+    ``notes`` : str
+        Mandatory notes justifying the decision.
+    """
+
+    VERDICT_CHOICES = [("guilty", "Guilty"), ("innocent", "Innocent")]
+
+    verdict = serializers.ChoiceField(
+        choices=VERDICT_CHOICES,
+        help_text="Captain's verdict on the suspect.",
+    )
+    notes = serializers.CharField(
+        required=True,
+        max_length=5000,
+        help_text="Captain's reasoning and justification for the verdict.",
+    )
+
+
+class ChiefApprovalSerializer(serializers.Serializer):
+    """
+    Request body for ``POST /api/suspects/{id}/chief-approval/``.
+
+    Used by the **Police Chief** to approve or reject the Captain's
+    verdict for suspects in CRITICAL crime-level cases.
+
+    Fields
+    ------
+    ``decision`` : str
+        ``"approve"`` or ``"reject"``.
+    ``notes`` : str
+        Required when rejecting. Chief's reasoning.
+    """
+
+    DECISION_CHOICES = [("approve", "Approve"), ("reject", "Reject")]
+
+    decision = serializers.ChoiceField(
+        choices=DECISION_CHOICES,
+        help_text="Chief's decision on the Captain's verdict.",
+    )
+    notes = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        max_length=5000,
+        help_text="Chief's notes. Required when rejecting.",
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        """
+        If decision is 'reject', notes must be provided.
+        """
+        if attrs["decision"] == "reject" and not attrs.get("notes", "").strip():
+            raise serializers.ValidationError(
+                {"notes": "Notes are required when rejecting a verdict."}
+            )
+        return attrs
+
+
 # ═══════════════════════════════════════════════════════════════════
 #  5. Interrogation Serializers
 # ═══════════════════════════════════════════════════════════════════
@@ -726,11 +794,15 @@ class InterrogationListSerializer(serializers.ModelSerializer):
 
     def get_detective_name(self, obj: Interrogation) -> str | None:
         """Return the detective's full name."""
-        raise NotImplementedError
+        if obj.detective:
+            return obj.detective.get_full_name() or str(obj.detective)
+        return None
 
     def get_sergeant_name(self, obj: Interrogation) -> str | None:
         """Return the sergeant's full name."""
-        raise NotImplementedError
+        if obj.sergeant:
+            return obj.sergeant.get_full_name() or str(obj.sergeant)
+        return None
 
 
 class InterrogationDetailSerializer(serializers.ModelSerializer):
@@ -765,15 +837,21 @@ class InterrogationDetailSerializer(serializers.ModelSerializer):
 
     def get_detective_name(self, obj: Interrogation) -> str | None:
         """Return the detective's full name."""
-        raise NotImplementedError
+        if obj.detective:
+            return obj.detective.get_full_name() or str(obj.detective)
+        return None
 
     def get_sergeant_name(self, obj: Interrogation) -> str | None:
         """Return the sergeant's full name."""
-        raise NotImplementedError
+        if obj.sergeant:
+            return obj.sergeant.get_full_name() or str(obj.sergeant)
+        return None
 
     def get_suspect_name(self, obj: Interrogation) -> str | None:
         """Return the suspect's full name."""
-        raise NotImplementedError
+        if obj.suspect:
+            return obj.suspect.full_name
+        return None
 
 
 class InterrogationCreateSerializer(serializers.ModelSerializer):
@@ -805,6 +883,17 @@ class InterrogationCreateSerializer(serializers.ModelSerializer):
         }
     """
 
+    detective_guilt_score = serializers.IntegerField(
+        min_value=1,
+        max_value=10,
+        help_text="Detective's assessment of suspect guilt (1=lowest, 10=highest).",
+    )
+    sergeant_guilt_score = serializers.IntegerField(
+        min_value=1,
+        max_value=10,
+        help_text="Sergeant's assessment of suspect guilt (1=lowest, 10=highest).",
+    )
+
     class Meta:
         model = Interrogation
         fields = [
@@ -813,8 +902,6 @@ class InterrogationCreateSerializer(serializers.ModelSerializer):
             "notes",
         ]
         extra_kwargs = {
-            "detective_guilt_score": {"required": True},
-            "sergeant_guilt_score": {"required": True},
             "notes": {"required": False},
         }
 

@@ -66,6 +66,10 @@ _EVENT_TEMPLATES: dict[str, tuple[str, str]] = {
     "complaint_returned":    ("Complaint Returned",       "Your complaint has been returned for revision."),
     "case_approved":         ("Case Approved",            "A case has been approved."),
     "case_rejected":         ("Case Rejected",            "A case has been rejected."),
+    "chief_approval_required": ("Chief Approval Required", "A critical case requires your approval before proceeding to trial."),
+    "captain_verdict_applied": ("Captain Verdict Applied", "The Captain has rendered a verdict on a suspect in your case."),
+    "chief_verdict_approved":  ("Chief Approved Verdict",   "The Police Chief has approved the Captain's verdict."),
+    "chief_verdict_rejected":  ("Chief Rejected Verdict",   "The Police Chief has rejected the Captain's verdict."),
 }
 
 

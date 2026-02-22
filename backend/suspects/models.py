@@ -35,6 +35,8 @@ class SuspectStatus(models.TextChoices):
     WANTED = "wanted", "Wanted"
     ARRESTED = "arrested", "Arrested"
     UNDER_INTERROGATION = "under_interrogation", "Under Interrogation"
+    PENDING_CAPTAIN_VERDICT = "pending_captain_verdict", "Pending Captain Verdict"
+    PENDING_CHIEF_APPROVAL = "pending_chief_approval", "Pending Chief Approval"
     UNDER_TRIAL = "under_trial", "Under Trial"
     CONVICTED = "convicted", "Convicted"
     ACQUITTED = "acquitted", "Acquitted"
@@ -126,7 +128,7 @@ class Suspect(TimeStampedModel):
 
     # ── Status tracking ─────────────────────────────────────────────
     status = models.CharField(
-        max_length=20,
+        max_length=30,
         choices=SuspectStatus.choices,
         default=SuspectStatus.WANTED,
         verbose_name="Status",
@@ -562,12 +564,12 @@ class SuspectStatusLog(TimeStampedModel):
         verbose_name="Suspect",
     )
     from_status = models.CharField(
-        max_length=20,
+        max_length=30,
         choices=SuspectStatus.choices,
         verbose_name="Previous Status",
     )
     to_status = models.CharField(
-        max_length=20,
+        max_length=30,
         choices=SuspectStatus.choices,
         verbose_name="New Status",
     )

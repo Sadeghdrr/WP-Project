@@ -51,6 +51,8 @@ from .serializers import (
     BountyTipListSerializer,
     BountyTipReviewSerializer,
     BountyTipVerifySerializer,
+    CaptainVerdictSerializer,
+    ChiefApprovalSerializer,
     InterrogationCreateSerializer,
     InterrogationDetailSerializer,
     InterrogationListSerializer,
@@ -73,6 +75,7 @@ from .services import (
     InterrogationService,
     SuspectProfileService,
     TrialService,
+    VerdictService,
 )
 
 
@@ -608,6 +611,105 @@ class SuspectViewSet(viewsets.ViewSet):
         output = SuspectDetailSerializer(suspect)
         return Response(output.data, status=status.HTTP_200_OK)
 
+    @action(detail=True, methods=["post"], url_path="captain-verdict")
+    def captain_verdict(self, request: Request, pk: int = None) -> Response:
+        """
+        POST /api/suspects/{id}/captain-verdict/
+
+        **Captain renders a verdict on a suspect after reviewing
+        interrogation scores and evidence.**
+
+        For CRITICAL crime-level cases, this sets the suspect to
+        PENDING_CHIEF_APPROVAL. For other levels, the suspect is
+        forwarded directly to trial (UNDER_TRIAL).
+
+        Example Request
+        ---------------
+        ::
+
+            POST /api/suspects/12/captain-verdict/
+            {
+                "verdict": "guilty",
+                "notes": "Strong forensic evidence and high interrogation scores."
+            }
+        """
+        serializer = CaptainVerdictSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                serializer.errors, status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            suspect = VerdictService.submit_captain_verdict(
+                actor=request.user,
+                suspect_id=pk,
+                verdict=serializer.validated_data["verdict"],
+                notes=serializer.validated_data["notes"],
+            )
+        except PermissionDenied as exc:
+            return Response(
+                {"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN,
+            )
+        except (DomainError, InvalidTransition) as exc:
+            return Response(
+                {"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST,
+            )
+        output = SuspectDetailSerializer(suspect)
+        return Response(output.data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=["post"], url_path="chief-approval")
+    def chief_approval(self, request: Request, pk: int = None) -> Response:
+        """
+        POST /api/suspects/{id}/chief-approval/
+
+        **Police Chief approves or rejects the Captain's verdict for
+        a CRITICAL case suspect.**
+
+        Only available when the suspect is in PENDING_CHIEF_APPROVAL
+        status.
+
+        - Approve: suspect moves to UNDER_TRIAL.
+        - Reject: suspect reverts to UNDER_INTERROGATION.
+
+        Example Request (Approve)
+        -------------------------
+        ::
+
+            POST /api/suspects/12/chief-approval/
+            {"decision": "approve", "notes": "Evidence supports verdict."}
+
+        Example Request (Reject)
+        ------------------------
+        ::
+
+            POST /api/suspects/12/chief-approval/
+            {
+                "decision": "reject",
+                "notes": "Insufficient evidence. Re-interrogate."
+            }
+        """
+        serializer = ChiefApprovalSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                serializer.errors, status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            suspect = VerdictService.process_chief_approval(
+                actor=request.user,
+                suspect_id=pk,
+                decision=serializer.validated_data["decision"],
+                notes=serializer.validated_data.get("notes", ""),
+            )
+        except PermissionDenied as exc:
+            return Response(
+                {"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN,
+            )
+        except (DomainError, InvalidTransition) as exc:
+            return Response(
+                {"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST,
+            )
+        output = SuspectDetailSerializer(suspect)
+        return Response(output.data, status=status.HTTP_200_OK)
+
 
 # ═══════════════════════════════════════════════════════════════════
 #  Interrogation ViewSet (Nested under Suspects)
@@ -649,7 +751,21 @@ class InterrogationViewSet(viewsets.ViewSet):
         2. Serialize with ``InterrogationListSerializer(queryset, many=True)``.
         3. Return HTTP 200.
         """
-        raise NotImplementedError
+        try:
+            qs = InterrogationService.get_interrogations_for_suspect(
+                suspect_id=suspect_pk,
+                requesting_user=request.user,
+            )
+        except NotFound as exc:
+            return Response(
+                {"detail": str(exc)}, status=status.HTTP_404_NOT_FOUND,
+            )
+        except PermissionDenied as exc:
+            return Response(
+                {"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN,
+            )
+        output = InterrogationListSerializer(qs, many=True)
+        return Response(output.data, status=status.HTTP_200_OK)
 
     def create(self, request: Request, suspect_pk: int = None) -> Response:
         """
@@ -680,7 +796,31 @@ class InterrogationViewSet(viewsets.ViewSet):
                 "notes": "Suspect showed signs of deception."
             }
         """
-        raise NotImplementedError
+        serializer = InterrogationCreateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                serializer.errors, status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            interrogation = InterrogationService.create_interrogation(
+                suspect_id=suspect_pk,
+                validated_data=serializer.validated_data,
+                requesting_user=request.user,
+            )
+        except PermissionDenied as exc:
+            return Response(
+                {"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN,
+            )
+        except NotFound as exc:
+            return Response(
+                {"detail": str(exc)}, status=status.HTTP_404_NOT_FOUND,
+            )
+        except DomainError as exc:
+            return Response(
+                {"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST,
+            )
+        output = InterrogationDetailSerializer(interrogation)
+        return Response(output.data, status=status.HTTP_201_CREATED)
 
     def retrieve(
         self, request: Request, suspect_pk: int = None, pk: int = None,
@@ -696,7 +836,16 @@ class InterrogationViewSet(viewsets.ViewSet):
         2. Serialize with ``InterrogationDetailSerializer``.
         3. Return HTTP 200.
         """
-        raise NotImplementedError
+        try:
+            interrogation = InterrogationService.get_interrogation_detail(
+                interrogation_id=pk,
+            )
+        except NotFound as exc:
+            return Response(
+                {"detail": str(exc)}, status=status.HTTP_404_NOT_FOUND,
+            )
+        output = InterrogationDetailSerializer(interrogation)
+        return Response(output.data, status=status.HTTP_200_OK)
 
 
 # ═══════════════════════════════════════════════════════════════════
