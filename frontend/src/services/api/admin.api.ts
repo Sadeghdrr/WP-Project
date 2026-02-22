@@ -1,0 +1,7 @@
+// TODO: Admin API calls (role & user management)
+// - GET    /api/accounts/roles/            → listRoles()
+// - POST   /api/accounts/roles/            → createRole(data)
+// - PATCH  /api/accounts/roles/:id/        → updateRole(id, data)
+// - DELETE /api/accounts/roles/:id/        → deleteRole(id)
+// - GET    /api/accounts/users/            → listUsers(params)
+// - PATCH  /api/accounts/users/:id/        → updateUser(id, data)  (assign role, etc.)

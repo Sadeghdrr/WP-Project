@@ -1,0 +1,13 @@
+// TODO: Cases API calls
+// - GET    /api/cases/                         → listCases(params)
+// - POST   /api/cases/                         → createCase(data)
+// - GET    /api/cases/:id/                     → getCaseDetail(id)
+// - PATCH  /api/cases/:id/                     → updateCase(id, data)
+// - DELETE /api/cases/:id/                     → deleteCase(id)
+// - POST   /api/cases/:id/transition/          → transitionStatus(id, action, message)
+// - GET    /api/cases/:id/complainants/        → listComplainants(caseId)
+// - POST   /api/cases/:id/complainants/        → addComplainant(caseId, data)
+// - GET    /api/cases/:id/witnesses/           → listWitnesses(caseId)
+// - POST   /api/cases/:id/witnesses/           → addWitness(caseId, data)
+// - GET    /api/cases/:id/status-log/          → getCaseStatusLog(caseId)
+// - GET    /api/cases/statistics/              → getCaseStatistics()
