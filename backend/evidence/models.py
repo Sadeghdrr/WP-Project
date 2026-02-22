@@ -284,3 +284,67 @@ class EvidenceFile(TimeStampedModel):
 
     def __str__(self):
         return f"{self.get_file_type_display()} for Evidence #{self.evidence_id}"
+
+
+# ────────────────────────────────────────────────────────────────────
+# Chain of custody tracking
+# ────────────────────────────────────────────────────────────────────
+
+class CustodyAction(models.TextChoices):
+    """Type of custody-log action."""
+
+    CHECKED_OUT = "checked_out", "Checked Out"
+    CHECKED_IN = "checked_in", "Checked In"
+    TRANSFERRED = "transferred", "Transferred"
+    DISPOSED = "disposed", "Disposed"
+    ANALYSED = "analysed", "Analysed"
+
+
+class EvidenceCustodyLog(TimeStampedModel):
+    """
+    Chain-of-custody record for an ``Evidence`` item.
+
+    Every time a piece of evidence changes hands (checked out from
+    storage, transferred between officers, sent to a lab, etc.),
+    a new ``EvidenceCustodyLog`` row is created.  This provides a
+    tamper-evident audit trail required by the project documentation.
+    """
+
+    evidence = models.ForeignKey(
+        Evidence,
+        on_delete=models.CASCADE,
+        related_name="custody_logs",
+        verbose_name="Evidence",
+    )
+    handled_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="evidence_custody_actions",
+        verbose_name="Handled By",
+    )
+    action_type = models.CharField(
+        max_length=20,
+        choices=CustodyAction.choices,
+        verbose_name="Action Type",
+        db_index=True,
+    )
+    timestamp = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="Timestamp",
+    )
+    notes = models.TextField(
+        blank=True,
+        default="",
+        verbose_name="Notes",
+    )
+
+    class Meta:
+        verbose_name = "Evidence Custody Log"
+        verbose_name_plural = "Evidence Custody Logs"
+        ordering = ["-timestamp"]
+
+    def __str__(self):
+        return (
+            f"[{self.get_action_type_display()}] Evidence #{self.evidence_id} "
+            f"by {self.handled_by}"
+        )

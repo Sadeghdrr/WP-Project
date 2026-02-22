@@ -631,3 +631,66 @@ class SystemConstantsService:
             "SystemConstantsService._choices_to_list() — "
             "implementation pending."
         )
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  Notification Service
+# ═══════════════════════════════════════════════════════════════════
+
+class NotificationService:
+    """
+    Handles listing and marking notifications as read for a given user.
+
+    Usage in views::
+
+        service = NotificationService(user=request.user)
+        notifications = service.list_notifications()
+        service.mark_as_read(notification_id)
+    """
+
+    def __init__(self, user: Any) -> None:
+        self.user = user
+
+    def list_notifications(self) -> Any:
+        """
+        Return all notifications for ``self.user``, ordered by most
+        recent first.
+
+        Returns
+        -------
+        QuerySet
+            Notification queryset filtered by the authenticated user.
+
+        Raises
+        ------
+        NotImplementedError
+            Structural draft — inner logic pending.
+        """
+        raise NotImplementedError(
+            "NotificationService.list_notifications() — "
+            "implementation pending."
+        )
+
+    def mark_as_read(self, notification_id: int) -> Any:
+        """
+        Mark a single notification as read.
+
+        Parameters
+        ----------
+        notification_id : int
+            PK of the notification to mark as read.
+
+        Returns
+        -------
+        Notification
+            The updated notification instance.
+
+        Raises
+        ------
+        NotImplementedError
+            Structural draft — inner logic pending.
+        """
+        raise NotImplementedError(
+            "NotificationService.mark_as_read() — "
+            "implementation pending."
+        )

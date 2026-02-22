@@ -83,8 +83,7 @@ from .models import (
     CrimeLevel,
 )
 
-# Reward multiplier defined in project-doc §4.7 Note 2.
-_REWARD_MULTIPLIER: int = 20_000_000  # Rials
+from core.constants import REWARD_MULTIPLIER
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -1131,7 +1130,7 @@ class CaseCalculationService:
         Implementation Contract
         -----------------------
         1. ``threshold = CaseCalculationService.calculate_tracking_threshold(case)``.
-        2. Return ``threshold * _REWARD_MULTIPLIER``.
+        2. Return ``threshold * REWARD_MULTIPLIER``.
         """
         raise NotImplementedError
 

@@ -147,13 +147,13 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    # CorsMiddleware MUST be at the very top so it can intercept
+    # pre-flight OPTIONS requests before any other middleware runs.
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     # WhiteNoise must be immediately after SecurityMiddleware
     'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
-    # CorsMiddleware must be before CommonMiddleware (and before any response-
-    # generating middleware) so it can intercept pre-flight OPTIONS requests.
-    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
@@ -253,6 +253,9 @@ CORS_ALLOWED_ORIGINS = env_get(
     default=["http://localhost:5173"],
     cast=list,
 )
+
+# Allow all origins during local development (overrides CORS_ALLOWED_ORIGINS).
+CORS_ALLOW_ALL_ORIGINS = env_get("CORS_ALLOW_ALL_ORIGINS", default=True, cast=bool)
 
 # ==============================================================================
 # LOGGING

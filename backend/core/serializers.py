@@ -459,3 +459,43 @@ class SystemConstantsSerializer(serializers.Serializer):
         many=True,
         help_text="All roles with their hierarchy levels, ordered by authority.",
     )
+
+
+# ════════════════════════════════════════════════════════════════════
+#  Notifications
+# ════════════════════════════════════════════════════════════════════
+
+class NotificationSerializer(serializers.Serializer):
+    """
+    Read-only serializer for ``Notification`` instances.
+
+    Used by the Notification ViewSet to list and retrieve notifications
+    for the authenticated user.
+    """
+
+    id = serializers.IntegerField(read_only=True, help_text="Notification PK.")
+    title = serializers.CharField(
+        read_only=True,
+        help_text="Short notification title.",
+    )
+    message = serializers.CharField(
+        read_only=True,
+        help_text="Full notification message body.",
+    )
+    is_read = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether the recipient has marked this notification as read.",
+    )
+    created_at = serializers.DateTimeField(
+        read_only=True,
+        help_text="When the notification was created.",
+    )
+    content_type = serializers.StringRelatedField(
+        read_only=True,
+        help_text="Related content type (if any).",
+    )
+    object_id = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text="PK of the related object (if any).",
+    )

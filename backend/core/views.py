@@ -13,7 +13,8 @@ No model imports, no aggregation logic, no cross-app queries.
 
 from __future__ import annotations
 
-from rest_framework import status
+from rest_framework import status, viewsets
+from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -22,11 +23,13 @@ from rest_framework.views import APIView
 from .serializers import (
     DashboardStatsSerializer,
     GlobalSearchResponseSerializer,
+    NotificationSerializer,
     SystemConstantsSerializer,
 )
 from .services import (
     DashboardAggregationService,
     GlobalSearchService,
+    NotificationService,
     SystemConstantsService,
 )
 
@@ -187,4 +190,52 @@ class SystemConstantsView(APIView):
         """
         data = SystemConstantsService.get_constants()
         serializer = SystemConstantsSerializer(data)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class NotificationViewSet(viewsets.ViewSet):
+    """
+    **Notification API** — list and mark-as-read for the authenticated user.
+
+    Endpoints
+    ---------
+    GET  /api/core/notifications/              → list all notifications
+    POST /api/core/notifications/{id}/read/    → mark a notification as read
+
+    **Authentication**: Required (``IsAuthenticated``).
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def list(self, request: Request) -> Response:
+        """
+        Return all notifications for the authenticated user.
+
+        Delegates to ``NotificationService.list_notifications()``.
+
+        Raises:
+            NotImplementedError: Propagated from the service layer
+                                 (structural draft).
+        """
+        service = NotificationService(user=request.user)
+        notifications = service.list_notifications()
+        serializer = NotificationSerializer(notifications, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=["post"], url_path="read")
+    def mark_as_read(self, request: Request, pk: int = None) -> Response:
+        """
+        Mark a single notification as read.
+
+        **POST /api/core/notifications/{id}/read/**
+
+        Delegates to ``NotificationService.mark_as_read()``.
+
+        Raises:
+            NotImplementedError: Propagated from the service layer
+                                 (structural draft).
+        """
+        service = NotificationService(user=request.user)
+        notification = service.mark_as_read(notification_id=pk)
+        serializer = NotificationSerializer(notification)
         return Response(serializer.data, status=status.HTTP_200_OK)

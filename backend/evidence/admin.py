@@ -3,6 +3,7 @@ from django.contrib import admin
 from .models import (
     BiologicalEvidence,
     Evidence,
+    EvidenceCustodyLog,
     EvidenceFile,
     IdentityEvidence,
     TestimonyEvidence,
@@ -50,3 +51,10 @@ class IdentityEvidenceAdmin(admin.ModelAdmin):
 class EvidenceFileAdmin(admin.ModelAdmin):
     list_display = ("id", "evidence", "file_type", "created_at")
     list_filter = ("file_type",)
+
+
+@admin.register(EvidenceCustodyLog)
+class EvidenceCustodyLogAdmin(admin.ModelAdmin):
+    list_display = ("id", "evidence", "handled_by", "action_type", "timestamp")
+    list_filter = ("action_type",)
+    search_fields = ("notes",)

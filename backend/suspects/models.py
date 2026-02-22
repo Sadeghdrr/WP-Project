@@ -22,6 +22,7 @@ from django.utils import timezone
 
 from core.models import TimeStampedModel
 from core.permissions_constants import SuspectsPerms
+from core.constants import REWARD_MULTIPLIER
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -248,7 +249,67 @@ class Suspect(TimeStampedModel):
         Adjust the multiplier as needed once the exact formula is
         provided.
         """
-        return self.most_wanted_score * 10_000_000
+        return self.most_wanted_score * REWARD_MULTIPLIER
+
+
+class Warrant(TimeStampedModel):
+    """
+    Arrest warrant issued by a Sergeant for a suspect (project-doc §4.4).
+
+    A warrant authorises the arrest of a suspect.  It is linked to a
+    specific suspect record and issued by a Sergeant.
+    """
+
+    class WarrantStatus(models.TextChoices):
+        """Lifecycle status of an arrest warrant."""
+
+        ACTIVE = "active", "Active"
+        EXECUTED = "executed", "Executed"
+        EXPIRED = "expired", "Expired"
+        CANCELLED = "cancelled", "Cancelled"
+
+    suspect = models.ForeignKey(
+        Suspect,
+        on_delete=models.CASCADE,
+        related_name="warrants",
+        verbose_name="Suspect",
+    )
+    reason = models.TextField(
+        verbose_name="Reason for Warrant",
+        help_text="Justification for issuing the arrest warrant.",
+    )
+    issued_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="issued_warrants",
+        verbose_name="Issued By (Sergeant)",
+    )
+    issued_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="Issued At",
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=WarrantStatus.choices,
+        default=WarrantStatus.ACTIVE,
+        verbose_name="Status",
+        db_index=True,
+    )
+
+    class Meta:
+        verbose_name = "Warrant"
+        verbose_name_plural = "Warrants"
+        ordering = ["-issued_at"]
+        permissions = [
+            (SuspectsPerms.CAN_ISSUE_ARREST_WARRANT,
+             "Can issue arrest warrant (Sergeant)"),
+        ]
+
+    def __str__(self):
+        return (
+            f"Warrant for {self.suspect.full_name} "
+            f"— {self.get_status_display()}"
+        )
 
 
 class Interrogation(TimeStampedModel):
