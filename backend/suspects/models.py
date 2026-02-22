@@ -21,6 +21,7 @@ from django.db import models
 from django.utils import timezone
 
 from core.models import TimeStampedModel
+from core.permissions_constants import SuspectsPerms
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -174,6 +175,11 @@ class Suspect(TimeStampedModel):
         indexes = [
             models.Index(fields=["status", "wanted_since"]),
         ]
+        permissions = [
+            (SuspectsPerms.CAN_IDENTIFY_SUSPECT, "Can identify and declare suspects (Detective)"),
+            (SuspectsPerms.CAN_APPROVE_SUSPECT, "Can approve/reject identified suspects (Sergeant)"),
+            (SuspectsPerms.CAN_ISSUE_ARREST_WARRANT, "Can issue arrest warrant (Sergeant)"),
+        ]
 
     def __str__(self):
         return f"Suspect: {self.full_name} — Case #{self.case_id}"
@@ -297,6 +303,10 @@ class Interrogation(TimeStampedModel):
         verbose_name = "Interrogation"
         verbose_name_plural = "Interrogations"
         ordering = ["-created_at"]
+        permissions = [
+            (SuspectsPerms.CAN_CONDUCT_INTERROGATION, "Can conduct interrogation session"),
+            (SuspectsPerms.CAN_SCORE_GUILT, "Can assign guilt probability score (1-10)"),
+        ]
 
     def __str__(self):
         return (
@@ -353,6 +363,10 @@ class Trial(TimeStampedModel):
         verbose_name = "Trial"
         verbose_name_plural = "Trials"
         ordering = ["-created_at"]
+        permissions = [
+            (SuspectsPerms.CAN_RENDER_VERDICT, "Can give final guilty/innocent verdict (Captain/Chief)"),
+            (SuspectsPerms.CAN_JUDGE_TRIAL, "Can preside over trial and record punishment (Judge)"),
+        ]
 
     def __str__(self):
         return (
@@ -449,6 +463,10 @@ class BountyTip(TimeStampedModel):
         verbose_name = "Bounty Tip"
         verbose_name_plural = "Bounty Tips"
         ordering = ["-created_at"]
+        permissions = [
+            (SuspectsPerms.CAN_REVIEW_BOUNTY_TIP, "Can do initial review of bounty tips (Officer)"),
+            (SuspectsPerms.CAN_VERIFY_BOUNTY_TIP, "Can verify bounty tip information (Detective)"),
+        ]
 
     def __str__(self):
         return f"Tip #{self.pk} by {self.informant} — {self.get_status_display()}"
@@ -514,6 +532,9 @@ class Bail(TimeStampedModel):
         verbose_name = "Bail"
         verbose_name_plural = "Bails"
         ordering = ["-created_at"]
+        permissions = [
+            (SuspectsPerms.CAN_SET_BAIL_AMOUNT, "Can determine bail/fine amount (Sergeant)"),
+        ]
 
     def __str__(self):
         status = "Paid" if self.is_paid else "Unpaid"

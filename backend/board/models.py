@@ -15,6 +15,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.db import models
 
 from core.models import TimeStampedModel
+from core.permissions_constants import BoardPerms
 
 
 class DetectiveBoard(TimeStampedModel):
@@ -42,6 +43,9 @@ class DetectiveBoard(TimeStampedModel):
     class Meta:
         verbose_name = "Detective Board"
         verbose_name_plural = "Detective Boards"
+        permissions = [
+            (BoardPerms.CAN_EXPORT_BOARD, "Can export detective board as image"),
+        ]
 
     def __str__(self):
         return f"Board for Case #{self.case_id}"

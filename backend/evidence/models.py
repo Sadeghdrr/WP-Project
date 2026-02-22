@@ -17,6 +17,7 @@ from django.conf import settings
 from django.db import models
 
 from core.models import TimeStampedModel
+from core.permissions_constants import EvidencePerms
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -155,6 +156,10 @@ class BiologicalEvidence(Evidence):
     class Meta:
         verbose_name = "Biological Evidence"
         verbose_name_plural = "Biological Evidences"
+        permissions = [
+            (EvidencePerms.CAN_VERIFY_EVIDENCE, "Can verify biological/medical evidence (Coroner)"),
+            (EvidencePerms.CAN_REGISTER_FORENSIC_RESULT, "Can register forensic examination result"),
+        ]
 
     def save(self, *args, **kwargs):
         self.evidence_type = EvidenceType.BIOLOGICAL

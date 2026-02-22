@@ -26,15 +26,20 @@ class Role(models.Model):
         Complainant, Witness, Suspect, Criminal, Base User.
 
     Note on Custom Permissions:
-    To define custom permissions for future models (e.g., in `cases/models.py`),
-    add a `permissions` tuple to the model's `Meta` class. For example:
+    Custom workflow permissions are defined as constants in
+    ``core.permissions_constants`` and registered in each model's
+    ``Meta.permissions`` tuple using those constants. For example::
+
+        from core.permissions_constants import CasesPerms
         class Meta:
             permissions = [
-                ("can_approve_case", "Can approve case"),
-                ("can_close_case", "Can close case"),
+                (CasesPerms.CAN_APPROVE_CASE, "Can approve case closure"),
             ]
-    Running `makemigrations` and `migrate` will populate Django's `Permission`
-    table with these custom permissions, which can then be assigned to `Role`s.
+
+    Running ``makemigrations`` and ``migrate`` populates Django's
+    ``auth_permission`` table.  The ``setup_rbac`` management command
+    then links these permissions to ``Role`` objects — it never
+    creates permissions itself.
     """
 
     name = models.CharField(

@@ -11,6 +11,7 @@ from django.conf import settings
 from django.db import models
 
 from core.models import TimeStampedModel
+from core.permissions_constants import CasesPerms
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -193,6 +194,14 @@ class Case(TimeStampedModel):
         indexes = [
             models.Index(fields=["creation_type"]),
             models.Index(fields=["status", "crime_level"]),
+        ]
+        permissions = [
+            (CasesPerms.CAN_REVIEW_COMPLAINT, "Can review incoming complaints (Cadet)"),
+            (CasesPerms.CAN_APPROVE_CASE, "Can approve a case after review"),
+            (CasesPerms.CAN_ASSIGN_DETECTIVE, "Can assign a detective to a case"),
+            (CasesPerms.CAN_CHANGE_CASE_STATUS, "Can transition case workflow status"),
+            (CasesPerms.CAN_FORWARD_TO_JUDICIARY, "Can forward solved case to judiciary"),
+            (CasesPerms.CAN_APPROVE_CRITICAL_CASE, "Can approve critical-level cases (Chief)"),
         ]
 
     def __str__(self):

@@ -2,340 +2,484 @@
 Management command: setup_rbac
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Populates the database with the base Roles and their initial
-Permission mappings for the L.A. Noire police-department system.
+Seeds the database with base **Roles** and links each role to its
+set of Django permissions.
 
-This command is **idempotent** — it can be run multiple times without
-creating duplicates or crashing.  Existing roles are updated to match
-the mapping defined here; permissions that no longer appear are removed
-from the role.
+Key design principle — **this command does NOT create Permission objects**.
+Permissions must already exist in the database:
+    • Standard CRUD permissions are auto-created by Django after
+      ``migrate`` (one per model × {add, change, delete, view}).
+    • Custom workflow permissions are declared in each model's
+      ``Meta.permissions`` tuple and inserted by ``migrate``.
+
+The command is **idempotent** — safe to run multiple times.  Existing
+roles are updated; permissions are replaced (set) to match the
+mapping below.
 
 Usage::
 
     python manage.py setup_rbac
+
+Prerequisites::
+
+    python manage.py makemigrations
+    python manage.py migrate
 """
 
 from django.contrib.auth.models import Permission
 from django.core.management.base import BaseCommand
 
 from accounts.models import Role
+from core.permissions_constants import (
+    AccountsPerms,
+    BoardPerms,
+    CasesPerms,
+    CorePerms,
+    EvidencePerms,
+    SuspectsPerms,
+)
 
-
 # ────────────────────────────────────────────────────────────────────
-# Role → Permission mapping
+# Role → Permission mapping  (uses constants — zero hard-coded strings)
 # ────────────────────────────────────────────────────────────────────
-# Each key is a tuple:  (role_name, description, hierarchy_level)
-# Each value is a list of Django permission codenames.
-#
-# Standard codename format:  <action>_<model>
-#   e.g.  view_case, add_evidence, change_suspect, delete_user
-#
-# To add new permissions later:
-#   1. Add the codename to the appropriate role's list below.
-#   2. Make sure the permission exists (either via model Meta.permissions
-#      or Django's auto-generated CRUD permissions after migrations).
-#   3. Re-run:  python manage.py setup_rbac
-# ────────────────────────────────────────────────────────────────────
+# Key:   (role_name, description, hierarchy_level)
+# Value: list of codenames from ``core.permissions_constants``
 
 ROLE_PERMISSIONS_MAP: dict[tuple[str, str, int], list[str]] = {
 
     # ── System Administrator ────────────────────────────────────────
-    ("System Admin", "Full system access — manages users, roles, and all data.", 100): [
+    (
+        "System Admin",
+        "Full system access — manages users, roles, and all data.",
+        100,
+    ): [
         # Accounts
-        "view_role", "add_role", "change_role", "delete_role",
-        "view_user", "add_user", "change_user", "delete_user",
-        # Cases
-        "view_case", "add_case", "change_case", "delete_case",
-        "view_casecomplainant", "add_casecomplainant", "change_casecomplainant", "delete_casecomplainant",
-        "view_casewitness", "add_casewitness", "change_casewitness", "delete_casewitness",
-        "view_casestatuslog", "add_casestatuslog", "change_casestatuslog", "delete_casestatuslog",
-        # Evidence
-        "view_evidence", "add_evidence", "change_evidence", "delete_evidence",
-        "view_testimonyevidence", "add_testimonyevidence", "change_testimonyevidence", "delete_testimonyevidence",
-        "view_biologicalevidence", "add_biologicalevidence", "change_biologicalevidence", "delete_biologicalevidence",
-        "view_vehicleevidence", "add_vehicleevidence", "change_vehicleevidence", "delete_vehicleevidence",
-        "view_identityevidence", "add_identityevidence", "change_identityevidence", "delete_identityevidence",
-        "view_evidencefile", "add_evidencefile", "change_evidencefile", "delete_evidencefile",
-        # Suspects
-        "view_suspect", "add_suspect", "change_suspect", "delete_suspect",
-        "view_interrogation", "add_interrogation", "change_interrogation", "delete_interrogation",
-        "view_trial", "add_trial", "change_trial", "delete_trial",
-        "view_bountytip", "add_bountytip", "change_bountytip", "delete_bountytip",
-        "view_bail", "add_bail", "change_bail", "delete_bail",
+        AccountsPerms.VIEW_ROLE, AccountsPerms.ADD_ROLE,
+        AccountsPerms.CHANGE_ROLE, AccountsPerms.DELETE_ROLE,
+        AccountsPerms.VIEW_USER, AccountsPerms.ADD_USER,
+        AccountsPerms.CHANGE_USER, AccountsPerms.DELETE_USER,
+        # Cases (standard + custom)
+        CasesPerms.VIEW_CASE, CasesPerms.ADD_CASE,
+        CasesPerms.CHANGE_CASE, CasesPerms.DELETE_CASE,
+        CasesPerms.VIEW_CASECOMPLAINANT, CasesPerms.ADD_CASECOMPLAINANT,
+        CasesPerms.CHANGE_CASECOMPLAINANT, CasesPerms.DELETE_CASECOMPLAINANT,
+        CasesPerms.VIEW_CASEWITNESS, CasesPerms.ADD_CASEWITNESS,
+        CasesPerms.CHANGE_CASEWITNESS, CasesPerms.DELETE_CASEWITNESS,
+        CasesPerms.VIEW_CASESTATUSLOG, CasesPerms.ADD_CASESTATUSLOG,
+        CasesPerms.CHANGE_CASESTATUSLOG, CasesPerms.DELETE_CASESTATUSLOG,
+        CasesPerms.CAN_REVIEW_COMPLAINT, CasesPerms.CAN_APPROVE_CASE,
+        CasesPerms.CAN_ASSIGN_DETECTIVE, CasesPerms.CAN_CHANGE_CASE_STATUS,
+        CasesPerms.CAN_FORWARD_TO_JUDICIARY, CasesPerms.CAN_APPROVE_CRITICAL_CASE,
+        # Evidence (standard + custom)
+        EvidencePerms.VIEW_EVIDENCE, EvidencePerms.ADD_EVIDENCE,
+        EvidencePerms.CHANGE_EVIDENCE, EvidencePerms.DELETE_EVIDENCE,
+        EvidencePerms.VIEW_TESTIMONYEVIDENCE, EvidencePerms.ADD_TESTIMONYEVIDENCE,
+        EvidencePerms.CHANGE_TESTIMONYEVIDENCE, EvidencePerms.DELETE_TESTIMONYEVIDENCE,
+        EvidencePerms.VIEW_BIOLOGICALEVIDENCE, EvidencePerms.ADD_BIOLOGICALEVIDENCE,
+        EvidencePerms.CHANGE_BIOLOGICALEVIDENCE, EvidencePerms.DELETE_BIOLOGICALEVIDENCE,
+        EvidencePerms.VIEW_VEHICLEEVIDENCE, EvidencePerms.ADD_VEHICLEEVIDENCE,
+        EvidencePerms.CHANGE_VEHICLEEVIDENCE, EvidencePerms.DELETE_VEHICLEEVIDENCE,
+        EvidencePerms.VIEW_IDENTITYEVIDENCE, EvidencePerms.ADD_IDENTITYEVIDENCE,
+        EvidencePerms.CHANGE_IDENTITYEVIDENCE, EvidencePerms.DELETE_IDENTITYEVIDENCE,
+        EvidencePerms.VIEW_EVIDENCEFILE, EvidencePerms.ADD_EVIDENCEFILE,
+        EvidencePerms.CHANGE_EVIDENCEFILE, EvidencePerms.DELETE_EVIDENCEFILE,
+        EvidencePerms.CAN_VERIFY_EVIDENCE, EvidencePerms.CAN_REGISTER_FORENSIC_RESULT,
+        # Suspects (standard + custom)
+        SuspectsPerms.VIEW_SUSPECT, SuspectsPerms.ADD_SUSPECT,
+        SuspectsPerms.CHANGE_SUSPECT, SuspectsPerms.DELETE_SUSPECT,
+        SuspectsPerms.VIEW_INTERROGATION, SuspectsPerms.ADD_INTERROGATION,
+        SuspectsPerms.CHANGE_INTERROGATION, SuspectsPerms.DELETE_INTERROGATION,
+        SuspectsPerms.VIEW_TRIAL, SuspectsPerms.ADD_TRIAL,
+        SuspectsPerms.CHANGE_TRIAL, SuspectsPerms.DELETE_TRIAL,
+        SuspectsPerms.VIEW_BOUNTYTIP, SuspectsPerms.ADD_BOUNTYTIP,
+        SuspectsPerms.CHANGE_BOUNTYTIP, SuspectsPerms.DELETE_BOUNTYTIP,
+        SuspectsPerms.VIEW_BAIL, SuspectsPerms.ADD_BAIL,
+        SuspectsPerms.CHANGE_BAIL, SuspectsPerms.DELETE_BAIL,
+        SuspectsPerms.CAN_IDENTIFY_SUSPECT, SuspectsPerms.CAN_APPROVE_SUSPECT,
+        SuspectsPerms.CAN_ISSUE_ARREST_WARRANT, SuspectsPerms.CAN_CONDUCT_INTERROGATION,
+        SuspectsPerms.CAN_SCORE_GUILT, SuspectsPerms.CAN_RENDER_VERDICT,
+        SuspectsPerms.CAN_JUDGE_TRIAL, SuspectsPerms.CAN_REVIEW_BOUNTY_TIP,
+        SuspectsPerms.CAN_VERIFY_BOUNTY_TIP, SuspectsPerms.CAN_SET_BAIL_AMOUNT,
         # Board
-        "view_detectiveboard", "add_detectiveboard", "change_detectiveboard", "delete_detectiveboard",
-        "view_boardnote", "add_boardnote", "change_boardnote", "delete_boardnote",
-        "view_boarditem", "add_boarditem", "change_boarditem", "delete_boarditem",
-        "view_boardconnection", "add_boardconnection", "change_boardconnection", "delete_boardconnection",
+        BoardPerms.VIEW_DETECTIVEBOARD, BoardPerms.ADD_DETECTIVEBOARD,
+        BoardPerms.CHANGE_DETECTIVEBOARD, BoardPerms.DELETE_DETECTIVEBOARD,
+        BoardPerms.VIEW_BOARDNOTE, BoardPerms.ADD_BOARDNOTE,
+        BoardPerms.CHANGE_BOARDNOTE, BoardPerms.DELETE_BOARDNOTE,
+        BoardPerms.VIEW_BOARDITEM, BoardPerms.ADD_BOARDITEM,
+        BoardPerms.CHANGE_BOARDITEM, BoardPerms.DELETE_BOARDITEM,
+        BoardPerms.VIEW_BOARDCONNECTION, BoardPerms.ADD_BOARDCONNECTION,
+        BoardPerms.CHANGE_BOARDCONNECTION, BoardPerms.DELETE_BOARDCONNECTION,
+        BoardPerms.CAN_EXPORT_BOARD,
         # Core
-        "view_notification", "add_notification", "change_notification", "delete_notification",
+        CorePerms.VIEW_NOTIFICATION, CorePerms.ADD_NOTIFICATION,
+        CorePerms.CHANGE_NOTIFICATION, CorePerms.DELETE_NOTIFICATION,
     ],
 
     # ── Police Chief ────────────────────────────────────────────────
-    ("Police Chief", "Highest police rank — approves critical-level cases and forwards to judiciary.", 10): [
-        # Cases (full view/create/change, no delete)
-        "view_case", "add_case", "change_case",
-        "view_casecomplainant", "change_casecomplainant",
-        "view_casewitness", "add_casewitness", "change_casewitness",
-        "view_casestatuslog", "add_casestatuslog",
-        # Evidence (read + register)
-        "view_evidence", "add_evidence", "change_evidence",
-        "view_testimonyevidence", "add_testimonyevidence", "change_testimonyevidence",
-        "view_biologicalevidence",
-        "view_vehicleevidence", "add_vehicleevidence", "change_vehicleevidence",
-        "view_identityevidence", "add_identityevidence", "change_identityevidence",
-        "view_evidencefile", "add_evidencefile",
+    (
+        "Police Chief",
+        "Highest police rank — approves critical-level cases and forwards to judiciary.",
+        10,
+    ): [
+        # Cases
+        CasesPerms.VIEW_CASE, CasesPerms.ADD_CASE, CasesPerms.CHANGE_CASE,
+        CasesPerms.VIEW_CASECOMPLAINANT, CasesPerms.CHANGE_CASECOMPLAINANT,
+        CasesPerms.VIEW_CASEWITNESS, CasesPerms.ADD_CASEWITNESS, CasesPerms.CHANGE_CASEWITNESS,
+        CasesPerms.VIEW_CASESTATUSLOG, CasesPerms.ADD_CASESTATUSLOG,
+        CasesPerms.CAN_APPROVE_CASE, CasesPerms.CAN_ASSIGN_DETECTIVE,
+        CasesPerms.CAN_CHANGE_CASE_STATUS, CasesPerms.CAN_FORWARD_TO_JUDICIARY,
+        CasesPerms.CAN_APPROVE_CRITICAL_CASE,
+        # Evidence
+        EvidencePerms.VIEW_EVIDENCE, EvidencePerms.ADD_EVIDENCE, EvidencePerms.CHANGE_EVIDENCE,
+        EvidencePerms.VIEW_TESTIMONYEVIDENCE, EvidencePerms.ADD_TESTIMONYEVIDENCE,
+        EvidencePerms.CHANGE_TESTIMONYEVIDENCE,
+        EvidencePerms.VIEW_BIOLOGICALEVIDENCE,
+        EvidencePerms.VIEW_VEHICLEEVIDENCE, EvidencePerms.ADD_VEHICLEEVIDENCE,
+        EvidencePerms.CHANGE_VEHICLEEVIDENCE,
+        EvidencePerms.VIEW_IDENTITYEVIDENCE, EvidencePerms.ADD_IDENTITYEVIDENCE,
+        EvidencePerms.CHANGE_IDENTITYEVIDENCE,
+        EvidencePerms.VIEW_EVIDENCEFILE, EvidencePerms.ADD_EVIDENCEFILE,
         # Suspects
-        "view_suspect", "add_suspect", "change_suspect",
-        "view_interrogation",
-        "view_trial",
-        "view_bountytip",
-        "view_bail", "change_bail",
+        SuspectsPerms.VIEW_SUSPECT, SuspectsPerms.ADD_SUSPECT, SuspectsPerms.CHANGE_SUSPECT,
+        SuspectsPerms.VIEW_INTERROGATION,
+        SuspectsPerms.VIEW_TRIAL,
+        SuspectsPerms.VIEW_BOUNTYTIP,
+        SuspectsPerms.VIEW_BAIL, SuspectsPerms.CHANGE_BAIL,
+        SuspectsPerms.CAN_RENDER_VERDICT,
         # Board (read-only)
-        "view_detectiveboard",
-        "view_boardnote",
-        "view_boarditem",
-        "view_boardconnection",
+        BoardPerms.VIEW_DETECTIVEBOARD,
+        BoardPerms.VIEW_BOARDNOTE,
+        BoardPerms.VIEW_BOARDITEM,
+        BoardPerms.VIEW_BOARDCONNECTION,
         # Users (view only)
-        "view_user",
+        AccountsPerms.VIEW_USER,
         # Notifications
-        "view_notification", "add_notification", "change_notification", "delete_notification",
+        CorePerms.VIEW_NOTIFICATION, CorePerms.ADD_NOTIFICATION,
+        CorePerms.CHANGE_NOTIFICATION, CorePerms.DELETE_NOTIFICATION,
     ],
 
     # ── Captain ─────────────────────────────────────────────────────
-    ("Captain", "Approves cases and forwards them to the judiciary for trial.", 9): [
+    (
+        "Captain",
+        "Approves cases and forwards them to the judiciary for trial.",
+        9,
+    ): [
         # Cases
-        "view_case", "add_case", "change_case",
-        "view_casecomplainant", "change_casecomplainant",
-        "view_casewitness",
-        "view_casestatuslog", "add_casestatuslog",
+        CasesPerms.VIEW_CASE, CasesPerms.ADD_CASE, CasesPerms.CHANGE_CASE,
+        CasesPerms.VIEW_CASECOMPLAINANT, CasesPerms.CHANGE_CASECOMPLAINANT,
+        CasesPerms.VIEW_CASEWITNESS,
+        CasesPerms.VIEW_CASESTATUSLOG, CasesPerms.ADD_CASESTATUSLOG,
+        CasesPerms.CAN_APPROVE_CASE, CasesPerms.CAN_CHANGE_CASE_STATUS,
+        CasesPerms.CAN_FORWARD_TO_JUDICIARY,
         # Evidence (read-only)
-        "view_evidence",
-        "view_testimonyevidence",
-        "view_biologicalevidence",
-        "view_vehicleevidence",
-        "view_identityevidence",
-        "view_evidencefile",
+        EvidencePerms.VIEW_EVIDENCE,
+        EvidencePerms.VIEW_TESTIMONYEVIDENCE,
+        EvidencePerms.VIEW_BIOLOGICALEVIDENCE,
+        EvidencePerms.VIEW_VEHICLEEVIDENCE,
+        EvidencePerms.VIEW_IDENTITYEVIDENCE,
+        EvidencePerms.VIEW_EVIDENCEFILE,
         # Suspects
-        "view_suspect", "change_suspect",
-        "view_interrogation",
-        "view_trial",
-        "view_bountytip",
-        "view_bail",
+        SuspectsPerms.VIEW_SUSPECT, SuspectsPerms.CHANGE_SUSPECT,
+        SuspectsPerms.VIEW_INTERROGATION,
+        SuspectsPerms.VIEW_TRIAL,
+        SuspectsPerms.VIEW_BOUNTYTIP,
+        SuspectsPerms.VIEW_BAIL,
+        SuspectsPerms.CAN_RENDER_VERDICT,
         # Board (read-only)
-        "view_detectiveboard",
-        "view_boardnote",
-        "view_boarditem",
-        "view_boardconnection",
-        # Users (view only)
-        "view_user",
+        BoardPerms.VIEW_DETECTIVEBOARD,
+        BoardPerms.VIEW_BOARDNOTE,
+        BoardPerms.VIEW_BOARDITEM,
+        BoardPerms.VIEW_BOARDCONNECTION,
+        # Users
+        AccountsPerms.VIEW_USER,
         # Notifications
-        "view_notification", "add_notification", "change_notification", "delete_notification",
+        CorePerms.VIEW_NOTIFICATION, CorePerms.ADD_NOTIFICATION,
+        CorePerms.CHANGE_NOTIFICATION, CorePerms.DELETE_NOTIFICATION,
     ],
 
     # ── Sergeant ────────────────────────────────────────────────────
-    ("Sergeant", "Supervises detectives, issues arrest warrants, conducts interrogations.", 8): [
+    (
+        "Sergeant",
+        "Supervises detectives, issues arrest warrants, conducts interrogations.",
+        8,
+    ): [
         # Cases
-        "view_case", "change_case",
-        "view_casecomplainant",
-        "view_casewitness",
-        "view_casestatuslog", "add_casestatuslog",
+        CasesPerms.VIEW_CASE, CasesPerms.CHANGE_CASE,
+        CasesPerms.VIEW_CASECOMPLAINANT,
+        CasesPerms.VIEW_CASEWITNESS,
+        CasesPerms.VIEW_CASESTATUSLOG, CasesPerms.ADD_CASESTATUSLOG,
+        CasesPerms.CAN_CHANGE_CASE_STATUS,
         # Evidence (read-only)
-        "view_evidence",
-        "view_testimonyevidence",
-        "view_biologicalevidence",
-        "view_vehicleevidence",
-        "view_identityevidence",
-        "view_evidencefile",
-        # Suspects (approve suspects, interrogate)
-        "view_suspect", "change_suspect",
-        "view_interrogation", "add_interrogation", "change_interrogation",
-        "view_trial",
-        "view_bountytip",
-        "view_bail", "add_bail", "change_bail",
+        EvidencePerms.VIEW_EVIDENCE,
+        EvidencePerms.VIEW_TESTIMONYEVIDENCE,
+        EvidencePerms.VIEW_BIOLOGICALEVIDENCE,
+        EvidencePerms.VIEW_VEHICLEEVIDENCE,
+        EvidencePerms.VIEW_IDENTITYEVIDENCE,
+        EvidencePerms.VIEW_EVIDENCEFILE,
+        # Suspects (approve, interrogate, bail)
+        SuspectsPerms.VIEW_SUSPECT, SuspectsPerms.CHANGE_SUSPECT,
+        SuspectsPerms.VIEW_INTERROGATION, SuspectsPerms.ADD_INTERROGATION,
+        SuspectsPerms.CHANGE_INTERROGATION,
+        SuspectsPerms.VIEW_TRIAL,
+        SuspectsPerms.VIEW_BOUNTYTIP,
+        SuspectsPerms.VIEW_BAIL, SuspectsPerms.ADD_BAIL, SuspectsPerms.CHANGE_BAIL,
+        SuspectsPerms.CAN_APPROVE_SUSPECT, SuspectsPerms.CAN_ISSUE_ARREST_WARRANT,
+        SuspectsPerms.CAN_CONDUCT_INTERROGATION, SuspectsPerms.CAN_SCORE_GUILT,
+        SuspectsPerms.CAN_SET_BAIL_AMOUNT,
         # Board (read-only)
-        "view_detectiveboard",
-        "view_boardnote",
-        "view_boarditem",
-        "view_boardconnection",
-        # Users (view only)
-        "view_user",
+        BoardPerms.VIEW_DETECTIVEBOARD,
+        BoardPerms.VIEW_BOARDNOTE,
+        BoardPerms.VIEW_BOARDITEM,
+        BoardPerms.VIEW_BOARDCONNECTION,
+        # Users
+        AccountsPerms.VIEW_USER,
         # Notifications
-        "view_notification", "add_notification", "change_notification", "delete_notification",
+        CorePerms.VIEW_NOTIFICATION, CorePerms.ADD_NOTIFICATION,
+        CorePerms.CHANGE_NOTIFICATION, CorePerms.DELETE_NOTIFICATION,
     ],
 
     # ── Detective ───────────────────────────────────────────────────
-    ("Detective", "Investigates cases, manages detective board, identifies suspects.", 7): [
+    (
+        "Detective",
+        "Investigates cases, manages detective board, identifies suspects.",
+        7,
+    ): [
         # Cases
-        "view_case", "change_case",
-        "view_casecomplainant",
-        "view_casewitness", "add_casewitness", "change_casewitness",
-        "view_casestatuslog", "add_casestatuslog",
+        CasesPerms.VIEW_CASE, CasesPerms.CHANGE_CASE,
+        CasesPerms.VIEW_CASECOMPLAINANT,
+        CasesPerms.VIEW_CASEWITNESS, CasesPerms.ADD_CASEWITNESS, CasesPerms.CHANGE_CASEWITNESS,
+        CasesPerms.VIEW_CASESTATUSLOG, CasesPerms.ADD_CASESTATUSLOG,
+        CasesPerms.CAN_CHANGE_CASE_STATUS,
         # Evidence (full create/edit)
-        "view_evidence", "add_evidence", "change_evidence",
-        "view_testimonyevidence", "add_testimonyevidence", "change_testimonyevidence",
-        "view_biologicalevidence", "add_biologicalevidence",
-        "view_vehicleevidence", "add_vehicleevidence", "change_vehicleevidence",
-        "view_identityevidence", "add_identityevidence", "change_identityevidence",
-        "view_evidencefile", "add_evidencefile", "change_evidencefile",
+        EvidencePerms.VIEW_EVIDENCE, EvidencePerms.ADD_EVIDENCE, EvidencePerms.CHANGE_EVIDENCE,
+        EvidencePerms.VIEW_TESTIMONYEVIDENCE, EvidencePerms.ADD_TESTIMONYEVIDENCE,
+        EvidencePerms.CHANGE_TESTIMONYEVIDENCE,
+        EvidencePerms.VIEW_BIOLOGICALEVIDENCE, EvidencePerms.ADD_BIOLOGICALEVIDENCE,
+        EvidencePerms.VIEW_VEHICLEEVIDENCE, EvidencePerms.ADD_VEHICLEEVIDENCE,
+        EvidencePerms.CHANGE_VEHICLEEVIDENCE,
+        EvidencePerms.VIEW_IDENTITYEVIDENCE, EvidencePerms.ADD_IDENTITYEVIDENCE,
+        EvidencePerms.CHANGE_IDENTITYEVIDENCE,
+        EvidencePerms.VIEW_EVIDENCEFILE, EvidencePerms.ADD_EVIDENCEFILE,
+        EvidencePerms.CHANGE_EVIDENCEFILE,
         # Suspects (identify + interrogate)
-        "view_suspect", "add_suspect", "change_suspect",
-        "view_interrogation", "add_interrogation", "change_interrogation",
-        "view_trial",
-        "view_bountytip", "change_bountytip",       # verify tips
-        "view_bail",
+        SuspectsPerms.VIEW_SUSPECT, SuspectsPerms.ADD_SUSPECT, SuspectsPerms.CHANGE_SUSPECT,
+        SuspectsPerms.VIEW_INTERROGATION, SuspectsPerms.ADD_INTERROGATION,
+        SuspectsPerms.CHANGE_INTERROGATION,
+        SuspectsPerms.VIEW_TRIAL,
+        SuspectsPerms.VIEW_BOUNTYTIP, SuspectsPerms.CHANGE_BOUNTYTIP,
+        SuspectsPerms.VIEW_BAIL,
+        SuspectsPerms.CAN_IDENTIFY_SUSPECT, SuspectsPerms.CAN_CONDUCT_INTERROGATION,
+        SuspectsPerms.CAN_SCORE_GUILT, SuspectsPerms.CAN_VERIFY_BOUNTY_TIP,
         # Board (full CRUD — detective's workspace)
-        "view_detectiveboard", "add_detectiveboard", "change_detectiveboard", "delete_detectiveboard",
-        "view_boardnote", "add_boardnote", "change_boardnote", "delete_boardnote",
-        "view_boarditem", "add_boarditem", "change_boarditem", "delete_boarditem",
-        "view_boardconnection", "add_boardconnection", "change_boardconnection", "delete_boardconnection",
-        # Users (view only)
-        "view_user",
+        BoardPerms.VIEW_DETECTIVEBOARD, BoardPerms.ADD_DETECTIVEBOARD,
+        BoardPerms.CHANGE_DETECTIVEBOARD, BoardPerms.DELETE_DETECTIVEBOARD,
+        BoardPerms.VIEW_BOARDNOTE, BoardPerms.ADD_BOARDNOTE,
+        BoardPerms.CHANGE_BOARDNOTE, BoardPerms.DELETE_BOARDNOTE,
+        BoardPerms.VIEW_BOARDITEM, BoardPerms.ADD_BOARDITEM,
+        BoardPerms.CHANGE_BOARDITEM, BoardPerms.DELETE_BOARDITEM,
+        BoardPerms.VIEW_BOARDCONNECTION, BoardPerms.ADD_BOARDCONNECTION,
+        BoardPerms.CHANGE_BOARDCONNECTION, BoardPerms.DELETE_BOARDCONNECTION,
+        BoardPerms.CAN_EXPORT_BOARD,
+        # Users
+        AccountsPerms.VIEW_USER,
         # Notifications
-        "view_notification", "add_notification", "change_notification", "delete_notification",
+        CorePerms.VIEW_NOTIFICATION, CorePerms.ADD_NOTIFICATION,
+        CorePerms.CHANGE_NOTIFICATION, CorePerms.DELETE_NOTIFICATION,
     ],
 
     # ── Police Officer ──────────────────────────────────────────────
-    ("Police Officer", "Field officer — creates crime-scene cases, reviews cadet submissions.", 6): [
-        # Cases (create crime-scene + approve after cadet)
-        "view_case", "add_case", "change_case",
-        "view_casecomplainant",
-        "view_casewitness", "add_casewitness", "change_casewitness",
-        "view_casestatuslog", "add_casestatuslog",
+    (
+        "Police Officer",
+        "Field officer — creates crime-scene cases, reviews cadet submissions.",
+        6,
+    ): [
+        # Cases
+        CasesPerms.VIEW_CASE, CasesPerms.ADD_CASE, CasesPerms.CHANGE_CASE,
+        CasesPerms.VIEW_CASECOMPLAINANT,
+        CasesPerms.VIEW_CASEWITNESS, CasesPerms.ADD_CASEWITNESS, CasesPerms.CHANGE_CASEWITNESS,
+        CasesPerms.VIEW_CASESTATUSLOG, CasesPerms.ADD_CASESTATUSLOG,
+        CasesPerms.CAN_APPROVE_CASE, CasesPerms.CAN_CHANGE_CASE_STATUS,
         # Evidence (register)
-        "view_evidence", "add_evidence",
-        "view_testimonyevidence", "add_testimonyevidence",
-        "view_biologicalevidence",
-        "view_vehicleevidence", "add_vehicleevidence",
-        "view_identityevidence", "add_identityevidence",
-        "view_evidencefile", "add_evidencefile",
-        # Suspects (view only)
-        "view_suspect",
-        "view_bountytip", "change_bountytip",       # review tips
-        # Users (view only)
-        "view_user",
+        EvidencePerms.VIEW_EVIDENCE, EvidencePerms.ADD_EVIDENCE,
+        EvidencePerms.VIEW_TESTIMONYEVIDENCE, EvidencePerms.ADD_TESTIMONYEVIDENCE,
+        EvidencePerms.VIEW_BIOLOGICALEVIDENCE,
+        EvidencePerms.VIEW_VEHICLEEVIDENCE, EvidencePerms.ADD_VEHICLEEVIDENCE,
+        EvidencePerms.VIEW_IDENTITYEVIDENCE, EvidencePerms.ADD_IDENTITYEVIDENCE,
+        EvidencePerms.VIEW_EVIDENCEFILE, EvidencePerms.ADD_EVIDENCEFILE,
+        # Suspects
+        SuspectsPerms.VIEW_SUSPECT,
+        SuspectsPerms.VIEW_BOUNTYTIP, SuspectsPerms.CHANGE_BOUNTYTIP,
+        SuspectsPerms.CAN_REVIEW_BOUNTY_TIP,
+        # Users
+        AccountsPerms.VIEW_USER,
         # Notifications
-        "view_notification", "add_notification", "change_notification", "delete_notification",
+        CorePerms.VIEW_NOTIFICATION, CorePerms.ADD_NOTIFICATION,
+        CorePerms.CHANGE_NOTIFICATION, CorePerms.DELETE_NOTIFICATION,
     ],
 
     # ── Patrol Officer ──────────────────────────────────────────────
-    ("Patrol Officer", "Field patrol — reports crime scenes and suspicious activity.", 5): [
+    (
+        "Patrol Officer",
+        "Field patrol — reports crime scenes and suspicious activity.",
+        5,
+    ): [
         # Cases
-        "view_case", "add_case", "change_case",
-        "view_casecomplainant",
-        "view_casewitness", "add_casewitness", "change_casewitness",
-        "view_casestatuslog", "add_casestatuslog",
+        CasesPerms.VIEW_CASE, CasesPerms.ADD_CASE, CasesPerms.CHANGE_CASE,
+        CasesPerms.VIEW_CASECOMPLAINANT,
+        CasesPerms.VIEW_CASEWITNESS, CasesPerms.ADD_CASEWITNESS, CasesPerms.CHANGE_CASEWITNESS,
+        CasesPerms.VIEW_CASESTATUSLOG, CasesPerms.ADD_CASESTATUSLOG,
+        CasesPerms.CAN_CHANGE_CASE_STATUS,
         # Evidence (register)
-        "view_evidence", "add_evidence",
-        "view_testimonyevidence", "add_testimonyevidence",
-        "view_vehicleevidence", "add_vehicleevidence",
-        "view_identityevidence", "add_identityevidence",
-        "view_evidencefile", "add_evidencefile",
-        # Suspects (view only)
-        "view_suspect",
-        # Users (view only)
-        "view_user",
+        EvidencePerms.VIEW_EVIDENCE, EvidencePerms.ADD_EVIDENCE,
+        EvidencePerms.VIEW_TESTIMONYEVIDENCE, EvidencePerms.ADD_TESTIMONYEVIDENCE,
+        EvidencePerms.VIEW_VEHICLEEVIDENCE, EvidencePerms.ADD_VEHICLEEVIDENCE,
+        EvidencePerms.VIEW_IDENTITYEVIDENCE, EvidencePerms.ADD_IDENTITYEVIDENCE,
+        EvidencePerms.VIEW_EVIDENCEFILE, EvidencePerms.ADD_EVIDENCEFILE,
+        # Suspects
+        SuspectsPerms.VIEW_SUSPECT,
+        # Users
+        AccountsPerms.VIEW_USER,
         # Notifications
-        "view_notification", "add_notification", "change_notification", "delete_notification",
+        CorePerms.VIEW_NOTIFICATION, CorePerms.ADD_NOTIFICATION,
+        CorePerms.CHANGE_NOTIFICATION, CorePerms.DELETE_NOTIFICATION,
     ],
 
     # ── Cadet ───────────────────────────────────────────────────────
-    ("Cadet", "Lowest police rank — reviews and filters incoming complaints.", 4): [
-        # Cases (review complaints, change status)
-        "view_case", "change_case",
-        "view_casecomplainant", "change_casecomplainant",
-        "view_casewitness",
-        "view_casestatuslog", "add_casestatuslog",
+    (
+        "Cadet",
+        "Lowest police rank — reviews and filters incoming complaints.",
+        4,
+    ): [
+        # Cases
+        CasesPerms.VIEW_CASE, CasesPerms.CHANGE_CASE,
+        CasesPerms.VIEW_CASECOMPLAINANT, CasesPerms.CHANGE_CASECOMPLAINANT,
+        CasesPerms.VIEW_CASEWITNESS,
+        CasesPerms.VIEW_CASESTATUSLOG, CasesPerms.ADD_CASESTATUSLOG,
+        CasesPerms.CAN_REVIEW_COMPLAINT, CasesPerms.CAN_CHANGE_CASE_STATUS,
         # Evidence (view only)
-        "view_evidence",
-        "view_testimonyevidence",
-        "view_evidencefile",
-        # Users (view only)
-        "view_user",
+        EvidencePerms.VIEW_EVIDENCE,
+        EvidencePerms.VIEW_TESTIMONYEVIDENCE,
+        EvidencePerms.VIEW_EVIDENCEFILE,
+        # Users
+        AccountsPerms.VIEW_USER,
         # Notifications
-        "view_notification", "add_notification", "change_notification", "delete_notification",
+        CorePerms.VIEW_NOTIFICATION, CorePerms.ADD_NOTIFICATION,
+        CorePerms.CHANGE_NOTIFICATION, CorePerms.DELETE_NOTIFICATION,
     ],
 
     # ── Coroner ─────────────────────────────────────────────────────
-    ("Coroner", "Examines and verifies biological/medical evidence.", 3): [
+    (
+        "Coroner",
+        "Examines and verifies biological/medical evidence.",
+        3,
+    ): [
         # Cases (read-only)
-        "view_case",
-        # Evidence (view all + change biological)
-        "view_evidence", "change_evidence",
-        "view_testimonyevidence",
-        "view_biologicalevidence", "change_biologicalevidence",
-        "view_vehicleevidence",
-        "view_identityevidence",
-        "view_evidencefile", "add_evidencefile",
+        CasesPerms.VIEW_CASE,
+        # Evidence (view all + verify biological)
+        EvidencePerms.VIEW_EVIDENCE, EvidencePerms.CHANGE_EVIDENCE,
+        EvidencePerms.VIEW_TESTIMONYEVIDENCE,
+        EvidencePerms.VIEW_BIOLOGICALEVIDENCE, EvidencePerms.CHANGE_BIOLOGICALEVIDENCE,
+        EvidencePerms.VIEW_VEHICLEEVIDENCE,
+        EvidencePerms.VIEW_IDENTITYEVIDENCE,
+        EvidencePerms.VIEW_EVIDENCEFILE, EvidencePerms.ADD_EVIDENCEFILE,
+        EvidencePerms.CAN_VERIFY_EVIDENCE, EvidencePerms.CAN_REGISTER_FORENSIC_RESULT,
         # Notifications
-        "view_notification", "add_notification", "change_notification", "delete_notification",
+        CorePerms.VIEW_NOTIFICATION, CorePerms.ADD_NOTIFICATION,
+        CorePerms.CHANGE_NOTIFICATION, CorePerms.DELETE_NOTIFICATION,
     ],
 
     # ── Judge ───────────────────────────────────────────────────────
-    ("Judge", "Presides over trials — access to full case files, evidence, and personnel.", 2): [
+    (
+        "Judge",
+        "Presides over trials — access to full case files, evidence, and personnel.",
+        2,
+    ): [
         # Cases (read-only, full access to review)
-        "view_case",
-        "view_casecomplainant",
-        "view_casewitness",
-        "view_casestatuslog",
+        CasesPerms.VIEW_CASE,
+        CasesPerms.VIEW_CASECOMPLAINANT,
+        CasesPerms.VIEW_CASEWITNESS,
+        CasesPerms.VIEW_CASESTATUSLOG,
         # Evidence (read-only)
-        "view_evidence",
-        "view_testimonyevidence",
-        "view_biologicalevidence",
-        "view_vehicleevidence",
-        "view_identityevidence",
-        "view_evidencefile",
+        EvidencePerms.VIEW_EVIDENCE,
+        EvidencePerms.VIEW_TESTIMONYEVIDENCE,
+        EvidencePerms.VIEW_BIOLOGICALEVIDENCE,
+        EvidencePerms.VIEW_VEHICLEEVIDENCE,
+        EvidencePerms.VIEW_IDENTITYEVIDENCE,
+        EvidencePerms.VIEW_EVIDENCEFILE,
         # Suspects & trials
-        "view_suspect",
-        "view_interrogation",
-        "view_trial", "add_trial", "change_trial",
-        "view_bail",
-        # Users (view personnel involved)
-        "view_user",
+        SuspectsPerms.VIEW_SUSPECT,
+        SuspectsPerms.VIEW_INTERROGATION,
+        SuspectsPerms.VIEW_TRIAL, SuspectsPerms.ADD_TRIAL, SuspectsPerms.CHANGE_TRIAL,
+        SuspectsPerms.VIEW_BAIL,
+        SuspectsPerms.CAN_JUDGE_TRIAL,
+        # Users
+        AccountsPerms.VIEW_USER,
         # Notifications
-        "view_notification", "add_notification", "change_notification", "delete_notification",
+        CorePerms.VIEW_NOTIFICATION, CorePerms.ADD_NOTIFICATION,
+        CorePerms.CHANGE_NOTIFICATION, CorePerms.DELETE_NOTIFICATION,
     ],
 
     # ── Complainant ─────────────────────────────────────────────────
-    ("Complainant", "Citizen who files a complaint to open a case.", 1): [
-        "view_case", "add_case",
-        "view_casecomplainant",
-        "view_notification", "change_notification",
+    (
+        "Complainant",
+        "Citizen who files a complaint to open a case.",
+        1,
+    ): [
+        CasesPerms.VIEW_CASE, CasesPerms.ADD_CASE,
+        CasesPerms.VIEW_CASECOMPLAINANT,
+        CorePerms.VIEW_NOTIFICATION, CorePerms.CHANGE_NOTIFICATION,
     ],
 
     # ── Witness ─────────────────────────────────────────────────────
-    ("Witness", "Citizen who has witnessed an incident.", 1): [
-        "view_case",
-        "view_notification", "change_notification",
+    (
+        "Witness",
+        "Citizen who has witnessed an incident.",
+        1,
+    ): [
+        CasesPerms.VIEW_CASE,
+        CorePerms.VIEW_NOTIFICATION, CorePerms.CHANGE_NOTIFICATION,
     ],
 
     # ── Suspect ─────────────────────────────────────────────────────
-    ("Suspect", "Individual identified as a suspect in a case.", 0): [
-        "view_case",
-        "view_bail",
-        "view_notification", "change_notification",
+    (
+        "Suspect",
+        "Individual identified as a suspect in a case.",
+        0,
+    ): [
+        CasesPerms.VIEW_CASE,
+        SuspectsPerms.VIEW_BAIL,
+        CorePerms.VIEW_NOTIFICATION, CorePerms.CHANGE_NOTIFICATION,
     ],
 
     # ── Criminal ────────────────────────────────────────────────────
-    ("Criminal", "Convicted individual — limited read-only access.", 0): [
-        "view_case",
-        "view_bail",
-        "view_notification", "change_notification",
+    (
+        "Criminal",
+        "Convicted individual — limited read-only access.",
+        0,
+    ): [
+        CasesPerms.VIEW_CASE,
+        SuspectsPerms.VIEW_BAIL,
+        CorePerms.VIEW_NOTIFICATION, CorePerms.CHANGE_NOTIFICATION,
     ],
 
     # ── Base User ───────────────────────────────────────────────────
-    ("Base User", "Default role for newly registered users before assignment.", 0): [
-        "view_suspect",              # Most Wanted page is public
-        "view_bountytip", "add_bountytip",
-        "view_notification", "change_notification",
+    (
+        "Base User",
+        "Default role for newly registered users before assignment.",
+        0,
+    ): [
+        SuspectsPerms.VIEW_SUSPECT,       # Most Wanted page is public
+        SuspectsPerms.VIEW_BOUNTYTIP, SuspectsPerms.ADD_BOUNTYTIP,
+        CorePerms.VIEW_NOTIFICATION, CorePerms.CHANGE_NOTIFICATION,
     ],
 }
 
 
 class Command(BaseCommand):
     help = (
-        "Seeds the database with base Roles and maps them to Django "
-        "permissions.  Safe to run multiple times (idempotent)."
+        "Seeds the database with base Roles and maps each role to its "
+        "Django permissions.  Safe to run multiple times (idempotent).  "
+        "Does NOT create permissions — run `migrate` first."
     )
 
     def handle(self, *args, **options):
@@ -345,8 +489,15 @@ class Command(BaseCommand):
             "\n══════════════════════════════════════════\n"
         ))
 
+        # Pre-fetch ALL permissions into a dict for fast look-up
+        all_permissions: dict[str, Permission] = {
+            p.codename: p
+            for p in Permission.objects.select_related("content_type").all()
+        }
+
         roles_created = 0
         roles_updated = 0
+        warnings = 0
 
         for (role_name, description, hierarchy_level), codenames in ROLE_PERMISSIONS_MAP.items():
             # ── 1. Idempotent role creation / update ────────────────
@@ -359,7 +510,6 @@ class Command(BaseCommand):
             )
 
             if not created:
-                # Update description and hierarchy_level if they differ
                 changed = False
                 if role.description != description:
                     role.description = description
@@ -371,12 +521,13 @@ class Command(BaseCommand):
                     role.save(update_fields=["description", "hierarchy_level"])
 
             # ── 2. Resolve permission codenames ─────────────────────
-            resolved_permissions = []
+            resolved_permissions: list[Permission] = []
             for codename in codenames:
-                try:
-                    perm = Permission.objects.get(codename=codename)
+                perm = all_permissions.get(codename)
+                if perm is not None:
                     resolved_permissions.append(perm)
-                except Permission.DoesNotExist:
+                else:
+                    warnings += 1
                     self.stdout.write(self.style.WARNING(
                         f"  ⚠  Permission '{codename}' not found — "
                         f"skipped for role '{role_name}'.  "
@@ -403,8 +554,11 @@ class Command(BaseCommand):
         self.stdout.write(self.style.MIGRATE_HEADING(
             "\n──────────────────────────────────────────"
         ))
-        self.stdout.write(self.style.SUCCESS(
+        summary = (
             f"  Done!  {roles_created} role(s) created, "
             f"{roles_updated} role(s) updated.  "
-            f"Total: {roles_created + roles_updated} role(s).\n"
-        ))
+            f"Total: {roles_created + roles_updated} role(s)."
+        )
+        if warnings:
+            summary += f"  ({warnings} permission warning(s) — see above.)"
+        self.stdout.write(self.style.SUCCESS(summary + "\n"))
