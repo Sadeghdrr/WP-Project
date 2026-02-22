@@ -64,6 +64,7 @@ Permission constants used here (from ``core.permissions_constants.CasesPerms``):
 from __future__ import annotations
 
 import datetime
+import re
 from typing import Any
 
 from django.db import transaction
@@ -86,6 +87,23 @@ from .models import (
     ComplainantStatus,
     CrimeLevel,
 )
+
+# ── Roles that are NOT allowed to create crime-scene cases ──────────
+_CRIME_SCENE_FORBIDDEN_ROLES: set[str] = {"cadet", "base_user", "complainant"}
+
+# ── Role name that auto-approves crime-scene cases ──────────────────
+_CHIEF_ROLE: str = "police_chief"
+
+# ── Valid role-field names for unassign ──────────────────────────────
+_VALID_ROLE_FIELDS: set[str] = {
+    "assigned_detective",
+    "assigned_sergeant",
+    "assigned_captain",
+    "assigned_judge",
+}
+
+# ── Phone number regex (Iranian mobile format) ──────────────────────
+_PHONE_REGEX = re.compile(r"^\+?\d{7,15}$")
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -439,7 +457,59 @@ class CaseCreationService:
         5. If status == OPEN, automatically set ``approved_by = requesting_user``.
         6. Return ``case``.
         """
-        raise NotImplementedError
+        # ── Role guard: Cadets / base users cannot create crime-scene cases
+        role_name = get_user_role_name(requesting_user)
+        if role_name in _CRIME_SCENE_FORBIDDEN_ROLES or role_name is None:
+            raise PermissionDenied(
+                "Your role is not permitted to create a crime-scene case."
+            )
+
+        # ── Determine initial status based on rank
+        is_chief = role_name == _CHIEF_ROLE
+        initial_status = CaseStatus.OPEN if is_chief else CaseStatus.PENDING_APPROVAL
+
+        # ── Extract nested witnesses before creating case
+        witnesses_data = validated_data.pop("witnesses", []) or []
+
+        validated_data["creation_type"] = CaseCreationType.CRIME_SCENE
+        validated_data["status"] = initial_status
+        validated_data["created_by"] = requesting_user
+
+        if is_chief:
+            validated_data["approved_by"] = requesting_user
+
+        case = Case.objects.create(**validated_data)
+
+        # ── Bulk-create witnesses
+        if witnesses_data:
+            CaseWitness.objects.bulk_create([
+                CaseWitness(case=case, **w) for w in witnesses_data
+            ])
+
+        # ── Log the initial status
+        log_message = (
+            "Crime-scene case created and auto-approved (Police Chief)."
+            if is_chief
+            else "Crime-scene case created — pending superior approval."
+        )
+        CaseStatusLog.objects.create(
+            case=case,
+            from_status="",
+            to_status=initial_status,
+            changed_by=requesting_user,
+            message=log_message,
+        )
+
+        # ── Notify approvers if pending
+        if not is_chief:
+            NotificationService.create(
+                actor=requesting_user,
+                recipients=[requesting_user],  # placeholder — ideally superiors
+                event_type="case_status_changed",
+                related_object=case,
+            )
+
+        return case
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -893,7 +963,27 @@ class CaseWorkflowService:
         4. transition_state(case, OPEN, requesting_user).
         5. Return case.
         """
-        raise NotImplementedError
+        if case.status != CaseStatus.PENDING_APPROVAL:
+            raise InvalidTransition(
+                current=case.status,
+                target=CaseStatus.OPEN,
+                reason="Case must be in PENDING_APPROVAL status.",
+            )
+
+        if case.creation_type != CaseCreationType.CRIME_SCENE:
+            raise DomainError(
+                "Only crime-scene cases can be approved via this endpoint."
+            )
+
+        # Set approved_by before transitioning
+        case = Case.objects.select_for_update().get(pk=case.pk)
+        case.approved_by = requesting_user
+        case.save(update_fields=["approved_by", "updated_at"])
+
+        return CaseWorkflowService.transition_state(
+            case, CaseStatus.OPEN, requesting_user,
+            message="Crime-scene case approved by superior.",
+        )
 
     @staticmethod
     @transaction.atomic
@@ -931,7 +1021,25 @@ class CaseWorkflowService:
         4. transition_state(case, SERGEANT_REVIEW, requesting_user).
         5. Return case.
         """
-        raise NotImplementedError
+        if case.status != CaseStatus.INVESTIGATION:
+            raise InvalidTransition(
+                current=case.status,
+                target=CaseStatus.SUSPECT_IDENTIFIED,
+                reason="Case must be in INVESTIGATION status.",
+            )
+
+        if requesting_user != case.assigned_detective:
+            raise PermissionDenied(
+                "Only the assigned detective can declare suspects."
+            )
+
+        case = CaseWorkflowService.transition_state(
+            case, CaseStatus.SUSPECT_IDENTIFIED, requesting_user,
+        )
+        case = CaseWorkflowService.transition_state(
+            case, CaseStatus.SERGEANT_REVIEW, requesting_user,
+        )
+        return case
 
     @staticmethod
     @transaction.atomic
@@ -973,7 +1081,27 @@ class CaseWorkflowService:
         4. If "reject":  transition to INVESTIGATION with non-blank message.
         5. Return case.
         """
-        raise NotImplementedError
+        if case.status != CaseStatus.SERGEANT_REVIEW:
+            raise InvalidTransition(
+                current=case.status,
+                target="approve/reject",
+                reason="Case must be in SERGEANT_REVIEW status.",
+            )
+
+        if requesting_user != case.assigned_sergeant:
+            raise PermissionDenied(
+                "Only the assigned sergeant can perform this review."
+            )
+
+        if decision == "approve":
+            case = CaseWorkflowService.transition_state(
+                case, CaseStatus.ARREST_ORDERED, requesting_user,
+            )
+        else:
+            case = CaseWorkflowService.transition_state(
+                case, CaseStatus.INVESTIGATION, requesting_user, message,
+            )
+        return case
 
     @staticmethod
     @transaction.atomic
@@ -1010,7 +1138,26 @@ class CaseWorkflowService:
         3. transition_state(case, JUDICIARY, requesting_user).
         4. Return case.
         """
-        raise NotImplementedError
+        if case.status not in (CaseStatus.CAPTAIN_REVIEW, CaseStatus.CHIEF_REVIEW):
+            raise InvalidTransition(
+                current=case.status,
+                target=CaseStatus.JUDICIARY,
+                reason="Case must be in CAPTAIN_REVIEW or CHIEF_REVIEW.",
+            )
+
+        # Critical cases must go through CHIEF_REVIEW first
+        if (
+            case.status == CaseStatus.CAPTAIN_REVIEW
+            and case.crime_level == CrimeLevel.CRITICAL
+        ):
+            case = CaseWorkflowService.transition_state(
+                case, CaseStatus.CHIEF_REVIEW, requesting_user,
+            )
+
+        case = CaseWorkflowService.transition_state(
+            case, CaseStatus.JUDICIARY, requesting_user,
+        )
+        return case
 
     @staticmethod
     def _dispatch_notifications(
@@ -1170,7 +1317,41 @@ class CaseAssignmentService:
         6. CaseWorkflowService.transition_state(case, INVESTIGATION, requesting_user).
         7. Return case.
         """
-        raise NotImplementedError
+        if not requesting_user.has_perm(f"cases.{CasesPerms.CAN_ASSIGN_DETECTIVE}"):
+            raise PermissionDenied(
+                "You do not have permission to assign a detective."
+            )
+
+        if case.status != CaseStatus.OPEN:
+            raise InvalidTransition(
+                current=case.status,
+                target=CaseStatus.INVESTIGATION,
+                reason="Case must be in OPEN status to assign a detective.",
+            )
+
+        detective_role = get_user_role_name(detective)
+        if detective_role != "detective":
+            raise DomainError(
+                "The assigned user must hold the 'Detective' role."
+            )
+
+        case = Case.objects.select_for_update().get(pk=case.pk)
+        case.assigned_detective = detective
+        case.save(update_fields=["assigned_detective", "updated_at"])
+
+        case = CaseWorkflowService.transition_state(
+            case, CaseStatus.INVESTIGATION, requesting_user,
+        )
+
+        # Notify the detective of their assignment
+        NotificationService.create(
+            actor=requesting_user,
+            recipients=[detective],
+            event_type="assignment_changed",
+            related_object=case,
+        )
+
+        return case
 
     @staticmethod
     @transaction.atomic
@@ -1204,7 +1385,38 @@ class CaseAssignmentService:
         4. case.save(update_fields=["assigned_sergeant", "updated_at"]).
         5. Return case.
         """
-        raise NotImplementedError
+        if not requesting_user.has_perm(f"cases.{CasesPerms.CAN_ASSIGN_DETECTIVE}"):
+            raise PermissionDenied(
+                "You do not have permission to assign a sergeant."
+            )
+
+        sergeant_role = get_user_role_name(sergeant)
+        if sergeant_role != "sergeant":
+            raise DomainError(
+                "The assigned user must hold the 'Sergeant' role."
+            )
+
+        case = Case.objects.select_for_update().get(pk=case.pk)
+        case.assigned_sergeant = sergeant
+        case.save(update_fields=["assigned_sergeant", "updated_at"])
+
+        # Log the assignment
+        CaseStatusLog.objects.create(
+            case=case,
+            from_status=case.status,
+            to_status=case.status,
+            changed_by=requesting_user,
+            message=f"Sergeant {sergeant.get_full_name()} assigned to case.",
+        )
+
+        NotificationService.create(
+            actor=requesting_user,
+            recipients=[sergeant],
+            event_type="assignment_changed",
+            related_object=case,
+        )
+
+        return case
 
     @staticmethod
     @transaction.atomic
@@ -1232,7 +1444,37 @@ class CaseAssignmentService:
         -----------------------
         Same pattern as ``assign_sergeant`` with role = "Captain".
         """
-        raise NotImplementedError
+        if not requesting_user.has_perm(f"cases.{CasesPerms.CAN_ASSIGN_DETECTIVE}"):
+            raise PermissionDenied(
+                "You do not have permission to assign a captain."
+            )
+
+        captain_role = get_user_role_name(captain)
+        if captain_role != "captain":
+            raise DomainError(
+                "The assigned user must hold the 'Captain' role."
+            )
+
+        case = Case.objects.select_for_update().get(pk=case.pk)
+        case.assigned_captain = captain
+        case.save(update_fields=["assigned_captain", "updated_at"])
+
+        CaseStatusLog.objects.create(
+            case=case,
+            from_status=case.status,
+            to_status=case.status,
+            changed_by=requesting_user,
+            message=f"Captain {captain.get_full_name()} assigned to case.",
+        )
+
+        NotificationService.create(
+            actor=requesting_user,
+            recipients=[captain],
+            event_type="assignment_changed",
+            related_object=case,
+        )
+
+        return case
 
     @staticmethod
     @transaction.atomic
@@ -1258,7 +1500,35 @@ class CaseAssignmentService:
         Case
             Updated case.
         """
-        raise NotImplementedError
+        if not requesting_user.has_perm(f"cases.{CasesPerms.CAN_FORWARD_TO_JUDICIARY}"):
+            raise PermissionDenied(
+                "You do not have permission to assign a judge."
+            )
+
+        judge_role = get_user_role_name(judge)
+        if judge_role != "judge":
+            raise DomainError(
+                "The assigned user must hold the 'Judge' role."
+            )
+
+        case = Case.objects.select_for_update().get(pk=case.pk)
+        case.assigned_judge = judge
+        case.save(update_fields=["assigned_judge", "updated_at"])
+
+        CaseStatusLog.objects.create(
+            case=case,
+            from_status=case.status,
+            to_status=case.status,
+            changed_by=requesting_user,
+            message=f"Judge {judge.get_full_name()} assigned to case.",
+        )
+
+        NotificationService.create(
+            actor=requesting_user,
+            recipients=[judge],
+            event_type="assignment_changed",
+            related_object=case,
+        )
 
     @staticmethod
     @transaction.atomic
@@ -1291,7 +1561,30 @@ class CaseAssignmentService:
         3. case.save(update_fields=[role_field, "updated_at"]).
         4. Return case.
         """
-        raise NotImplementedError
+        if role_field not in _VALID_ROLE_FIELDS:
+            raise DomainError(
+                f"Invalid role field: {role_field}. "
+                f"Must be one of {_VALID_ROLE_FIELDS}."
+            )
+
+        if not requesting_user.has_perm(f"cases.{CasesPerms.CAN_ASSIGN_DETECTIVE}"):
+            raise PermissionDenied(
+                "You do not have permission to unassign personnel."
+            )
+
+        case = Case.objects.select_for_update().get(pk=case.pk)
+        setattr(case, role_field, None)
+        case.save(update_fields=[role_field, "updated_at"])
+
+        CaseStatusLog.objects.create(
+            case=case,
+            from_status=case.status,
+            to_status=case.status,
+            changed_by=requesting_user,
+            message=f"{role_field.replace('assigned_', '').title()} unassigned from case.",
+        )
+
+        return case
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -1451,7 +1744,27 @@ class CaseWitnessService:
         2. ``CaseWitness.objects.create(case=case, **validated_data)``.
         3. Return the witness.
         """
-        raise NotImplementedError
+        if case.status in (CaseStatus.CLOSED, CaseStatus.VOIDED):
+            raise DomainError(
+                "Cannot add witnesses to a closed or voided case."
+            )
+
+        # Validate phone number format
+        phone = validated_data.get("phone_number", "")
+        if not _PHONE_REGEX.match(phone):
+            raise DomainError(
+                "Phone number must be 7-15 digits, optionally prefixed with '+'."
+            )
+
+        # Validate national_id (10 digits)
+        national_id = validated_data.get("national_id", "")
+        if not national_id.isdigit() or len(national_id) != 10:
+            raise DomainError(
+                "National ID must be exactly 10 digits."
+            )
+
+        witness = CaseWitness.objects.create(case=case, **validated_data)
+        return witness
 
 
 # ═══════════════════════════════════════════════════════════════════

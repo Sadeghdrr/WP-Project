@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import logging
 
+from django.contrib.auth import get_user_model
+from django.shortcuts import get_object_or_404
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -61,6 +63,7 @@ from .services import (
     CaseWorkflowService,
 )
 
+User = get_user_model()
 logger = logging.getLogger(__name__)
 
 
@@ -91,16 +94,12 @@ class CaseViewSet(viewsets.ViewSet):
         """
         Retrieve a case by PK.  Raises HTTP 404 if not found.
         """
-        from django.shortcuts import get_object_or_404
-
         return get_object_or_404(Case, pk=pk)
 
     def _get_complainant(self, case: Case, complainant_pk: int) -> CaseComplainant:
         """
         Retrieve a CaseComplainant by PK scoped to a case.  Raises 404.
         """
-        from django.shortcuts import get_object_or_404
-
         return get_object_or_404(CaseComplainant, pk=complainant_pk, case=case)
 
     # ── Standard CRUD ────────────────────────────────────────────────
@@ -317,7 +316,10 @@ class CaseViewSet(viewsets.ViewSet):
         2. Delegate to ``CaseWorkflowService.approve_crime_scene_case(case, request.user)``.
         3. Return HTTP 200 with ``CaseDetailSerializer``.
         """
-        raise NotImplementedError
+        case = self._get_case(pk)
+        case = CaseWorkflowService.approve_crime_scene_case(case, request.user)
+        out = CaseDetailSerializer(case, context={"request": request})
+        return Response(out.data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["post"], url_path="declare-suspects")
     def declare_suspects(self, request: Request, pk: int = None) -> Response:
@@ -333,7 +335,10 @@ class CaseViewSet(viewsets.ViewSet):
         2. Delegate to ``CaseWorkflowService.declare_suspects_identified(case, request.user)``.
         3. Return HTTP 200 with ``CaseDetailSerializer``.
         """
-        raise NotImplementedError
+        case = self._get_case(pk)
+        case = CaseWorkflowService.declare_suspects_identified(case, request.user)
+        out = CaseDetailSerializer(case, context={"request": request})
+        return Response(out.data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["post"], url_path="sergeant-review")
     def sergeant_review(self, request: Request, pk: int = None) -> Response:
@@ -349,7 +354,17 @@ class CaseViewSet(viewsets.ViewSet):
         3. Delegate to ``CaseWorkflowService.process_sergeant_review``.
         4. Return HTTP 200 with ``CaseDetailSerializer``.
         """
-        raise NotImplementedError
+        case = self._get_case(pk)
+        serializer = SergeantReviewSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        case = CaseWorkflowService.process_sergeant_review(
+            case,
+            serializer.validated_data["decision"],
+            serializer.validated_data.get("message", ""),
+            request.user,
+        )
+        out = CaseDetailSerializer(case, context={"request": request})
+        return Response(out.data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["post"], url_path="forward-judiciary")
     def forward_judiciary(self, request: Request, pk: int = None) -> Response:
@@ -365,7 +380,10 @@ class CaseViewSet(viewsets.ViewSet):
         2. Delegate to ``CaseWorkflowService.forward_to_judiciary(case, request.user)``.
         3. Return HTTP 200 with ``CaseDetailSerializer``.
         """
-        raise NotImplementedError
+        case = self._get_case(pk)
+        case = CaseWorkflowService.forward_to_judiciary(case, request.user)
+        out = CaseDetailSerializer(case, context={"request": request})
+        return Response(out.data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["post"], url_path="transition")
     def transition(self, request: Request, pk: int = None) -> Response:
@@ -418,7 +436,13 @@ class CaseViewSet(viewsets.ViewSet):
         4. Delegate to ``CaseAssignmentService.assign_detective(case, detective, request.user)``.
         5. Return HTTP 200 with ``CaseDetailSerializer``.
         """
-        raise NotImplementedError
+        case = self._get_case(pk)
+        serializer = AssignPersonnelSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        detective = get_object_or_404(User, pk=serializer.validated_data["user_id"])
+        case = CaseAssignmentService.assign_detective(case, detective, request.user)
+        out = CaseDetailSerializer(case, context={"request": request})
+        return Response(out.data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["delete"], url_path="unassign-detective")
     def unassign_detective(self, request: Request, pk: int = None) -> Response:
@@ -433,7 +457,10 @@ class CaseViewSet(viewsets.ViewSet):
         2. Delegate to ``CaseAssignmentService.unassign_role(case, "assigned_detective", request.user)``.
         3. Return HTTP 200 with ``CaseDetailSerializer``.
         """
-        raise NotImplementedError
+        case = self._get_case(pk)
+        case = CaseAssignmentService.unassign_role(case, "assigned_detective", request.user)
+        out = CaseDetailSerializer(case, context={"request": request})
+        return Response(out.data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["post"], url_path="assign-sergeant")
     def assign_sergeant(self, request: Request, pk: int = None) -> Response:
@@ -448,7 +475,13 @@ class CaseViewSet(viewsets.ViewSet):
         4. Delegate to ``CaseAssignmentService.assign_sergeant(case, sergeant, request.user)``.
         5. Return HTTP 200 with ``CaseDetailSerializer``.
         """
-        raise NotImplementedError
+        case = self._get_case(pk)
+        serializer = AssignPersonnelSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        sergeant = get_object_or_404(User, pk=serializer.validated_data["user_id"])
+        case = CaseAssignmentService.assign_sergeant(case, sergeant, request.user)
+        out = CaseDetailSerializer(case, context={"request": request})
+        return Response(out.data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["post"], url_path="assign-captain")
     def assign_captain(self, request: Request, pk: int = None) -> Response:
@@ -459,7 +492,13 @@ class CaseViewSet(viewsets.ViewSet):
         -----
         Same pattern as ``assign_sergeant`` with ``assign_captain`` service call.
         """
-        raise NotImplementedError
+        case = self._get_case(pk)
+        serializer = AssignPersonnelSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        captain = get_object_or_404(User, pk=serializer.validated_data["user_id"])
+        case = CaseAssignmentService.assign_captain(case, captain, request.user)
+        out = CaseDetailSerializer(case, context={"request": request})
+        return Response(out.data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["post"], url_path="assign-judge")
     def assign_judge(self, request: Request, pk: int = None) -> Response:
@@ -470,7 +509,13 @@ class CaseViewSet(viewsets.ViewSet):
         -----
         Same pattern as ``assign_sergeant`` with ``assign_judge`` service call.
         """
-        raise NotImplementedError
+        case = self._get_case(pk)
+        serializer = AssignPersonnelSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        judge = get_object_or_404(User, pk=serializer.validated_data["user_id"])
+        case = CaseAssignmentService.assign_judge(case, judge, request.user)
+        out = CaseDetailSerializer(case, context={"request": request})
+        return Response(out.data, status=status.HTTP_200_OK)
 
     # ── Sub-resource @actions — Complainants ─────────────────────────
 
@@ -506,9 +551,6 @@ class CaseViewSet(viewsets.ViewSet):
             return Response(serializer.data, status=status.HTTP_200_OK)
 
         # POST
-        from django.contrib.auth import get_user_model
-        User = get_user_model()
-
         serializer = AddComplainantSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         user = User.objects.filter(pk=serializer.validated_data["user_id"]).first()
@@ -584,7 +626,21 @@ class CaseViewSet(viewsets.ViewSet):
         3. Delegate to ``CaseWitnessService.add_witness(case, validated_data, request.user)``.
         4. Return HTTP 201 with ``CaseWitnessSerializer``.
         """
-        raise NotImplementedError
+        case = self._get_case(pk)
+
+        if request.method == "GET":
+            qs = case.witnesses.all()
+            serializer = CaseWitnessSerializer(qs, many=True)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+
+        # POST
+        serializer = CaseWitnessCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        witness = CaseWitnessService.add_witness(
+            case, serializer.validated_data, request.user,
+        )
+        out = CaseWitnessSerializer(witness)
+        return Response(out.data, status=status.HTTP_201_CREATED)
 
     # ── Sub-resource @actions — Audit & Calculations ─────────────────
 

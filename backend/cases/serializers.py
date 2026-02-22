@@ -17,6 +17,7 @@ Structure
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from django.contrib.auth import get_user_model
@@ -33,6 +34,9 @@ from .models import (
 )
 
 User = get_user_model()
+
+# ── Phone number validation regex ───────────────────────────────────
+_PHONE_REGEX = re.compile(r"^\+?\d{7,15}$")
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -343,6 +347,17 @@ class CaseWitnessCreateSerializer(serializers.ModelSerializer):
         if not value.isdigit() or len(value) != 10:
             raise serializers.ValidationError(
                 "National ID must be exactly 10 digits."
+            )
+        return value
+
+    def validate_phone_number(self, value: str) -> str:
+        """
+        Validate that ``phone_number`` matches a valid phone format
+        (7–15 digits, optionally prefixed with '+').
+        """
+        if not _PHONE_REGEX.match(value):
+            raise serializers.ValidationError(
+                "Phone number must be 7-15 digits, optionally prefixed with '+'."
             )
         return value
 
