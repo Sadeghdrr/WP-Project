@@ -26,8 +26,11 @@ from typing import Any
 from django.contrib.auth import authenticate as django_authenticate
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
+from django.db import IntegrityError, transaction
 from django.db.models import Q, QuerySet
 from rest_framework_simplejwt.tokens import RefreshToken
+
+from core.domain.exceptions import Conflict
 
 from .models import Role
 
@@ -85,14 +88,57 @@ class UserRegistrationService:
 
         Raises
         ------
-        django.db.IntegrityError
-            If a duplicate unique field is somehow bypassed by the
-            serializer (race condition).
+        core.domain.exceptions.Conflict
+            If a unique field (username, email, phone_number, national_id)
+            is already taken.
         """
-        raise NotImplementedError(
-            "UserRegistrationService.register_user: "
-            "Create user with hashed password and 'Base User' role."
-        )
+        # 1. Pop password_confirm (already consumed by serializer validation)
+        validated_data.pop("password_confirm", None)
+
+        # 2. Pop password so it's not passed to create() directly
+        password = validated_data.pop("password")
+
+        # 3. Pre-check uniqueness — deterministic, field-specific errors
+        conflicts = []
+        if User.objects.filter(username=validated_data.get("username")).exists():
+            conflicts.append("username")
+        if User.objects.filter(email=validated_data.get("email")).exists():
+            conflicts.append("email")
+        if User.objects.filter(phone_number=validated_data.get("phone_number")).exists():
+            conflicts.append("phone_number")
+        if User.objects.filter(national_id=validated_data.get("national_id")).exists():
+            conflicts.append("national_id")
+
+        if conflicts:
+            raise Conflict(
+                f"The following field(s) already exist: {', '.join(conflicts)}."
+            )
+
+        # 4. Look up the "Base User" role (case-insensitive); create if missing
+        try:
+            base_role = Role.objects.get(name__iexact="Base User")
+        except Role.DoesNotExist:
+            base_role = Role.objects.create(
+                name="Base User",
+                hierarchy_level=0,
+                description="Default role for newly registered users.",
+            )
+
+        # 5. Create user inside an atomic block to guard against race conditions
+        try:
+            with transaction.atomic():
+                user = User.objects.create_user(
+                    password=password,
+                    **validated_data,
+                )
+                user.role = base_role
+                user.save(update_fields=["role"])
+        except IntegrityError:
+            raise Conflict(
+                "A user with one of the provided unique fields already exists."
+            )
+
+        return user
 
 
 # ═══════════════════════════════════════════════════════════════════

@@ -2,7 +2,6 @@
 Root conftest.py — shared fixtures for the entire test suite.
 
 Provides:
-  - ``db_access`` autouse fixture to allow DB access for all tests.
   - ``api_client`` fixture returning a DRF ``APIClient``.
   - ``create_user`` factory fixture for creating test users.
   - ``auth_header`` fixture for authenticated requests (JWT).

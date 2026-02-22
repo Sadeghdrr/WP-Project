@@ -78,17 +78,16 @@ class RegisterView(generics.CreateAPIView):
         """
         Handle user registration.
 
-        Implementation Contract
-        -----------------------
-        1. Instantiate and validate ``RegisterRequestSerializer``
-           with ``request.data``.
-        2. Call ``UserRegistrationService.register_user(serializer.validated_data)``.
-        3. Serialize the returned user with ``UserDetailSerializer``.
-        4. Return ``Response(data, status=201)``.
+        1. Validate input via RegisterRequestSerializer.
+        2. Delegate to UserRegistrationService.register_user().
+        3. Serialize the returned user with UserDetailSerializer.
+        4. Return Response(data, status=201).
         """
-        raise NotImplementedError(
-            "RegisterView.create: Wire serializer → service → response."
-        )
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = UserRegistrationService.register_user(serializer.validated_data)
+        response_serializer = UserDetailSerializer(user)
+        return Response(response_serializer.data, status=status.HTTP_201_CREATED)
 
 
 class LoginView(APIView):

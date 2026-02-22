@@ -72,18 +72,34 @@ class RegisterRequestSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         """
-        Cross-field validation stub.
-
-        Future implementation MUST:
-        1. Ensure ``password`` and ``password_confirm`` match.
-        2. Validate ``national_id`` format (exactly 10 digits).
-        3. Validate ``phone_number`` format (Iranian mobile format).
-        4. Delegate any additional checks to django password validators.
+        Cross-field validation:
+        1. Ensure password and password_confirm match.
+        2. Validate national_id format (exactly 10 digits).
+        3. Validate phone_number format (Iranian mobile).
         """
-        raise NotImplementedError(
-            "RegisterRequestSerializer.validate: "
-            "Implement password-match check, national_id & phone format validation."
-        )
+        import re
+
+        if attrs["password"] != attrs["password_confirm"]:
+            raise serializers.ValidationError(
+                {"password_confirm": "Passwords do not match."}
+            )
+
+        national_id = attrs.get("national_id", "")
+        if not national_id.isdigit() or len(national_id) != 10:
+            raise serializers.ValidationError(
+                {"national_id": "National ID must be exactly 10 digits."}
+            )
+
+        phone = attrs.get("phone_number", "")
+        if not re.match(r"^(\+98|0)?9\d{9}$", phone):
+            raise serializers.ValidationError(
+                {"phone_number": "Phone number must be a valid Iranian mobile number (e.g. 09121234567)."}
+            )
+
+        # Remove password_confirm — not needed beyond validation
+        attrs.pop("password_confirm")
+
+        return attrs
 
 
 class LoginRequestSerializer(serializers.Serializer):
