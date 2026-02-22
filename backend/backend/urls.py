@@ -23,4 +23,5 @@ urlpatterns = [
     path('api/', include('evidence.urls')),
     path('api/', include('board.urls')),
     path('api/core/', include('core.urls')),
+    path('api/', include('cases.urls')),
 ]

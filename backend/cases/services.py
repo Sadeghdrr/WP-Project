@@ -99,6 +99,7 @@ ALLOWED_TRANSITIONS: dict[tuple[str, str], set[str]] = {
     (CaseStatus.COMPLAINT_REGISTERED, CaseStatus.CADET_REVIEW): {CasesPerms.ADD_CASE},
     (CaseStatus.CADET_REVIEW, CaseStatus.RETURNED_TO_COMPLAINANT): {CasesPerms.CAN_REVIEW_COMPLAINT},
     (CaseStatus.CADET_REVIEW, CaseStatus.OFFICER_REVIEW): {CasesPerms.CAN_REVIEW_COMPLAINT},
+    (CaseStatus.CADET_REVIEW, CaseStatus.VOIDED): {CasesPerms.CAN_REVIEW_COMPLAINT},
     (CaseStatus.RETURNED_TO_COMPLAINANT, CaseStatus.CADET_REVIEW): {CasesPerms.ADD_CASE},
     (CaseStatus.OFFICER_REVIEW, CaseStatus.RETURNED_TO_CADET): {CasesPerms.CAN_APPROVE_CASE},
     (CaseStatus.OFFICER_REVIEW, CaseStatus.OPEN): {CasesPerms.CAN_APPROVE_CASE},
