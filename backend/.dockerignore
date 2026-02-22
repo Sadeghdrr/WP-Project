@@ -1,0 +1,53 @@
+# =============================================================================
+# WP-Project/backend/.dockerignore
+# Applied when Docker builds the backend image (context: ./backend)
+# =============================================================================
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*$py.class
+*.py[cod]
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Django runtime artefacts
+*.log
+db.sqlite3
+db.sqlite3-journal
+staticfiles/
+media/
+
+# Tests / coverage
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Git
+.git/
+.gitignore
+
+# Secrets — never bake .env into the image
+.env
+.env.*
+!.env.example
+
+# Docker files themselves (no need to copy into the image)
+Dockerfile
+.dockerignore

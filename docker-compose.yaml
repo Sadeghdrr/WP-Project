@@ -1,0 +1,82 @@
+# =============================================================================
+# WP-Project/docker-compose.yaml
+#
+# Local development stack — no nginx.
+# Static files are served by WhiteNoise (built into Django/Gunicorn).
+#
+# Usage:
+#   docker compose --env-file ./.env up --build
+#
+# Services:
+#   db        — PostgreSQL 16
+#   backend   — Django via Gunicorn (port 8000)
+#   frontend  — Vite dev server with HMR (port 5173)
+#
+# Important: set DB_HOST=db in WP-Project/.env when using this compose file.
+# =============================================================================
+
+services:
+
+  # ── PostgreSQL ──────────────────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    env_file:
+      - ./.env
+    environment:
+      # Postgres official image reads these specific variable names.
+      # Map from our DB_* naming convention used in .env.
+      POSTGRES_DB:       ${DB_NAME}
+      POSTGRES_USER:     ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  # ── Django backend (Gunicorn) ───────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    env_file:
+      - ./.env
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    volumes:
+      # Mount repo root so Django can resolve /app/.env via parents[2] in settings.py
+      - ./:/app
+      # Prevent the container's installed packages from being hidden by the mount
+      - /app/backend/.venv
+    working_dir: /app/backend
+    restart: unless-stopped
+
+  # ── Vite frontend dev server ────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    env_file:
+      - ./.env
+    ports:
+      - "5173:5173"
+    volumes:
+      # Mount repo root so Vite can read /app/.env (envDir = /app in container)
+      - ./:/app
+      # Anonymous volume keeps the container's node_modules intact;
+      # prevents the host mount from hiding them when node_modules is absent locally.
+      - /app/frontend/node_modules
+    working_dir: /app/frontend
+    command: npm run dev -- --host 0.0.0.0 --port 5173
+    restart: unless-stopped
+
+# ── Named volumes ─────────────────────────────────────────────────────────────
+volumes:
+  postgres_data:
