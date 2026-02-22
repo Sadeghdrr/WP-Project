@@ -11,9 +11,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from django.contrib.auth import get_user_model
+from django.contrib.auth import authenticate, get_user_model
 from django.contrib.auth.models import Permission
 from rest_framework import serializers
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 from .models import Role
 
@@ -101,6 +102,88 @@ class LoginRequestSerializer(serializers.Serializer):
         write_only=True,
         style={"input_type": "password"},
     )
+
+
+class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
+    """
+    Custom SimpleJWT serializer that:
+
+    1. Accepts ``identifier`` + ``password`` instead of
+       ``username`` + ``password``.
+    2. Resolves the user via the ``MultiFieldAuthBackend``.
+    3. Injects RBAC claims (``role``, ``hierarchy_level``,
+       ``permissions_list``) into the JWT access token payload.
+    4. Returns the token pair plus a nested ``user`` object in
+       the response body.
+    """
+
+    # Override the default username field with our multi-field identifier
+    username_field = "identifier"
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Remove the default 'username' field added by SimpleJWT
+        # and replace with 'identifier'
+        self.fields.pop(self.username_field, None)
+        self.fields["identifier"] = serializers.CharField(
+            help_text="Username, National ID, Phone Number, or Email.",
+        )
+
+    @classmethod
+    def get_token(cls, user) -> Any:
+        """
+        Add custom RBAC claims to the JWT payload so the frontend
+        can decode role info without a separate API call.
+        """
+        token = super().get_token(user)
+
+        # Inject RBAC claims
+        token["role"] = user.role.name if user.role else None
+        token["hierarchy_level"] = user.hierarchy_level
+        token["permissions_list"] = user.permissions_list
+
+        return token
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        """
+        Authenticate using the custom ``MultiFieldAuthBackend``.
+
+        Returns a dict containing ``access``, ``refresh``, and
+        ``user`` (serialized via ``UserDetailSerializer``).
+        """
+        identifier = attrs.get("identifier")
+        password = attrs.get("password")
+
+        # Authenticate via our custom backend
+        user = authenticate(
+            request=self.context.get("request"),
+            identifier=identifier,
+            password=password,
+        )
+
+        if user is None:
+            raise serializers.ValidationError(
+                {"detail": "Invalid credentials."},
+                code="authentication",
+            )
+
+        if not user.is_active:
+            raise serializers.ValidationError(
+                {"detail": "User account is disabled."},
+                code="authentication",
+            )
+
+        # Generate tokens with custom claims
+        refresh = self.get_token(user)
+        data = {
+            "access": str(refresh.access_token),
+            "refresh": str(refresh),
+        }
+
+        # Attach user for the view to serialise in the response
+        self.user = user
+
+        return data
 
 
 class TokenResponseSerializer(serializers.Serializer):

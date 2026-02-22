@@ -28,6 +28,7 @@ from rest_framework.views import APIView
 from .models import Role, User
 from .serializers import (
     AssignRoleSerializer,
+    CustomTokenObtainPairSerializer,
     LoginRequestSerializer,
     MeUpdateSerializer,
     PermissionSerializer,
@@ -130,9 +131,16 @@ class LoginView(APIView):
            ``{"access": ..., "refresh": ..., "user": UserDetailSerializer(user).data}``.
         6. Return ``Response(payload, status=200)``.
         """
-        raise NotImplementedError(
-            "LoginView.post: Wire serializer → auth service → JWT response."
+        serializer = CustomTokenObtainPairSerializer(
+            data=request.data,
+            context={"request": request},
         )
+        serializer.is_valid(raise_exception=True)
+
+        payload = serializer.validated_data  # contains 'access' and 'refresh'
+        payload["user"] = UserDetailSerializer(serializer.user).data
+
+        return Response(payload, status=status.HTTP_200_OK)
 
 
 # ═══════════════════════════════════════════════════════════════════

@@ -23,9 +23,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from django.contrib.auth import authenticate as django_authenticate
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
+from rest_framework_simplejwt.tokens import RefreshToken
 
 from .models import Role
 
@@ -134,10 +136,15 @@ class AuthenticationService:
         Performance note: all four fields are unique and indexed, so
         each lookup is O(1).
         """
-        raise NotImplementedError(
-            "AuthenticationService.resolve_user: "
-            "Resolve user from username/national_id/phone/email."
-        )
+        try:
+            return User.objects.select_related("role").get(
+                Q(username=identifier)
+                | Q(national_id=identifier)
+                | Q(phone_number=identifier)
+                | Q(email=identifier)
+            )
+        except (User.DoesNotExist, User.MultipleObjectsReturned):
+            return None
 
     @staticmethod
     def authenticate(identifier: str, password: str) -> User | None:
@@ -167,10 +174,8 @@ class AuthenticationService:
            raise a specific exception for the view to return 403).
         6. Return the user.
         """
-        raise NotImplementedError(
-            "AuthenticationService.authenticate: "
-            "Multi-field credential validation."
-        )
+        user = django_authenticate(identifier=identifier, password=password)
+        return user
 
     @staticmethod
     def generate_tokens(user: User) -> dict[str, str]:
@@ -200,10 +205,11 @@ class AuthenticationService:
         in ``settings.py`` (``DEFAULT_AUTHENTICATION_CLASSES``,
         ``SIMPLE_JWT`` settings, etc.).
         """
-        raise NotImplementedError(
-            "AuthenticationService.generate_tokens: "
-            "Return JWT access + refresh tokens via SimpleJWT."
-        )
+        refresh = RefreshToken.for_user(user)
+        return {
+            "access": str(refresh.access_token),
+            "refresh": str(refresh),
+        }
 
 
 # ═══════════════════════════════════════════════════════════════════
