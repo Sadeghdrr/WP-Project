@@ -67,7 +67,9 @@ A clean, three-service Docker Compose stack was created — **no nginx required*
   1. `nc -z $DB_HOST $DB_PORT` loop — waits until Postgres accepts connections.
   2. `python manage.py migrate --noinput`
   3. `python manage.py collectstatic --noinput`
-  4. `exec gunicorn backend.wsgi:application --bind 0.0.0.0:8000 --workers 2 --timeout 120`
+  4. `python manage.py setup_rbac` — seeds all Roles and links permissions (idempotent).
+  5. Creates the default superuser via `manage.py shell` heredoc (idempotent — skips if username already exists). Credentials are read from `DJANGO_SUPERUSER_*` env vars; defaults: `admin` / `1234`.
+  6. `exec gunicorn backend.wsgi:application --bind 0.0.0.0:8000 --workers 2 --timeout 120`
 
 ### `frontend` — Vite Dev Server
 
@@ -147,3 +149,23 @@ The compose file uses an anonymous volume for `/app/frontend/node_modules`. This
 ### `gunicorn` added to `requirements.txt`
 
 `gunicorn>=22.0.0` was added because it was not present and is required for the production WSGI server.
+
+### Default superuser credentials
+
+The superuser is created automatically on first container start with these defaults:
+
+| Variable | Default |
+|---|---|
+| `DJANGO_SUPERUSER_USERNAME` | `admin` |
+| `DJANGO_SUPERUSER_PASSWORD` | `1234` |
+| `DJANGO_SUPERUSER_EMAIL` | `admin@admin.com` |
+| `DJANGO_SUPERUSER_NATIONAL_ID` | `0000000000` |
+| `DJANGO_SUPERUSER_PHONE` | `09000000000` |
+
+Override any of these in `.env` before the first `docker compose up`. The creation is **idempotent** — if the username already exists the step is silently skipped.
+
+> **Security:** Change `DJANGO_SUPERUSER_PASSWORD` and `DJANGO_SUPERUSER_NATIONAL_ID` before any deployment outside your local machine.
+
+### RBAC seeding (`setup_rbac`)
+
+`python manage.py setup_rbac` runs after every `migrate`. It is idempotent — it creates/updates Roles and their Permission links but never deletes existing data. If permissions don't exist yet (e.g., a fresh migration run), re-running `setup_rbac` after `migrate` will pick them up correctly.
