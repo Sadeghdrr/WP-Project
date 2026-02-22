@@ -28,7 +28,7 @@ export const CasesListPage: React.FC = () => {
     const params: Record<string, string> = {};
     if (filter) params.status = filter;
     if (isCadet && !filter) params.status = CaseStatus.CADET_REVIEW;
-    if (isOfficer && !isCadet && !filter) params.status = CaseStatus.OFFICER_REVIEW;
+    if (isOfficer && !isCadet && filter) params.status = filter;
 
     listCases(params)
       .then(setCases)
@@ -50,6 +50,26 @@ export const CasesListPage: React.FC = () => {
       </div>
 
       <div className="mb-4 flex gap-2">
+        {isOfficer && (
+          <>
+            <button
+              onClick={() => setFilter(null)}
+              className={`rounded-lg px-4 py-2 text-sm font-medium ${
+                !filter ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-300'
+              }`}
+            >
+              همه
+            </button>
+            <button
+              onClick={() => setFilter(CaseStatus.PENDING_APPROVAL)}
+              className={`rounded-lg px-4 py-2 text-sm font-medium ${
+                filter === CaseStatus.PENDING_APPROVAL ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-300'
+              }`}
+            >
+              صحنه جرم (در انتظار تأیید)
+            </button>
+          </>
+        )}
         {!isCadet && !isOfficer && (
           <>
             <button

@@ -16,6 +16,7 @@ import { MostWantedPage } from '../pages/suspects/MostWantedPage';
 import { CasesListPage } from '../pages/cases/CasesListPage';
 import { CaseCreatePage } from '../pages/cases/CaseCreatePage';
 import { CaseDetailsPage } from '../pages/cases/CaseDetailsPage';
+import { CrimeSceneCreatePage } from '../pages/cases/CrimeSceneCreatePage';
 
 export const AppRouter: React.FC = () => {
   return (
@@ -39,6 +40,7 @@ export const AppRouter: React.FC = () => {
           <Route path="/dashboard" element={<OverviewPage />} />
           <Route path="/cases" element={<CasesListPage />} />
           <Route path="/cases/new" element={<CaseCreatePage />} />
+          <Route path="/cases/crime-scene" element={<CrimeSceneCreatePage />} />
           <Route path="/cases/:id" element={<CaseDetailsPage />} />
           <Route path="/board/:caseId" element={<div className="p-6">Board (placeholder)</div>} />
           <Route path="/evidence" element={<div className="p-6">Evidence (placeholder)</div>} />

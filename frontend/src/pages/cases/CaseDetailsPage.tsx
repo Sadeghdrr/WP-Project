@@ -6,10 +6,12 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { CaseResubmitSection } from '../../features/cases/CaseResubmitSection';
+import { CrimeSceneApprovalPanel } from '../../components/cases/CrimeSceneApprovalPanel';
 import {
   getCaseDetail,
   cadetReview,
   officerReview,
+  approveCrimeScene,
   reviewComplainant,
 } from '../../services/api/cases.api';
 import { useAuth } from '../../hooks/useAuth';
@@ -52,6 +54,10 @@ export const CaseDetailsPage: React.FC = () => {
     isCadet && caseData?.status === CaseStatus.CADET_REVIEW;
   const showOfficerReview =
     isOfficer && caseData?.status === CaseStatus.OFFICER_REVIEW;
+  const showCrimeSceneApproval =
+    canApproveCase &&
+    caseData?.creation_type === 'crime_scene' &&
+    caseData?.status === CaseStatus.PENDING_APPROVAL;
 
   useEffect(() => {
     if (!id) return;
@@ -219,13 +225,19 @@ export const CaseDetailsPage: React.FC = () => {
       <Card title="اطلاعات پرونده">
         <div className="space-y-2 text-right">
           <p>
+            <span className="text-slate-500">نوع ایجاد:</span>{' '}
+            {caseData.creation_type === 'crime_scene' ? 'صحنه جرم' : 'شکایت'}
+          </p>
+          <p>
             <span className="text-slate-500">سطح جرم:</span>{' '}
             {caseData.crime_level_display}
           </p>
-          <p>
-            <span className="text-slate-500">تعداد رد:</span>{' '}
-            {caseData.rejection_count}
-          </p>
+          {caseData.creation_type === 'complaint' && (
+            <p>
+              <span className="text-slate-500">تعداد رد:</span>{' '}
+              {caseData.rejection_count}
+            </p>
+          )}
           {caseData.location && (
             <p>
               <span className="text-slate-500">محل:</span> {caseData.location}
@@ -236,6 +248,42 @@ export const CaseDetailsPage: React.FC = () => {
           </p>
         </div>
       </Card>
+
+      {caseData.creation_type === 'crime_scene' && caseData.witnesses && caseData.witnesses.length > 0 && (
+        <Card title="شاهدان">
+          <div className="space-y-3">
+            {caseData.witnesses.map((w) => (
+              <div
+                key={w.id}
+                className="rounded-lg border border-slate-700 bg-slate-800/30 p-3 text-right"
+              >
+                <p className="font-medium text-slate-200">{w.full_name}</p>
+                <p className="text-sm text-slate-500">
+                  {w.phone_number} • {w.national_id}
+                </p>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {caseData.creation_type === 'crime_scene' && (
+        <Card title="شاکیان">
+          {caseData.complainants && caseData.complainants.length > 0 ? (
+            <ComplainantManager
+              complainants={caseData.complainants}
+              onReview={handleComplainantReview}
+              canReview={isCadet}
+              isLoading={actionLoading}
+            />
+          ) : (
+            <p className="text-right text-slate-500">
+              هنوز شاکی‌ای ثبت نشده است. شاکیان می‌توانند بعداً به پرونده اضافه
+              شوند.
+            </p>
+          )}
+        </Card>
+      )}
 
       {showCadetReview && (
         <ReviewActionPanel
@@ -254,6 +302,16 @@ export const CaseDetailsPage: React.FC = () => {
           isLoading={actionLoading}
           approveLabel="تأیید نهایی"
           rejectLabel="برگشت به کارآموز"
+        />
+      )}
+
+      {showCrimeSceneApproval && (
+        <CrimeSceneApprovalPanel
+          caseId={caseData.id}
+          onApproved={refreshCase}
+          isLoading={actionLoading}
+          setLoading={setActionLoading}
+          setError={setError}
         />
       )}
 
