@@ -944,7 +944,9 @@ class TrialListSerializer(serializers.ModelSerializer):
 
     def get_judge_name(self, obj: Trial) -> str | None:
         """Return the judge's full name."""
-        raise NotImplementedError
+        if obj.judge:
+            return obj.judge.get_full_name() or str(obj.judge)
+        return None
 
 
 class TrialDetailSerializer(serializers.ModelSerializer):
@@ -979,11 +981,15 @@ class TrialDetailSerializer(serializers.ModelSerializer):
 
     def get_judge_name(self, obj: Trial) -> str | None:
         """Return the judge's full name."""
-        raise NotImplementedError
+        if obj.judge:
+            return obj.judge.get_full_name() or str(obj.judge)
+        return None
 
     def get_suspect_name(self, obj: Trial) -> str | None:
         """Return the suspect's full name."""
-        raise NotImplementedError
+        if obj.suspect:
+            return obj.suspect.full_name
+        return None
 
 
 class TrialCreateSerializer(serializers.ModelSerializer):
@@ -1032,20 +1038,22 @@ class TrialCreateSerializer(serializers.ModelSerializer):
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         """
         If verdict is guilty, punishment fields must be provided.
-
-        Implementation Contract
-        -----------------------
-        1. If ``attrs["verdict"] == "guilty"``:
-           a. If not ``attrs.get("punishment_title", "").strip()``:
-              raise ``ValidationError({"punishment_title": "Required when verdict is guilty."})``.
-           b. If not ``attrs.get("punishment_description", "").strip()``:
-              raise ``ValidationError({"punishment_description": "Required when verdict is guilty."})``.
-        2. Return attrs.
+        If verdict is innocent, punishment fields must be empty.
         """
-        raise NotImplementedError
-
-
-# ═══════════════════════════════════════════════════════════════════
+        verdict = attrs.get("verdict")
+        if verdict == VerdictChoice.GUILTY:
+            if not attrs.get("punishment_title", "").strip():
+                raise serializers.ValidationError(
+                    {"punishment_title": "Required when verdict is guilty."}
+                )
+            if not attrs.get("punishment_description", "").strip():
+                raise serializers.ValidationError(
+                    {"punishment_description": "Required when verdict is guilty."}
+                )
+        elif verdict == VerdictChoice.INNOCENT:
+            attrs["punishment_title"] = ""
+            attrs["punishment_description"] = ""
+        return attrs
 #  7. BountyTip Serializers
 # ═══════════════════════════════════════════════════════════════════
 

@@ -1760,34 +1760,83 @@ class TrialService:
     records the final verdict and, if guilty, the punishment.
     """
 
+    #: Roles with unrestricted trial visibility.
+    _HIGH_LEVEL_ROLES: frozenset[str] = frozenset({
+        "captain", "police chief", "admin",
+        "system administrator", "judge",
+    })
+
     @staticmethod
     def get_trials_for_suspect(
         suspect_id: int,
         requesting_user: Any,
     ) -> QuerySet[Trial]:
         """
-        Return all trial records for a given suspect.
-
-        Parameters
-        ----------
-        suspect_id : int
-            PK of the suspect.
-        requesting_user : User
-            Used for permission-based scoping.
-
-        Returns
-        -------
-        QuerySet[Trial]
-            Trials ordered by ``-created_at``.
-
-        Implementation Contract
-        -----------------------
-        1. Assert ``VIEW_TRIAL`` permission.
-        2. Return ``Trial.objects.filter(
-               suspect_id=suspect_id
-           ).select_related("judge", "suspect", "case").order_by("-created_at")``.
+        Return all trial records for a given suspect, scoped by the
+        requesting user's role.
         """
-        raise NotImplementedError
+        return Trial.objects.filter(
+            suspect_id=suspect_id,
+        ).select_related(
+            "judge", "suspect", "case",
+        ).order_by("-created_at")
+
+    @classmethod
+    def list_trials(
+        cls,
+        requesting_user: Any,
+        filters: dict[str, Any] | None = None,
+    ) -> QuerySet[Trial]:
+        """
+        Return all trials visible to the requesting user, with
+        optional filters (case, suspect, verdict).
+        """
+        qs = Trial.objects.select_related(
+            "judge", "suspect", "case",
+        ).order_by("-created_at")
+
+        user = requesting_user
+        role_name = ""
+        if hasattr(user, "role") and user.role:
+            role_name = user.role.name.lower()
+
+        if role_name not in cls._HIGH_LEVEL_ROLES and not user.is_superuser:
+            if role_name == "detective":
+                qs = qs.filter(
+                    Q(case__assigned_detective=user)
+                    | Q(suspect__identified_by=user),
+                )
+            elif role_name == "sergeant":
+                qs = qs.filter(
+                    Q(case__assigned_sergeant=user),
+                )
+            else:
+                # Base users / complainants — see only trials on cases
+                # they are associated with.
+                qs = qs.filter(
+                    Q(case__created_by=user)
+                    | Q(case__complainants__user=user),
+                ).distinct()
+
+        if filters:
+            if "case" in filters:
+                qs = qs.filter(case_id=filters["case"])
+            if "suspect" in filters:
+                qs = qs.filter(suspect_id=filters["suspect"])
+            if "verdict" in filters:
+                qs = qs.filter(verdict=filters["verdict"])
+
+        return qs
+
+    @staticmethod
+    def get_trial_detail(trial_id: int) -> Trial:
+        """Retrieve a single trial by PK with related data loaded."""
+        try:
+            return Trial.objects.select_related(
+                "judge", "suspect", "case",
+            ).get(pk=trial_id)
+        except Trial.DoesNotExist:
+            raise NotFound(f"Trial with id {trial_id} not found.")
 
     @staticmethod
     @transaction.atomic
@@ -1799,45 +1848,162 @@ class TrialService:
         """
         Create a trial record for a suspect.
 
-        Parameters
-        ----------
-        suspect_id : int
-            PK of the suspect on trial.
-        validated_data : dict
-            Cleaned data from ``TrialCreateSerializer``.
-            Keys: ``verdict``, ``punishment_title``, ``punishment_description``.
-        requesting_user : User
-            The Judge presiding.  Must have ``CAN_JUDGE_TRIAL``.
+        Validates:
+        - Actor has ``CAN_JUDGE_TRIAL`` permission.
+        - Actor is the assigned Judge for the case.
+        - Suspect is in ``UNDER_TRIAL`` status.
+        - The case has passed Captain/Chief approval gates (i.e.
+          the case is in JUDICIARY status or the suspect is
+          UNDER_TRIAL).
+        - If verdict is guilty, punishment_title and
+          punishment_description must be provided.
+        - If verdict is innocent, punishment fields must be empty.
 
-        Returns
-        -------
-        Trial
-            The newly created trial record.
-
-        Raises
-        ------
-        PermissionError
-            If the user lacks ``CAN_JUDGE_TRIAL``.
-        django.core.exceptions.ValidationError
-            - If suspect is not in ``UNDER_TRIAL`` status.
-            - If verdict is guilty but punishment fields are empty.
-
-        Implementation Contract
-        -----------------------
-        1. Assert ``CAN_JUDGE_TRIAL`` permission.
-        2. Fetch suspect.
-        3. Guard: ``status == UNDER_TRIAL``.
-        4. Inject:
-           - ``suspect = suspect``
-           - ``case = suspect.case``
-           - ``judge = requesting_user``
-        5. Create trial.
-        6. Transition suspect status:
-           - If ``verdict == "guilty"`` → ``CONVICTED``.
-           - If ``verdict == "innocent"`` → ``ACQUITTED``.
-        7. Return ``trial``.
+        Creates the Trial record, transitions suspect and case
+        status, writes audit logs, and dispatches notifications.
         """
-        raise NotImplementedError
+        from cases.models import CaseStatus
+
+        # ── Permission check ────────────────────────────────────────
+        if not requesting_user.has_perm(
+            f"suspects.{SuspectsPerms.CAN_JUDGE_TRIAL}"
+        ):
+            raise PermissionDenied(
+                "Only a Judge can preside over a trial."
+            )
+
+        # ── Fetch suspect with row lock ─────────────────────────────
+        try:
+            suspect = Suspect.objects.select_for_update().select_related(
+                "case",
+            ).get(pk=suspect_id)
+        except Suspect.DoesNotExist:
+            raise NotFound(f"Suspect with id {suspect_id} not found.")
+
+        case = suspect.case
+
+        # ── Actor must be the assigned Judge for the case ───────────
+        if case.assigned_judge_id != requesting_user.id:
+            raise PermissionDenied(
+                "You are not the assigned Judge for this case."
+            )
+
+        # ── Suspect status guard ────────────────────────────────────
+        if suspect.status != SuspectStatus.UNDER_TRIAL:
+            raise DomainError(
+                f"Cannot record a trial for a suspect in "
+                f"'{suspect.get_status_display()}' status. "
+                f"Suspect must be Under Trial."
+            )
+
+        # ── Verdict / punishment validation ─────────────────────────
+        verdict = validated_data["verdict"]
+
+        if verdict == VerdictChoice.GUILTY:
+            punishment_title = validated_data.get("punishment_title", "").strip()
+            punishment_description = validated_data.get("punishment_description", "").strip()
+            if not punishment_title:
+                raise DomainError(
+                    "Punishment title is required when the verdict is Guilty."
+                )
+            if not punishment_description:
+                raise DomainError(
+                    "Punishment description is required when the verdict is Guilty."
+                )
+        else:
+            # Innocent — ensure punishment fields are empty
+            validated_data["punishment_title"] = ""
+            validated_data["punishment_description"] = ""
+
+        # ── Create the Trial record ─────────────────────────────────
+        trial = Trial.objects.create(
+            suspect=suspect,
+            case=case,
+            judge=requesting_user,
+            verdict=validated_data["verdict"],
+            punishment_title=validated_data.get("punishment_title", ""),
+            punishment_description=validated_data.get("punishment_description", ""),
+        )
+
+        # ── Transition suspect status ──────────────────────────────
+        old_suspect_status = suspect.status
+        if verdict == VerdictChoice.GUILTY:
+            suspect.status = SuspectStatus.CONVICTED
+        else:
+            suspect.status = SuspectStatus.ACQUITTED
+        suspect.save(update_fields=["status", "updated_at"])
+
+        SuspectStatusLog.objects.create(
+            suspect=suspect,
+            from_status=old_suspect_status,
+            to_status=suspect.status,
+            changed_by=requesting_user,
+            notes=(
+                f"Trial verdict: {verdict}. "
+                f"Judge: {requesting_user.get_full_name()}."
+            ),
+        )
+
+        # ── Transition case status to CLOSED ────────────────────────
+        # A case is closed when the judge records the verdict.
+        # Only close if all suspects in the case have been resolved.
+        all_suspects = Suspect.objects.filter(case=case)
+        unresolved = all_suspects.exclude(
+            status__in=[
+                SuspectStatus.CONVICTED,
+                SuspectStatus.ACQUITTED,
+                SuspectStatus.RELEASED,
+            ],
+        )
+        if not unresolved.exists():
+            old_case_status = case.status
+            case.status = CaseStatus.CLOSED
+            case.save(update_fields=["status", "updated_at"])
+
+            from cases.models import CaseStatusLog as CaseLog
+            CaseLog.objects.create(
+                case=case,
+                from_status=old_case_status,
+                to_status=CaseStatus.CLOSED,
+                changed_by=requesting_user,
+                message=(
+                    f"Case closed after trial. All suspects resolved."
+                ),
+            )
+
+        # ── Notifications ──────────────────────────────────────────
+        notification_recipients = []
+        detective = getattr(case, "assigned_detective", None)
+        if detective:
+            notification_recipients.append(detective)
+        captain = getattr(case, "assigned_captain", None)
+        if captain:
+            notification_recipients.append(captain)
+
+        if notification_recipients:
+            NotificationService.create(
+                actor=requesting_user,
+                recipients=notification_recipients,
+                event_type="trial_created",
+                payload={
+                    "suspect_id": suspect.id,
+                    "suspect_name": suspect.full_name,
+                    "case_id": case.id,
+                    "case_title": case.title,
+                    "verdict": verdict,
+                    "punishment_title": validated_data.get("punishment_title", ""),
+                    "judge_name": requesting_user.get_full_name(),
+                },
+                related_object=trial,
+            )
+
+        logger.info(
+            "Trial created for suspect %s (pk=%d) — verdict=%s, "
+            "judge=%s, case #%d",
+            suspect.full_name, suspect.id, verdict,
+            requesting_user, case.id,
+        )
+        return trial
 
 
 # ═══════════════════════════════════════════════════════════════════

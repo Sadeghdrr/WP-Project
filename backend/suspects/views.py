@@ -1041,17 +1041,16 @@ class TrialViewSet(viewsets.ViewSet):
         GET /api/suspects/{suspect_pk}/trials/
 
         List all trial records for the given suspect.
-
-        Steps
-        -----
-        1. Get queryset via ``TrialService.get_trials_for_suspect(
-               suspect_id=suspect_pk,
-               requesting_user=request.user,
-           )``.
-        2. Serialize with ``TrialListSerializer(queryset, many=True)``.
-        3. Return HTTP 200.
         """
-        raise NotImplementedError
+        try:
+            qs = TrialService.get_trials_for_suspect(
+                suspect_id=suspect_pk,
+                requesting_user=request.user,
+            )
+            serializer = TrialListSerializer(qs, many=True)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        except NotFound as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_404_NOT_FOUND)
 
     @extend_schema(
         summary="Create trial record",
@@ -1068,31 +1067,24 @@ class TrialViewSet(viewsets.ViewSet):
         POST /api/suspects/{suspect_pk}/trials/
 
         Create a trial record for the suspect (Judge action).
-
-        Steps
-        -----
-        1. Validate ``request.data`` with ``TrialCreateSerializer``.
-        2. If invalid, return HTTP 400.
-        3. Delegate to ``TrialService.create_trial(
-               suspect_id=suspect_pk,
-               validated_data=serializer.validated_data,
-               requesting_user=request.user,
-           )``.
-        4. Serialize result with ``TrialDetailSerializer``.
-        5. Return HTTP 201.
-
-        Example Request
-        ---------------
-        ::
-
-            POST /api/suspects/12/trials/
-            {
-                "verdict": "guilty",
-                "punishment_title": "Murder",
-                "punishment_description": "25 years without parole."
-            }
         """
-        raise NotImplementedError
+        serializer = TrialCreateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            trial = TrialService.create_trial(
+                suspect_id=suspect_pk,
+                validated_data=serializer.validated_data,
+                requesting_user=request.user,
+            )
+            result = TrialDetailSerializer(trial)
+            return Response(result.data, status=status.HTTP_201_CREATED)
+        except PermissionDenied as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        except NotFound as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_404_NOT_FOUND)
+        except DomainError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
     @extend_schema(
         summary="Retrieve trial detail",
@@ -1107,14 +1099,13 @@ class TrialViewSet(viewsets.ViewSet):
         GET /api/suspects/{suspect_pk}/trials/{id}/
 
         Retrieve a single trial record detail.
-
-        Steps
-        -----
-        1. Fetch trial via service or direct lookup.
-        2. Serialize with ``TrialDetailSerializer``.
-        3. Return HTTP 200.
         """
-        raise NotImplementedError
+        try:
+            trial = TrialService.get_trial_detail(trial_id=pk)
+            serializer = TrialDetailSerializer(trial)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        except NotFound as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_404_NOT_FOUND)
 
 
 # ═══════════════════════════════════════════════════════════════════

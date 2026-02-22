@@ -1891,3 +1891,268 @@ class CaseCalculationService:
             "tracking_threshold": threshold,
             "reward_rials": reward,
         }
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  Case Reporting Service
+# ═══════════════════════════════════════════════════════════════════
+
+
+class CaseReportingService:
+    """
+    Aggregates a comprehensive case report for the judiciary / senior
+    officers (project-doc §4.6, §5.7).
+
+    The Judge, Captain, and Police Chief need a consolidated view that
+    includes every sub-resource attached to a case:
+      - Case main fields + status history (``CaseStatusLog``)
+      - Linked complainants and witnesses
+      - Summary of all linked evidence (metadata, no raw blobs)
+      - Linked suspects (status, interrogation summaries, approval trails)
+      - Involved personnel assignments
+
+    Access is restricted to users whose role is Judge, Captain,
+    Police Chief, or System Administrator.
+    """
+
+    #: Roles that are allowed to pull the full case report.
+    _REPORT_ALLOWED_ROLES: frozenset[str] = frozenset({
+        "judge",
+        "captain",
+        "police_chief",
+        "system_administrator",
+    })
+
+    @classmethod
+    def get_case_report(cls, user: Any, case_id: int) -> dict[str, Any]:
+        """
+        Build and return a comprehensive case report dictionary.
+
+        Parameters
+        ----------
+        user : User
+            The requesting user.  Must have an allowed role.
+        case_id : int
+            Primary key of the case to report on.
+
+        Returns
+        -------
+        dict
+            A structured dictionary containing all aggregated data.
+
+        Raises
+        ------
+        core.domain.exceptions.PermissionDenied
+            If the user's role is not in ``_REPORT_ALLOWED_ROLES``.
+        core.domain.exceptions.NotFound
+            If the case does not exist.
+        """
+        # ── Access enforcement ──────────────────────────────────────
+        role_name = get_user_role_name(user)
+        if role_name not in cls._REPORT_ALLOWED_ROLES and not user.is_superuser:
+            raise PermissionDenied(
+                "Only a Judge, Captain, or Police Chief may access "
+                "the full case report."
+            )
+
+        # ── Fetch the case with all related data ────────────────────
+        try:
+            case = (
+                Case.objects
+                .select_related(
+                    "created_by",
+                    "approved_by",
+                    "assigned_detective",
+                    "assigned_sergeant",
+                    "assigned_captain",
+                    "assigned_judge",
+                )
+                .prefetch_related(
+                    Prefetch(
+                        "complainants",
+                        queryset=CaseComplainant.objects.select_related(
+                            "user", "reviewed_by",
+                        ),
+                    ),
+                    "witnesses",
+                    Prefetch(
+                        "status_logs",
+                        queryset=CaseStatusLog.objects.select_related(
+                            "changed_by",
+                        ).order_by("created_at"),
+                    ),
+                )
+                .get(pk=case_id)
+            )
+        except Case.DoesNotExist:
+            raise NotFound(f"Case #{case_id} not found.")
+
+        # ── Lazy-import cross-app models to avoid circular deps ─────
+        from evidence.models import Evidence
+        from suspects.models import Interrogation, Suspect, Trial
+
+        # ── Evidence summary (metadata only, no raw file blobs) ─────
+        evidences_qs = (
+            Evidence.objects
+            .filter(case=case)
+            .select_related("registered_by")
+            .order_by("-created_at")
+        )
+        evidence_list = []
+        for ev in evidences_qs:
+            evidence_list.append({
+                "id": ev.id,
+                "evidence_type": ev.evidence_type,
+                "title": ev.title,
+                "description": ev.description,
+                "registered_by": _user_summary(ev.registered_by),
+                "created_at": ev.created_at.isoformat() if ev.created_at else None,
+            })
+
+        # ── Suspects with interrogation & trial summaries ───────────
+        suspects_qs = (
+            Suspect.objects
+            .filter(case=case)
+            .select_related("identified_by", "approved_by_sergeant", "user")
+            .prefetch_related(
+                Prefetch(
+                    "interrogations",
+                    queryset=Interrogation.objects.select_related(
+                        "detective", "sergeant",
+                    ).order_by("-created_at"),
+                ),
+                Prefetch(
+                    "trials",
+                    queryset=Trial.objects.select_related("judge").order_by("-created_at"),
+                ),
+            )
+            .order_by("-wanted_since")
+        )
+        suspects_list = []
+        for s in suspects_qs:
+            interrogation_summaries = [
+                {
+                    "id": i.id,
+                    "detective": _user_summary(i.detective),
+                    "sergeant": _user_summary(i.sergeant),
+                    "detective_guilt_score": i.detective_guilt_score,
+                    "sergeant_guilt_score": i.sergeant_guilt_score,
+                    "notes": i.notes,
+                    "created_at": i.created_at.isoformat() if i.created_at else None,
+                }
+                for i in s.interrogations.all()
+            ]
+            trial_summaries = [
+                {
+                    "id": t.id,
+                    "judge": _user_summary(t.judge),
+                    "verdict": t.verdict,
+                    "punishment_title": t.punishment_title,
+                    "punishment_description": t.punishment_description,
+                    "created_at": t.created_at.isoformat() if t.created_at else None,
+                }
+                for t in s.trials.all()
+            ]
+            suspects_list.append({
+                "id": s.id,
+                "full_name": s.full_name,
+                "national_id": s.national_id,
+                "status": s.status,
+                "status_display": s.get_status_display(),
+                "wanted_since": s.wanted_since.isoformat() if s.wanted_since else None,
+                "days_wanted": s.days_wanted,
+                "identified_by": _user_summary(s.identified_by),
+                "sergeant_approval_status": s.sergeant_approval_status,
+                "approved_by_sergeant": _user_summary(s.approved_by_sergeant),
+                "sergeant_rejection_message": s.sergeant_rejection_message,
+                "interrogations": interrogation_summaries,
+                "trials": trial_summaries,
+            })
+
+        # ── Complainants ────────────────────────────────────────────
+        complainants_list = [
+            {
+                "id": c.id,
+                "user": _user_summary(c.user),
+                "is_primary": c.is_primary,
+                "status": c.status,
+                "reviewed_by": _user_summary(c.reviewed_by),
+            }
+            for c in case.complainants.all()
+        ]
+
+        # ── Witnesses ──────────────────────────────────────────────
+        witnesses_list = [
+            {
+                "id": w.id,
+                "full_name": w.full_name,
+                "phone_number": w.phone_number,
+                "national_id": w.national_id,
+            }
+            for w in case.witnesses.all()
+        ]
+
+        # ── Status history (full audit trail) ──────────────────────
+        status_history = [
+            {
+                "id": log.id,
+                "from_status": log.from_status,
+                "to_status": log.to_status,
+                "changed_by": _user_summary(log.changed_by),
+                "message": log.message,
+                "created_at": log.created_at.isoformat() if log.created_at else None,
+            }
+            for log in case.status_logs.all()
+        ]
+
+        # ── Personnel assignments ──────────────────────────────────
+        personnel = {
+            "created_by": _user_summary(case.created_by),
+            "approved_by": _user_summary(case.approved_by),
+            "assigned_detective": _user_summary(case.assigned_detective),
+            "assigned_sergeant": _user_summary(case.assigned_sergeant),
+            "assigned_captain": _user_summary(case.assigned_captain),
+            "assigned_judge": _user_summary(case.assigned_judge),
+        }
+
+        # ── Calculations ───────────────────────────────────────────
+        calculations = CaseCalculationService.get_calculations_dict(case)
+
+        return {
+            "case": {
+                "id": case.id,
+                "title": case.title,
+                "description": case.description,
+                "crime_level": case.crime_level,
+                "crime_level_display": case.get_crime_level_display(),
+                "status": case.status,
+                "status_display": case.get_status_display(),
+                "creation_type": case.creation_type,
+                "rejection_count": case.rejection_count,
+                "incident_date": case.incident_date.isoformat() if case.incident_date else None,
+                "location": case.location,
+                "created_at": case.created_at.isoformat() if case.created_at else None,
+                "updated_at": case.updated_at.isoformat() if case.updated_at else None,
+            },
+            "personnel": personnel,
+            "complainants": complainants_list,
+            "witnesses": witnesses_list,
+            "evidence": evidence_list,
+            "suspects": suspects_list,
+            "status_history": status_history,
+            "calculations": calculations,
+        }
+
+
+def _user_summary(user: Any) -> dict[str, Any] | None:
+    """Return a compact user dict, or ``None`` if user is None."""
+    if user is None:
+        return None
+    role_name = None
+    if hasattr(user, "role") and user.role:
+        role_name = user.role.name
+    return {
+        "id": user.id,
+        "full_name": user.get_full_name() or str(user),
+        "role": role_name,
+    }

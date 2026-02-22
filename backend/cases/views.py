@@ -46,6 +46,7 @@ from .serializers import (
     CaseDetailSerializer,
     CaseFilterSerializer,
     CaseListSerializer,
+    CaseReportSerializer,
     CaseStatusLogSerializer,
     CaseTransitionSerializer,
     CaseUpdateSerializer,
@@ -64,6 +65,7 @@ from .services import (
     CaseComplainantService,
     CaseCreationService,
     CaseQueryService,
+    CaseReportingService,
     CaseWitnessService,
     CaseWorkflowService,
 )
@@ -1029,3 +1031,40 @@ class CaseViewSet(viewsets.ViewSet):
         data = CaseCalculationService.get_calculations_dict(case)
         serializer = CaseCalculationsSerializer(data)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+    # ------------------------------------------------------------------
+    # Case Report (judiciary)
+    # ------------------------------------------------------------------
+    @extend_schema(
+        summary="Full case report",
+        description=(
+            "Return a comprehensive, aggregated report for the case including "
+            "personnel, complainants, witnesses, evidence, suspects with "
+            "interrogation & trial summaries, status history, and calculations. "
+            "Accessible by Judge, Captain, Police Chief, and System Administrator."
+        ),
+        responses={
+            200: OpenApiResponse(response=CaseReportSerializer, description="Aggregated case report."),
+            403: OpenApiResponse(description="Role not allowed."),
+            404: OpenApiResponse(description="Case not found."),
+        },
+        tags=["Cases"],
+    )
+    @action(detail=True, methods=["get"], url_path="report")
+    def report(self, request: Request, pk: int = None) -> Response:
+        """
+        GET /api/cases/{id}/report/
+
+        Return a full aggregated case report for the judiciary flow.
+        """
+        try:
+            report_data = CaseReportingService.get_case_report(
+                user=request.user,
+                case_id=pk,
+            )
+            serializer = CaseReportSerializer(report_data)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        except PermissionDenied as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        except NotFound as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_404_NOT_FOUND)

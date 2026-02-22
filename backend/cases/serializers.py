@@ -622,3 +622,155 @@ class ResubmitComplaintSerializer(serializers.Serializer):
     description = serializers.CharField(required=False)
     incident_date = serializers.DateTimeField(required=False)
     location = serializers.CharField(max_length=500, required=False)
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  6. Case Report Serializers (Judiciary Flow)
+# ═══════════════════════════════════════════════════════════════════
+
+
+class _UserSummarySerializer(serializers.Serializer):
+    """Compact user representation used across report sub-sections."""
+
+    id = serializers.IntegerField(read_only=True)
+    full_name = serializers.CharField(read_only=True)
+    role = serializers.CharField(read_only=True, allow_null=True)
+
+
+class _ReportCaseSerializer(serializers.Serializer):
+    """Top-level case fields within the report."""
+
+    id = serializers.IntegerField(read_only=True)
+    title = serializers.CharField(read_only=True)
+    description = serializers.CharField(read_only=True)
+    crime_level = serializers.IntegerField(read_only=True)
+    crime_level_display = serializers.CharField(read_only=True)
+    status = serializers.CharField(read_only=True)
+    status_display = serializers.CharField(read_only=True)
+    creation_type = serializers.CharField(read_only=True)
+    rejection_count = serializers.IntegerField(read_only=True)
+    incident_date = serializers.CharField(read_only=True, allow_null=True)
+    location = serializers.CharField(read_only=True, allow_null=True)
+    created_at = serializers.CharField(read_only=True, allow_null=True)
+    updated_at = serializers.CharField(read_only=True, allow_null=True)
+
+
+class _ReportPersonnelSerializer(serializers.Serializer):
+    """Personnel assignments block."""
+
+    created_by = _UserSummarySerializer(allow_null=True, read_only=True)
+    approved_by = _UserSummarySerializer(allow_null=True, read_only=True)
+    assigned_detective = _UserSummarySerializer(allow_null=True, read_only=True)
+    assigned_sergeant = _UserSummarySerializer(allow_null=True, read_only=True)
+    assigned_captain = _UserSummarySerializer(allow_null=True, read_only=True)
+    assigned_judge = _UserSummarySerializer(allow_null=True, read_only=True)
+
+
+class _ReportComplainantSerializer(serializers.Serializer):
+    """Single complainant within the report."""
+
+    id = serializers.IntegerField(read_only=True)
+    user = _UserSummarySerializer(allow_null=True, read_only=True)
+    is_primary = serializers.BooleanField(read_only=True)
+    status = serializers.CharField(read_only=True)
+    reviewed_by = _UserSummarySerializer(allow_null=True, read_only=True)
+
+
+class _ReportWitnessSerializer(serializers.Serializer):
+    """Single witness within the report."""
+
+    id = serializers.IntegerField(read_only=True)
+    full_name = serializers.CharField(read_only=True)
+    phone_number = serializers.CharField(read_only=True, allow_null=True)
+    national_id = serializers.CharField(read_only=True, allow_null=True)
+
+
+class _ReportEvidenceSerializer(serializers.Serializer):
+    """Evidence metadata entry within the report."""
+
+    id = serializers.IntegerField(read_only=True)
+    evidence_type = serializers.CharField(read_only=True)
+    title = serializers.CharField(read_only=True)
+    description = serializers.CharField(read_only=True, allow_null=True)
+    registered_by = _UserSummarySerializer(allow_null=True, read_only=True)
+    created_at = serializers.CharField(read_only=True, allow_null=True)
+
+
+class _ReportInterrogationSerializer(serializers.Serializer):
+    """Interrogation summary nested under a suspect."""
+
+    id = serializers.IntegerField(read_only=True)
+    detective = _UserSummarySerializer(allow_null=True, read_only=True)
+    sergeant = _UserSummarySerializer(allow_null=True, read_only=True)
+    detective_guilt_score = serializers.IntegerField(read_only=True, allow_null=True)
+    sergeant_guilt_score = serializers.IntegerField(read_only=True, allow_null=True)
+    notes = serializers.CharField(read_only=True, allow_null=True)
+    created_at = serializers.CharField(read_only=True, allow_null=True)
+
+
+class _ReportTrialSerializer(serializers.Serializer):
+    """Trial summary nested under a suspect."""
+
+    id = serializers.IntegerField(read_only=True)
+    judge = _UserSummarySerializer(allow_null=True, read_only=True)
+    verdict = serializers.CharField(read_only=True)
+    punishment_title = serializers.CharField(read_only=True, allow_null=True)
+    punishment_description = serializers.CharField(read_only=True, allow_null=True)
+    created_at = serializers.CharField(read_only=True, allow_null=True)
+
+
+class _ReportSuspectSerializer(serializers.Serializer):
+    """Full suspect block with interrogation & trial sub-lists."""
+
+    id = serializers.IntegerField(read_only=True)
+    full_name = serializers.CharField(read_only=True)
+    national_id = serializers.CharField(read_only=True, allow_null=True)
+    status = serializers.CharField(read_only=True)
+    status_display = serializers.CharField(read_only=True)
+    wanted_since = serializers.CharField(read_only=True, allow_null=True)
+    days_wanted = serializers.IntegerField(read_only=True, allow_null=True)
+    identified_by = _UserSummarySerializer(allow_null=True, read_only=True)
+    sergeant_approval_status = serializers.CharField(read_only=True, allow_null=True)
+    approved_by_sergeant = _UserSummarySerializer(allow_null=True, read_only=True)
+    sergeant_rejection_message = serializers.CharField(read_only=True, allow_null=True)
+    interrogations = _ReportInterrogationSerializer(many=True, read_only=True)
+    trials = _ReportTrialSerializer(many=True, read_only=True)
+
+
+class _ReportStatusLogSerializer(serializers.Serializer):
+    """Single status-history entry."""
+
+    id = serializers.IntegerField(read_only=True)
+    from_status = serializers.CharField(read_only=True, allow_null=True)
+    to_status = serializers.CharField(read_only=True)
+    changed_by = _UserSummarySerializer(allow_null=True, read_only=True)
+    message = serializers.CharField(read_only=True, allow_null=True)
+    created_at = serializers.CharField(read_only=True, allow_null=True)
+
+
+class _ReportCalculationsSerializer(serializers.Serializer):
+    """Computed values for the case."""
+
+    crime_level_degree = serializers.IntegerField(read_only=True)
+    days_since_creation = serializers.IntegerField(read_only=True)
+    tracking_threshold = serializers.IntegerField(read_only=True)
+    reward_rials = serializers.IntegerField(read_only=True)
+
+
+class CaseReportSerializer(serializers.Serializer):
+    """
+    Read-only serializer for the aggregated case report returned by
+    ``CaseReportingService.get_case_report()``.
+
+    This mirrors the exact dictionary structure produced by the service
+    and provides schema documentation for drf-spectacular / Swagger.
+    """
+
+    case = _ReportCaseSerializer(read_only=True)
+    personnel = _ReportPersonnelSerializer(read_only=True)
+    complainants = _ReportComplainantSerializer(many=True, read_only=True)
+    witnesses = _ReportWitnessSerializer(many=True, read_only=True)
+    evidence = _ReportEvidenceSerializer(many=True, read_only=True)
+    suspects = _ReportSuspectSerializer(many=True, read_only=True)
+    status_history = _ReportStatusLogSerializer(many=True, read_only=True)
+    calculations = _ReportCalculationsSerializer(read_only=True)
