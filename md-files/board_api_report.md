@@ -176,12 +176,7 @@ This combination of a single-query backend and a debounced, batched frontend cal
 
 ---
 
-## 5. Dependencies to Add
+## 5. Dependencies
 
-Add to `backend/requirements.txt`:
-
-```
-drf-nested-routers>=0.93.4
-```
-
-This is required by `board/urls.py` for the nested router pattern (`NestedDefaultRouter`).
+`drf-nested-routers==0.95.0` is already present in `backend/requirements.txt`.
+This package is required by `board/urls.py` for the `NestedDefaultRouter` pattern.

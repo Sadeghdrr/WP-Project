@@ -579,12 +579,15 @@ class BoardNoteService:
     @transaction.atomic
     def delete_note(note: BoardNote, requesting_user: Any) -> None:
         """
-        Delete a sticky note.
+        Delete a sticky note and clean up its associated ``BoardItem``.
 
-        If the note is referenced by a ``BoardItem``, that item will be
-        deleted automatically via ``GenericForeignKey`` CASCADE semantics
-        (enforced by ``BoardItem.content_type`` + ``BoardItem.object_id``
-        FK cascade on ``ContentType``).  Verify cascade behaviour in tests.
+        .. warning::
+
+            Django's ``GenericForeignKey`` does **NOT** cascade on delete.
+            The ``BoardItem`` that references this note via
+            ``content_type`` + ``object_id`` will become an orphan if we
+            don't explicitly remove it first.  The service MUST handle
+            this cleanup manually.
 
         Parameters
         ----------
@@ -596,6 +599,15 @@ class BoardNoteService:
         Implementation Contract
         -----------------------
         1. Guard ownership.
-        2. ``note.delete()``.
+        2. Fetch and delete the associated ``BoardItem``::
+
+               ct = ContentType.objects.get_for_model(note)
+               BoardItem.objects.filter(
+                   board=note.board,
+                   content_type=ct,
+                   object_id=note.pk,
+               ).delete()
+
+        3. ``note.delete()``.
         """
         raise NotImplementedError

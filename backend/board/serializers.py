@@ -87,11 +87,11 @@ class GenericObjectRelatedField(serializers.Field):
         [
             "cases.case",
             "suspects.suspect",
+            "evidence.evidence",
+            "evidence.testimonyevidence",
             "evidence.biologicalevidence",
             "evidence.vehicleevidence",
-            "evidence.iddocumentevidence",
-            "evidence.otheritemevidence",
-            "evidence.witnessstatement",
+            "evidence.identityevidence",
             "board.boardnote",
         ]
     )
