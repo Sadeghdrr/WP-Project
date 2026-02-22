@@ -33,12 +33,16 @@ Permission Constants (from ``core.permissions_constants.SuspectsPerms``)
 
 from __future__ import annotations
 
+import logging
+from datetime import timedelta
 from typing import Any
 
 from django.db import transaction
 from django.db.models import Q, QuerySet
 from django.utils import timezone
 
+from core.domain.exceptions import DomainError, InvalidTransition, NotFound, PermissionDenied
+from core.domain.notifications import NotificationService
 from core.permissions_constants import SuspectsPerms
 
 from .models import (
@@ -51,6 +55,8 @@ from .models import (
     Trial,
     VerdictChoice,
 )
+
+logger = logging.getLogger(__name__)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -129,7 +135,65 @@ class SuspectProfileService:
         5. ``prefetch_related("interrogations", "trials", "bails")``.
         6. Return queryset ordered by ``-wanted_since``.
         """
-        raise NotImplementedError
+        qs = Suspect.objects.select_related(
+            "case", "identified_by", "approved_by_sergeant", "user",
+        ).prefetch_related(
+            "interrogations", "trials", "bails",
+        )
+
+        # ── Role-based scoping ──────────────────────────────────────
+        user = requesting_user
+        role_name = ""
+        if hasattr(user, "role") and user.role:
+            role_name = user.role.name.lower()
+
+        high_level_roles = {
+            "captain", "police chief", "admin", "system administrator", "judge",
+        }
+        if role_name not in high_level_roles and not user.is_superuser:
+            if role_name == "sergeant":
+                qs = qs.filter(
+                    Q(case__assigned_sergeant=user)
+                    | Q(sergeant_approval_status="pending")
+                )
+            elif role_name == "detective":
+                qs = qs.filter(
+                    Q(case__assigned_detective=user) | Q(identified_by=user)
+                )
+            elif role_name == "coroner":
+                qs = qs.filter(case__evidences__registered_by=user).distinct()
+            else:
+                # Base user / complainant / witness
+                qs = qs.filter(
+                    Q(case__complainants__user=user)
+                    | Q(case__created_by=user)
+                ).distinct()
+
+        # ── Explicit filters ────────────────────────────────────────
+        if "status" in filters:
+            qs = qs.filter(status=filters["status"])
+        if "case" in filters:
+            qs = qs.filter(case_id=filters["case"])
+        if "national_id" in filters:
+            qs = qs.filter(national_id=filters["national_id"])
+        if "search" in filters:
+            term = filters["search"]
+            qs = qs.filter(
+                Q(full_name__icontains=term)
+                | Q(description__icontains=term)
+                | Q(address__icontains=term)
+            )
+        if filters.get("most_wanted"):
+            cutoff = timezone.now() - timedelta(days=30)
+            qs = qs.filter(status=SuspectStatus.WANTED, wanted_since__lte=cutoff)
+        if "created_after" in filters:
+            qs = qs.filter(created_at__date__gte=filters["created_after"])
+        if "created_before" in filters:
+            qs = qs.filter(created_at__date__lte=filters["created_before"])
+        if "approval_status" in filters:
+            qs = qs.filter(sergeant_approval_status=filters["approval_status"])
+
+        return qs.order_by("-wanted_since")
 
     @staticmethod
     def get_suspect_detail(pk: int) -> Suspect:
@@ -165,7 +229,18 @@ class SuspectProfileService:
            ).get(pk=pk)``.
         2. Return the suspect instance.
         """
-        raise NotImplementedError
+        try:
+            return Suspect.objects.select_related(
+                "case", "identified_by", "approved_by_sergeant", "user",
+            ).prefetch_related(
+                "interrogations__detective",
+                "interrogations__sergeant",
+                "trials__judge",
+                "bails__approved_by",
+                "bounty_tips",
+            ).get(pk=pk)
+        except Suspect.DoesNotExist:
+            raise NotFound(f"Suspect with id {pk} not found.")
 
     @staticmethod
     @transaction.atomic
@@ -214,7 +289,38 @@ class SuspectProfileService:
            identification pending approval.
         7. Return ``suspect``.
         """
-        raise NotImplementedError
+        if not requesting_user.has_perm(
+            f"suspects.{SuspectsPerms.CAN_IDENTIFY_SUSPECT}"
+        ):
+            raise PermissionDenied(
+                "You do not have permission to identify suspects."
+            )
+
+        validated_data["identified_by"] = requesting_user
+        validated_data["status"] = SuspectStatus.WANTED
+        validated_data["sergeant_approval_status"] = "pending"
+
+        suspect = Suspect.objects.create(**validated_data)
+
+        # Dispatch notification to the Sergeant assigned to the case
+        case = suspect.case
+        sergeant = getattr(case, "assigned_sergeant", None)
+        if sergeant:
+            NotificationService.create(
+                actor=requesting_user,
+                recipients=sergeant,
+                event_type="suspect_needs_review",
+                payload={
+                    "suspect_id": suspect.id,
+                    "suspect_name": suspect.full_name,
+                    "case_id": case.id,
+                    "case_title": case.title,
+                    "identified_by": requesting_user.get_full_name(),
+                },
+                related_object=suspect,
+            )
+
+        return suspect
 
     @staticmethod
     @transaction.atomic
@@ -259,7 +365,19 @@ class SuspectProfileService:
         4. ``suspect.save(update_fields=update_fields)``.
         5. Return ``suspect``.
         """
-        raise NotImplementedError
+        if not requesting_user.has_perm(
+            f"suspects.{SuspectsPerms.CHANGE_SUSPECT}"
+        ):
+            raise PermissionDenied(
+                "You do not have permission to update suspects."
+            )
+
+        for key, value in validated_data.items():
+            setattr(suspect, key, value)
+
+        update_fields = list(validated_data.keys()) + ["updated_at"]
+        suspect.save(update_fields=update_fields)
+        return suspect
 
     @staticmethod
     def get_most_wanted_list() -> QuerySet[Suspect]:
@@ -290,7 +408,15 @@ class SuspectProfileService:
         the filtered queryset and note that final ordering may
         require ``sorted()`` on the serialised list.
         """
-        raise NotImplementedError
+        cutoff = timezone.now() - timedelta(days=30)
+        return (
+            Suspect.objects.filter(
+                status=SuspectStatus.WANTED,
+                wanted_since__lte=cutoff,
+            )
+            .select_related("case")
+            .order_by("wanted_since")
+        )
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -418,7 +544,78 @@ class ArrestAndWarrantService:
            ])``
         6. Return ``suspect``.
         """
-        raise NotImplementedError
+        if not sergeant_user.has_perm(
+            f"suspects.{SuspectsPerms.CAN_APPROVE_SUSPECT}"
+        ):
+            raise PermissionDenied(
+                "Only a Sergeant (or higher) can approve/reject suspects."
+            )
+
+        try:
+            suspect = Suspect.objects.select_related(
+                "case", "identified_by",
+            ).get(pk=suspect_id)
+        except Suspect.DoesNotExist:
+            raise NotFound(f"Suspect with id {suspect_id} not found.")
+
+        if suspect.sergeant_approval_status != "pending":
+            raise DomainError(
+                "Suspect approval has already been processed."
+            )
+
+        detective = suspect.identified_by
+
+        if decision == "approve":
+            suspect.sergeant_approval_status = "approved"
+            suspect.approved_by_sergeant = sergeant_user
+            suspect.save(update_fields=[
+                "sergeant_approval_status",
+                "approved_by_sergeant",
+                "updated_at",
+            ])
+            NotificationService.create(
+                actor=sergeant_user,
+                recipients=detective,
+                event_type="suspect_approved",
+                payload={
+                    "suspect_id": suspect.id,
+                    "suspect_name": suspect.full_name,
+                    "case_id": suspect.case_id,
+                    "case_title": suspect.case.title,
+                    "approved_by": sergeant_user.get_full_name(),
+                },
+                related_object=suspect,
+            )
+        elif decision == "reject":
+            if not rejection_message.strip():
+                raise DomainError(
+                    "A rejection message is required when rejecting a suspect."
+                )
+            suspect.sergeant_approval_status = "rejected"
+            suspect.approved_by_sergeant = sergeant_user
+            suspect.sergeant_rejection_message = rejection_message
+            suspect.save(update_fields=[
+                "sergeant_approval_status",
+                "approved_by_sergeant",
+                "sergeant_rejection_message",
+                "updated_at",
+            ])
+            NotificationService.create(
+                actor=sergeant_user,
+                recipients=detective,
+                event_type="suspect_rejected",
+                payload={
+                    "suspect_id": suspect.id,
+                    "suspect_name": suspect.full_name,
+                    "case_id": suspect.case_id,
+                    "case_title": suspect.case.title,
+                    "rejected_by": sergeant_user.get_full_name(),
+                    "rejection_message": rejection_message,
+                },
+                related_object=suspect,
+            )
+
+        return suspect
 
     @staticmethod
     @transaction.atomic

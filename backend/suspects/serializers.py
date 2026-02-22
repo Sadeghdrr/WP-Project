@@ -95,7 +95,13 @@ class SuspectFilterSerializer(serializers.Serializer):
         If both present and ``created_after > created_before``, raise
         ``ValidationError("created_after must be earlier than created_before.")``.
         """
-        raise NotImplementedError
+        created_after = attrs.get("created_after")
+        created_before = attrs.get("created_before")
+        if created_after and created_before and created_after > created_before:
+            raise serializers.ValidationError(
+                "created_after must be earlier than created_before."
+            )
+        return attrs
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -152,7 +158,9 @@ class SuspectListSerializer(serializers.ModelSerializer):
         -----------------------
         Return ``obj.identified_by.get_full_name()`` or ``None``.
         """
-        raise NotImplementedError
+        if obj.identified_by:
+            return obj.identified_by.get_full_name() or str(obj.identified_by)
+        return None
 
     def get_case_title(self, obj: Suspect) -> str | None:
         """
@@ -162,7 +170,7 @@ class SuspectListSerializer(serializers.ModelSerializer):
         -----------------------
         Return ``obj.case.title`` if the case FK is loaded.
         """
-        raise NotImplementedError
+        return getattr(obj.case, "title", None) if obj.case_id else None
 
 
 class InterrogationInlineSerializer(serializers.ModelSerializer):
@@ -192,11 +200,15 @@ class InterrogationInlineSerializer(serializers.ModelSerializer):
 
     def get_detective_name(self, obj: Interrogation) -> str | None:
         """Return the detective's full name."""
-        raise NotImplementedError
+        if obj.detective:
+            return obj.detective.get_full_name() or str(obj.detective)
+        return None
 
     def get_sergeant_name(self, obj: Interrogation) -> str | None:
         """Return the sergeant's full name."""
-        raise NotImplementedError
+        if obj.sergeant:
+            return obj.sergeant.get_full_name() or str(obj.sergeant)
+        return None
 
 
 class TrialInlineSerializer(serializers.ModelSerializer):
@@ -227,7 +239,9 @@ class TrialInlineSerializer(serializers.ModelSerializer):
 
     def get_judge_name(self, obj: Trial) -> str | None:
         """Return the judge's full name."""
-        raise NotImplementedError
+        if obj.judge:
+            return obj.judge.get_full_name() or str(obj.judge)
+        return None
 
 
 class BailInlineSerializer(serializers.ModelSerializer):
@@ -254,7 +268,9 @@ class BailInlineSerializer(serializers.ModelSerializer):
 
     def get_approved_by_name(self, obj: Bail) -> str | None:
         """Return the approving sergeant's full name."""
-        raise NotImplementedError
+        if obj.approved_by:
+            return obj.approved_by.get_full_name() or str(obj.approved_by)
+        return None
 
 
 class SuspectDetailSerializer(serializers.ModelSerializer):
@@ -339,44 +355,31 @@ class SuspectDetailSerializer(serializers.ModelSerializer):
     def get_identified_by_name(self, obj: Suspect) -> str | None:
         """
         Return the identifying detective's full name.
-
-        Implementation Contract
-        -----------------------
-        Return ``obj.identified_by.get_full_name()`` or ``None``.
         """
-        raise NotImplementedError
+        if obj.identified_by:
+            return obj.identified_by.get_full_name() or str(obj.identified_by)
+        return None
 
     def get_approved_by_name(self, obj: Suspect) -> str | None:
         """
         Return the approving sergeant's full name, or ``None`` if not
         yet approved.
-
-        Implementation Contract
-        -----------------------
-        If ``obj.approved_by_sergeant`` is not None, return their full name.
-        Otherwise return ``None``.
         """
-        raise NotImplementedError
+        if obj.approved_by_sergeant:
+            return obj.approved_by_sergeant.get_full_name() or str(obj.approved_by_sergeant)
+        return None
 
     def get_case_title(self, obj: Suspect) -> str | None:
         """
         Return the linked case's title.
-
-        Implementation Contract
-        -----------------------
-        Return ``obj.case.title`` if loaded, else ``None``.
         """
-        raise NotImplementedError
+        return getattr(obj.case, "title", None) if obj.case_id else None
 
     def get_bounty_tip_count(self, obj: Suspect) -> int:
         """
         Return the number of bounty tips submitted about this suspect.
-
-        Implementation Contract
-        -----------------------
-        Return ``obj.bounty_tips.count()``.
         """
-        raise NotImplementedError
+        return obj.bounty_tips.count()
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -536,7 +539,12 @@ class SuspectApprovalSerializer(serializers.Serializer):
            raise ``ValidationError({"rejection_message": "A rejection message is required."})``.
         3. Return attrs.
         """
-        raise NotImplementedError
+        decision = attrs["decision"]
+        if decision == "reject" and not attrs.get("rejection_message", "").strip():
+            raise serializers.ValidationError(
+                {"rejection_message": "A rejection message is required."}
+            )
+        return attrs
 
 
 class ArrestWarrantSerializer(serializers.Serializer):
@@ -1305,4 +1313,4 @@ class MostWantedSerializer(serializers.ModelSerializer):
 
     def get_case_title(self, obj: Suspect) -> str | None:
         """Return the case's title for public display."""
-        raise NotImplementedError
+        return getattr(obj.case, "title", None) if obj.case_id else None

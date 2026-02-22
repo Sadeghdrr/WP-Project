@@ -30,6 +30,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from core.domain.exceptions import DomainError, NotFound, PermissionDenied
+
 from .models import (
     Bail,
     BountyTip,
@@ -125,7 +127,7 @@ class SuspectViewSet(viewsets.ViewSet):
         return SuspectProfileService.get_suspect_detail(pk)
         Wrap in try/except Suspect.DoesNotExist → raise Http404.
         """
-        raise NotImplementedError
+        return SuspectProfileService.get_suspect_detail(pk)
 
     # ── Standard CRUD ────────────────────────────────────────────────
 
@@ -171,7 +173,16 @@ class SuspectViewSet(viewsets.ViewSet):
                 }
             ]
         """
-        raise NotImplementedError
+        filter_serializer = SuspectFilterSerializer(data=request.query_params)
+        if not filter_serializer.is_valid():
+            return Response(
+                filter_serializer.errors, status=status.HTTP_400_BAD_REQUEST,
+            )
+        queryset = SuspectProfileService.get_filtered_queryset(
+            request.user, filter_serializer.validated_data,
+        )
+        serializer = SuspectListSerializer(queryset, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
     def create(self, request: Request) -> Response:
         """
@@ -208,7 +219,17 @@ class SuspectViewSet(viewsets.ViewSet):
         - HTTP 400 if validation fails.
         - HTTP 403 if the user lacks ``CAN_IDENTIFY_SUSPECT`` (raised by service).
         """
-        raise NotImplementedError
+        serializer = SuspectCreateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                serializer.errors, status=status.HTTP_400_BAD_REQUEST,
+            )
+        suspect = SuspectProfileService.create_suspect(
+            validated_data=serializer.validated_data,
+            requesting_user=request.user,
+        )
+        output = SuspectDetailSerializer(suspect)
+        return Response(output.data, status=status.HTTP_201_CREATED)
 
     def retrieve(self, request: Request, pk: int = None) -> Response:
         """
@@ -246,7 +267,9 @@ class SuspectViewSet(viewsets.ViewSet):
                 ...
             }
         """
-        raise NotImplementedError
+        suspect = self._get_suspect(pk)
+        serializer = SuspectDetailSerializer(suspect)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
     def partial_update(self, request: Request, pk: int = None) -> Response:
         """
@@ -272,7 +295,19 @@ class SuspectViewSet(viewsets.ViewSet):
         - Status changes use dedicated workflow action endpoints, not PATCH.
         - ``case``, ``identified_by``, and approval fields are immutable.
         """
-        raise NotImplementedError
+        suspect = self._get_suspect(pk)
+        serializer = SuspectUpdateSerializer(
+            suspect, data=request.data, partial=True,
+        )
+        if not serializer.is_valid():
+            return Response(
+                serializer.errors, status=status.HTTP_400_BAD_REQUEST,
+            )
+        updated = SuspectProfileService.update_suspect(
+            suspect, serializer.validated_data, request.user,
+        )
+        output = SuspectDetailSerializer(updated)
+        return Response(output.data, status=status.HTTP_200_OK)
 
     # ── Workflow @actions ─────────────────────────────────────────────
 
@@ -312,7 +347,9 @@ class SuspectViewSet(viewsets.ViewSet):
                 }
             ]
         """
-        raise NotImplementedError
+        queryset = SuspectProfileService.get_most_wanted_list()
+        serializer = MostWantedSerializer(queryset, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["post"], url_path="approve")
     def approve(self, request: Request, pk: int = None) -> Response:
@@ -357,7 +394,21 @@ class SuspectViewSet(viewsets.ViewSet):
                 "rejection_message": "Insufficient evidence."
             }
         """
-        raise NotImplementedError
+        serializer = SuspectApprovalSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                serializer.errors, status=status.HTTP_400_BAD_REQUEST,
+            )
+        suspect = ArrestAndWarrantService.approve_or_reject_suspect(
+            suspect_id=pk,
+            sergeant_user=request.user,
+            decision=serializer.validated_data["decision"],
+            rejection_message=serializer.validated_data.get(
+                "rejection_message", "",
+            ),
+        )
+        output = SuspectDetailSerializer(suspect)
+        return Response(output.data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["post"], url_path="issue-warrant")
     def issue_warrant(self, request: Request, pk: int = None) -> Response:

@@ -52,6 +52,7 @@ _EVENT_TEMPLATES: dict[str, tuple[str, str]] = {
     "evidence_added":        ("New Evidence Added",       "New evidence has been registered for a case you are assigned to."),
     "bio_evidence_verified": ("Biological Evidence Verified", "Biological evidence in your case has been reviewed by the Coroner."),
     "case_status_changed":   ("Case Status Updated",     "A case you are involved with has changed status."),
+    "suspect_needs_review":  ("Suspect Pending Review",  "A new suspect has been identified and requires your review."),
     "suspect_approved":      ("Suspect Approved",        "A suspect in your case has been approved."),
     "suspect_rejected":      ("Suspect Rejected",        "A suspect in your case has been rejected."),
     "interrogation_created": ("Interrogation Recorded",  "An interrogation has been logged for a suspect in your case."),
