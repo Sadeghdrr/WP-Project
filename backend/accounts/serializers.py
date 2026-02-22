@@ -9,6 +9,7 @@ rules are delegated to ``services.py``.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from django.contrib.auth import authenticate, get_user_model
@@ -77,8 +78,6 @@ class RegisterRequestSerializer(serializers.ModelSerializer):
         2. Validate national_id format (exactly 10 digits).
         3. Validate phone_number format (Iranian mobile).
         """
-        import re
-
         if attrs["password"] != attrs["password_confirm"]:
             raise serializers.ValidationError(
                 {"password_confirm": "Passwords do not match."}
@@ -218,9 +217,10 @@ class TokenResponseSerializer(serializers.Serializer):
         Future implementation MUST return the user representation
         using ``UserDetailSerializer``.
         """
-        raise NotImplementedError(
-            "TokenResponseSerializer.get_user: Serialize user via UserDetailSerializer."
-        )
+        user = obj.get("user")
+        if user:
+            return UserDetailSerializer(user).data
+        return None
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -271,10 +271,8 @@ class RoleDetailSerializer(serializers.ModelSerializer):
         1. Query ``obj.permissions`` with ``select_related('content_type')``.
         2. Return a flat list of ``f"{p.content_type.app_label}.{p.codename}"``.
         """
-        raise NotImplementedError(
-            "RoleDetailSerializer.get_permissions_display: "
-            "Return flat list of 'app_label.codename' strings."
-        )
+        perms = obj.permissions.select_related("content_type").all()
+        return [f"{p.content_type.app_label}.{p.codename}" for p in perms]
 
 
 class RoleAssignPermissionsSerializer(serializers.Serializer):
@@ -296,10 +294,15 @@ class RoleAssignPermissionsSerializer(serializers.Serializer):
         1. Query ``Permission.objects.filter(pk__in=value)``.
         2. Raise ``ValidationError`` if any IDs are invalid.
         """
-        raise NotImplementedError(
-            "RoleAssignPermissionsSerializer.validate_permission_ids: "
-            "Check all PKs exist in auth_permission table."
+        existing_ids = set(
+            Permission.objects.filter(pk__in=value).values_list("pk", flat=True)
         )
+        invalid_ids = set(value) - existing_ids
+        if invalid_ids:
+            raise serializers.ValidationError(
+                f"The following permission IDs do not exist: {sorted(invalid_ids)}"
+            )
+        return value
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -409,10 +412,11 @@ class AssignRoleSerializer(serializers.Serializer):
         1. Return the value if Role with pk=value exists.
         2. Raise ``ValidationError`` otherwise.
         """
-        raise NotImplementedError(
-            "AssignRoleSerializer.validate_role_id: "
-            "Verify Role PK exists."
-        )
+        if not Role.objects.filter(pk=value).exists():
+            raise serializers.ValidationError(
+                f"Role with id {value} does not exist."
+            )
+        return value
 
 
 class MeUpdateSerializer(serializers.ModelSerializer):
@@ -439,9 +443,16 @@ class MeUpdateSerializer(serializers.ModelSerializer):
         1. Check ``User.objects.exclude(pk=self.instance.pk).filter(email=value)``.
         2. Raise ``ValidationError`` if duplicate.
         """
-        raise NotImplementedError(
-            "MeUpdateSerializer.validate_email: Uniqueness check stub."
-        )
+        if (
+            self.instance
+            and User.objects.exclude(pk=self.instance.pk)
+            .filter(email=value)
+            .exists()
+        ):
+            raise serializers.ValidationError(
+                "This email is already in use by another account."
+            )
+        return value
 
     def validate_phone_number(self, value: str) -> str:
         """
@@ -451,9 +462,20 @@ class MeUpdateSerializer(serializers.ModelSerializer):
         1. Check uniqueness excluding current user.
         2. Validate phone format.
         """
-        raise NotImplementedError(
-            "MeUpdateSerializer.validate_phone_number: Uniqueness + format check stub."
-        )
+        if not re.match(r"^(\+98|0)?9\d{9}$", value):
+            raise serializers.ValidationError(
+                "Phone number must be a valid Iranian mobile number (e.g. 09121234567)."
+            )
+        if (
+            self.instance
+            and User.objects.exclude(pk=self.instance.pk)
+            .filter(phone_number=value)
+            .exists()
+        ):
+            raise serializers.ValidationError(
+                "This phone number is already in use by another account."
+            )
+        return value
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -488,7 +510,4 @@ class PermissionSerializer(serializers.ModelSerializer):
         1. Access ``obj.content_type.app_label``.
         2. Return ``f"{app_label}.{obj.codename}"``.
         """
-        raise NotImplementedError(
-            "PermissionSerializer.get_full_codename: "
-            "Return 'app_label.codename'."
-        )
+        return f"{obj.content_type.app_label}.{obj.codename}"

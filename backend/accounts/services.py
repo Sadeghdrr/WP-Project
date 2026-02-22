@@ -30,7 +30,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import Q, QuerySet
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from core.domain.exceptions import Conflict
+from core.domain.exceptions import Conflict, DomainError, NotFound, PermissionDenied
 
 from .models import Role
 
@@ -312,10 +312,25 @@ class UserManagementService:
            ``search`` is provided.
         6. Return the queryset (allow DRF pagination in views).
         """
-        raise NotImplementedError(
-            "UserManagementService.list_users: "
-            "Build and return filtered User queryset."
-        )
+        qs = User.objects.select_related("role").all()
+
+        if role_id is not None:
+            qs = qs.filter(role_id=role_id)
+        if hierarchy_level is not None:
+            qs = qs.filter(role__hierarchy_level=hierarchy_level)
+        if is_active is not None:
+            qs = qs.filter(is_active=is_active)
+        if search:
+            qs = qs.filter(
+                Q(username__icontains=search)
+                | Q(email__icontains=search)
+                | Q(national_id__icontains=search)
+                | Q(phone_number__icontains=search)
+                | Q(first_name__icontains=search)
+                | Q(last_name__icontains=search)
+            )
+
+        return qs
 
     @staticmethod
     def get_user(user_id: int) -> User:
@@ -331,10 +346,10 @@ class UserManagementService:
         -----------------------
         1. Return ``User.objects.select_related('role').get(pk=user_id)``.
         """
-        raise NotImplementedError(
-            "UserManagementService.get_user: "
-            "Retrieve user with select_related('role')."
-        )
+        try:
+            return User.objects.select_related("role").get(pk=user_id)
+        except User.DoesNotExist:
+            raise NotFound(f"User with id {user_id} not found.")
 
     @staticmethod
     def assign_role(
@@ -379,10 +394,35 @@ class UserManagementService:
         Role.DoesNotExist / User.DoesNotExist
             Propagated as 404.
         """
-        raise NotImplementedError(
-            "UserManagementService.assign_role: "
-            "Validate authority, assign role, clear perm cache."
-        )
+        try:
+            target_user = User.objects.select_related("role").get(pk=user_id)
+        except User.DoesNotExist:
+            raise NotFound(f"User with id {user_id} not found.")
+
+        try:
+            new_role = Role.objects.get(pk=role_id)
+        except Role.DoesNotExist:
+            raise NotFound(f"Role with id {role_id} not found.")
+
+        # Authorization: must be System Admin OR hierarchy > both current and new role
+        is_admin = performed_by.role and performed_by.role.name == "System Admin"
+        if not is_admin:
+            performer_level = performed_by.hierarchy_level
+            target_current_level = target_user.hierarchy_level
+            new_role_level = new_role.hierarchy_level
+            if performer_level <= target_current_level or performer_level <= new_role_level:
+                raise PermissionDenied(
+                    "You do not have sufficient authority to assign this role."
+                )
+
+        target_user.role = new_role
+        target_user.save(update_fields=["role"])
+
+        # Invalidate permission cache
+        if hasattr(target_user, "_perm_cache"):
+            del target_user._perm_cache
+
+        return target_user
 
     @staticmethod
     def activate_user(user_id: int, performed_by: User) -> User:
@@ -409,10 +449,20 @@ class UserManagementService:
         3. Set ``user.is_active = True`` and save.
         4. Return user.
         """
-        raise NotImplementedError(
-            "UserManagementService.activate_user: "
-            "Activate user after authority check."
-        )
+        try:
+            target_user = User.objects.select_related("role").get(pk=user_id)
+        except User.DoesNotExist:
+            raise NotFound(f"User with id {user_id} not found.")
+
+        is_admin = performed_by.role and performed_by.role.name == "System Admin"
+        if not is_admin and performed_by.hierarchy_level <= target_user.hierarchy_level:
+            raise PermissionDenied(
+                "You do not have sufficient authority to activate this user."
+            )
+
+        target_user.is_active = True
+        target_user.save(update_fields=["is_active"])
+        return target_user
 
     @staticmethod
     def deactivate_user(user_id: int, performed_by: User) -> User:
@@ -440,10 +490,24 @@ class UserManagementService:
         4. Set ``user.is_active = False`` and save.
         5. Return user.
         """
-        raise NotImplementedError(
-            "UserManagementService.deactivate_user: "
-            "Deactivate user after authority check."
-        )
+        try:
+            target_user = User.objects.select_related("role").get(pk=user_id)
+        except User.DoesNotExist:
+            raise NotFound(f"User with id {user_id} not found.")
+
+        # Prevent self-deactivation
+        if target_user.pk == performed_by.pk:
+            raise DomainError("You cannot deactivate your own account.")
+
+        is_admin = performed_by.role and performed_by.role.name == "System Admin"
+        if not is_admin and performed_by.hierarchy_level <= target_user.hierarchy_level:
+            raise PermissionDenied(
+                "You do not have sufficient authority to deactivate this user."
+            )
+
+        target_user.is_active = False
+        target_user.save(update_fields=["is_active"])
+        return target_user
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -471,9 +535,7 @@ class RoleManagementService:
         1. Return ``Role.objects.all()`` (default ordering is
            ``-hierarchy_level`` from the model Meta).
         """
-        raise NotImplementedError(
-            "RoleManagementService.list_roles: Return ordered queryset."
-        )
+        return Role.objects.all()
 
     @staticmethod
     def create_role(validated_data: dict[str, Any]) -> Role:
@@ -498,9 +560,11 @@ class RoleManagementService:
            ``role.permissions.set(permission_pks)``.
         4. Return the role.
         """
-        raise NotImplementedError(
-            "RoleManagementService.create_role: Create Role instance."
-        )
+        permission_pks = validated_data.pop("permissions", None)
+        role = Role.objects.create(**validated_data)
+        if permission_pks is not None:
+            role.permissions.set(permission_pks)
+        return role
 
     @staticmethod
     def get_role(role_id: int) -> Role:
@@ -513,9 +577,12 @@ class RoleManagementService:
                'permissions__content_type'
            ).get(pk=role_id)``.
         """
-        raise NotImplementedError(
-            "RoleManagementService.get_role: Fetch with prefetched permissions."
-        )
+        try:
+            return Role.objects.prefetch_related(
+                "permissions__content_type"
+            ).get(pk=role_id)
+        except Role.DoesNotExist:
+            raise NotFound(f"Role with id {role_id} not found.")
 
     @staticmethod
     def update_role(role_id: int, validated_data: dict[str, Any]) -> Role:
@@ -546,9 +613,27 @@ class RoleManagementService:
            naturally on the next request because the cache is
            per-request.)
         """
-        raise NotImplementedError(
-            "RoleManagementService.update_role: Update Role fields + perms."
-        )
+        try:
+            role = Role.objects.prefetch_related(
+                "permissions__content_type"
+            ).get(pk=role_id)
+        except Role.DoesNotExist:
+            raise NotFound(f"Role with id {role_id} not found.")
+
+        permission_pks = validated_data.pop("permissions", None)
+
+        for field, value in validated_data.items():
+            setattr(role, field, value)
+        role.save()
+
+        if permission_pks is not None:
+            role.permissions.set(permission_pks)
+
+        # Refresh from DB so prefetch is accurate
+        role.refresh_from_db()
+        return Role.objects.prefetch_related(
+            "permissions__content_type"
+        ).get(pk=role.pk)
 
     @staticmethod
     def delete_role(role_id: int) -> None:
@@ -565,9 +650,18 @@ class RoleManagementService:
            decision).
         3. Delete the role.
         """
-        raise NotImplementedError(
-            "RoleManagementService.delete_role: Guard against orphan users, then delete."
-        )
+        try:
+            role = Role.objects.get(pk=role_id)
+        except Role.DoesNotExist:
+            raise NotFound(f"Role with id {role_id} not found.")
+
+        if role.users.exists():
+            raise DomainError(
+                f"Cannot delete role '{role.name}' because it is still assigned to "
+                f"{role.users.count()} user(s). Re-assign them first."
+            )
+
+        role.delete()
 
     @staticmethod
     def assign_permissions_to_role(
@@ -596,10 +690,27 @@ class RoleManagementService:
         3. ``role.permissions.set(permission_ids)``.
         4. Return the role with prefetched permissions.
         """
-        raise NotImplementedError(
-            "RoleManagementService.assign_permissions_to_role: "
-            "Set M2M permissions on role."
+        try:
+            role = Role.objects.get(pk=role_id)
+        except Role.DoesNotExist:
+            raise NotFound(f"Role with id {role_id} not found.")
+
+        # Validate that all permission IDs exist
+        existing = set(
+            Permission.objects.filter(pk__in=permission_ids)
+            .values_list("pk", flat=True)
         )
+        invalid = set(permission_ids) - existing
+        if invalid:
+            raise DomainError(
+                f"The following permission IDs do not exist: {sorted(invalid)}"
+            )
+
+        role.permissions.set(permission_ids)
+
+        return Role.objects.prefetch_related(
+            "permissions__content_type"
+        ).get(pk=role.pk)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -647,9 +758,10 @@ class CurrentUserService:
                 .get(pk=user.pk)``
         2. Return the enriched instance.
         """
-        raise NotImplementedError(
-            "CurrentUserService.get_profile: "
-            "Return user with prefetched role + permissions."
+        return (
+            User.objects.select_related("role")
+            .prefetch_related("role__permissions__content_type")
+            .get(pk=user.pk)
         )
 
     @staticmethod
@@ -681,9 +793,15 @@ class CurrentUserService:
         The user may NOT change their own ``role``, ``is_active``,
         ``username``, or ``national_id`` via this endpoint.
         """
-        raise NotImplementedError(
-            "CurrentUserService.update_profile: "
-            "Apply partial updates to user profile."
+        for field, value in validated_data.items():
+            setattr(user, field, value)
+        user.save(update_fields=list(validated_data.keys()))
+
+        # Re-fetch with prefetched relations for serialization
+        return (
+            User.objects.select_related("role")
+            .prefetch_related("role__permissions__content_type")
+            .get(pk=user.pk)
         )
 
 
@@ -706,6 +824,4 @@ def list_all_permissions() -> QuerySet[Permission]:
        Django internal apps like ``admin``, ``contenttypes``, etc.)
        for cleaner UX.
     """
-    raise NotImplementedError(
-        "list_all_permissions: Return Permission queryset with content_type."
-    )
+    return Permission.objects.select_related("content_type").all()

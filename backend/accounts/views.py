@@ -179,9 +179,9 @@ class MeView(APIView):
         - ``permissions``: a flat list of strings such as
           ``['cases.view_case', 'evidence.add_evidence']``.
         """
-        raise NotImplementedError(
-            "MeView.get: Return user profile with permissions."
-        )
+        user = CurrentUserService.get_profile(request.user)
+        serializer = UserDetailSerializer(user)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
     def patch(self, request: Request) -> Response:
         """
@@ -197,8 +197,16 @@ class MeView(APIView):
            )``.
         4. Re-serialize with ``UserDetailSerializer`` and return 200.
         """
-        raise NotImplementedError(
-            "MeView.patch: Validate → service → response."
+        serializer = MeUpdateSerializer(
+            instance=request.user, data=request.data, partial=True
+        )
+        serializer.is_valid(raise_exception=True)
+        updated_user = CurrentUserService.update_profile(
+            request.user, serializer.validated_data
+        )
+        return Response(
+            UserDetailSerializer(updated_user).data,
+            status=status.HTTP_200_OK,
         )
 
 
@@ -242,9 +250,23 @@ class UserViewSet(viewsets.ViewSet):
         4. Serialize with ``UserListSerializer(many=True)``.
         5. Return paginated response.
         """
-        raise NotImplementedError(
-            "UserViewSet.list: Extract filters → service → paginate → response."
-        )
+        filters = {}
+        role = request.query_params.get("role")
+        if role is not None:
+            filters["role_id"] = int(role)
+        hierarchy_level = request.query_params.get("hierarchy_level")
+        if hierarchy_level is not None:
+            filters["hierarchy_level"] = int(hierarchy_level)
+        is_active = request.query_params.get("is_active")
+        if is_active is not None:
+            filters["is_active"] = is_active.lower() in ("true", "1", "yes")
+        search = request.query_params.get("search")
+        if search:
+            filters["search"] = search
+
+        qs = UserManagementService.list_users(**filters)
+        serializer = UserListSerializer(qs, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
     def retrieve(self, request: Request, pk: str = None) -> Response:
         """
@@ -258,9 +280,9 @@ class UserViewSet(viewsets.ViewSet):
         2. Serialize with ``UserDetailSerializer``.
         3. Return ``Response(data, status=200)``.
         """
-        raise NotImplementedError(
-            "UserViewSet.retrieve: Service → serializer → response."
-        )
+        user = UserManagementService.get_user(int(pk))
+        serializer = UserDetailSerializer(user)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
     # ── Custom actions ───────────────────────────────────────────
 
@@ -286,8 +308,15 @@ class UserViewSet(viewsets.ViewSet):
         4. On ``PermissionDenied`` → 403.
         5. On ``DoesNotExist`` → 404.
         """
-        raise NotImplementedError(
-            "UserViewSet.assign_role: Validate → service → response."
+        serializer = AssignRoleSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = UserManagementService.assign_role(
+            user_id=int(pk),
+            role_id=serializer.validated_data["role_id"],
+            performed_by=request.user,
+        )
+        return Response(
+            UserDetailSerializer(user).data, status=status.HTTP_200_OK
         )
 
     @action(detail=True, methods=["patch"], url_path="activate")
@@ -306,8 +335,11 @@ class UserViewSet(viewsets.ViewSet):
            )``.
         2. Serialize and return 200.
         """
-        raise NotImplementedError(
-            "UserViewSet.activate: Service → response."
+        user = UserManagementService.activate_user(
+            int(pk), performed_by=request.user
+        )
+        return Response(
+            UserDetailSerializer(user).data, status=status.HTTP_200_OK
         )
 
     @action(detail=True, methods=["patch"], url_path="deactivate")
@@ -326,8 +358,11 @@ class UserViewSet(viewsets.ViewSet):
            )``.
         2. Serialize and return 200.
         """
-        raise NotImplementedError(
-            "UserViewSet.deactivate: Service → response."
+        user = UserManagementService.deactivate_user(
+            int(pk), performed_by=request.user
+        )
+        return Response(
+            UserDetailSerializer(user).data, status=status.HTTP_200_OK
         )
 
 
@@ -364,9 +399,9 @@ class RoleViewSet(viewsets.ViewSet):
         2. Serialize with ``RoleListSerializer(many=True)``.
         3. Return ``Response(data, status=200)``.
         """
-        raise NotImplementedError(
-            "RoleViewSet.list: Service → serializer → response."
-        )
+        roles = RoleManagementService.list_roles()
+        serializer = RoleListSerializer(roles, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
     def create(self, request: Request) -> Response:
         """
@@ -383,8 +418,11 @@ class RoleViewSet(viewsets.ViewSet):
         2. Call ``RoleManagementService.create_role(serializer.validated_data)``.
         3. Re-serialize and return 201.
         """
-        raise NotImplementedError(
-            "RoleViewSet.create: Validate → service → response."
+        serializer = RoleDetailSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        role = RoleManagementService.create_role(serializer.validated_data)
+        return Response(
+            RoleDetailSerializer(role).data, status=status.HTTP_201_CREATED
         )
 
     def retrieve(self, request: Request, pk: str = None) -> Response:
@@ -399,9 +437,9 @@ class RoleViewSet(viewsets.ViewSet):
         2. Serialize with ``RoleDetailSerializer``.
         3. Return ``Response(data, status=200)``.
         """
-        raise NotImplementedError(
-            "RoleViewSet.retrieve: Service → serializer → response."
-        )
+        role = RoleManagementService.get_role(int(pk))
+        serializer = RoleDetailSerializer(role)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
     def update(self, request: Request, pk: str = None) -> Response:
         """
@@ -415,8 +453,11 @@ class RoleViewSet(viewsets.ViewSet):
         2. Call ``RoleManagementService.update_role(int(pk), data)``.
         3. Re-serialize and return 200.
         """
-        raise NotImplementedError(
-            "RoleViewSet.update: Validate → service → response."
+        serializer = RoleDetailSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        role = RoleManagementService.update_role(int(pk), serializer.validated_data)
+        return Response(
+            RoleDetailSerializer(role).data, status=status.HTTP_200_OK
         )
 
     def partial_update(self, request: Request, pk: str = None) -> Response:
@@ -433,8 +474,11 @@ class RoleViewSet(viewsets.ViewSet):
         2. Call ``RoleManagementService.update_role(int(pk), data)``.
         3. Re-serialize and return 200.
         """
-        raise NotImplementedError(
-            "RoleViewSet.partial_update: Validate → service → response."
+        serializer = RoleDetailSerializer(data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        role = RoleManagementService.update_role(int(pk), serializer.validated_data)
+        return Response(
+            RoleDetailSerializer(role).data, status=status.HTTP_200_OK
         )
 
     def destroy(self, request: Request, pk: str = None) -> Response:
@@ -449,9 +493,8 @@ class RoleViewSet(viewsets.ViewSet):
         2. Return ``Response(status=204)``.
         3. On ``ValidationError`` (users still assigned) → 400.
         """
-        raise NotImplementedError(
-            "RoleViewSet.destroy: Service → 204 response."
-        )
+        RoleManagementService.delete_role(int(pk))
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     # ── Custom action ────────────────────────────────────────────
 
@@ -476,8 +519,14 @@ class RoleViewSet(viewsets.ViewSet):
            )``.
         3. Re-serialize the updated role and return 200.
         """
-        raise NotImplementedError(
-            "RoleViewSet.assign_permissions: Validate → service → response."
+        serializer = RoleAssignPermissionsSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        role = RoleManagementService.assign_permissions_to_role(
+            role_id=int(pk),
+            permission_ids=serializer.validated_data["permission_ids"],
+        )
+        return Response(
+            RoleDetailSerializer(role).data, status=status.HTTP_200_OK
         )
 
 
@@ -511,7 +560,4 @@ class PermissionListView(generics.ListAPIView):
         1. Call ``list_all_permissions()`` from services.
         2. Return the queryset.
         """
-        raise NotImplementedError(
-            "PermissionListView.get_queryset: "
-            "Delegate to list_all_permissions() service."
-        )
+        return list_all_permissions()
