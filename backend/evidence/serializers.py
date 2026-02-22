@@ -25,6 +25,7 @@ from rest_framework import serializers
 from .models import (
     BiologicalEvidence,
     Evidence,
+    EvidenceCustodyLog,
     EvidenceFile,
     EvidenceType,
     FileType,
@@ -913,25 +914,54 @@ class EvidenceFileUploadSerializer(serializers.ModelSerializer):
         return value
 
 
-class ChainOfCustodyEntrySerializer(serializers.Serializer):
+class ChainOfCustodyEntrySerializer(serializers.ModelSerializer):
     """
-    Read-only serializer for a single chain-of-custody audit entry.
+    Read-only serializer for ``EvidenceCustodyLog`` entries.
 
-    This is a virtual/computed serializer — it does not map to a
-    dedicated model.  Entries are assembled from the evidence's
-    ``updated_at`` history, file additions, and verification events.
+    Maps model field names to a cleaner API representation:
+
+    - ``action_type`` → ``action`` (display label)
+    - ``handled_by``  → ``performed_by`` (PK) + ``performer_name``
+    - ``notes``       → ``details``
 
     Fields
     ------
-    ``timestamp``   : datetime — when the action occurred
-    ``action``      : str      — human-readable action description
-    ``performed_by``: int      — PK of the user who performed the action
-    ``performer_name``: str    — full name of that user
-    ``details``     : str      — optional additional detail
+    ``id``             : int      — PK of the custody-log entry
+    ``timestamp``      : datetime — when the action occurred
+    ``action``         : str      — human-readable action description
+    ``performed_by``   : int      — PK of the user who performed the action
+    ``performer_name`` : str      — full name of that user
+    ``details``        : str      — optional additional detail / notes
     """
 
-    timestamp = serializers.DateTimeField(read_only=True)
-    action = serializers.CharField(read_only=True)
-    performed_by = serializers.IntegerField(read_only=True)
-    performer_name = serializers.CharField(read_only=True)
-    details = serializers.CharField(read_only=True, allow_blank=True)
+    action = serializers.CharField(
+        source="get_action_type_display",
+        read_only=True,
+    )
+    performed_by = serializers.IntegerField(
+        source="handled_by_id",
+        read_only=True,
+    )
+    performer_name = serializers.SerializerMethodField()
+    details = serializers.CharField(
+        source="notes",
+        read_only=True,
+    )
+
+    class Meta:
+        model = EvidenceCustodyLog
+        fields = [
+            "id",
+            "timestamp",
+            "action",
+            "performed_by",
+            "performer_name",
+            "details",
+        ]
+        read_only_fields = fields
+
+    def get_performer_name(self, obj: EvidenceCustodyLog) -> str | None:
+        """Return the full name of the user who performed the action."""
+        if obj.handled_by:
+            return obj.handled_by.get_full_name()
+        return None

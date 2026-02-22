@@ -78,6 +78,8 @@ class EvidenceViewSet(viewsets.ViewSet):
     """
 
     permission_classes = [IsAuthenticated]
+    # Allows drf-spectacular to infer path-parameter types automatically.
+    queryset = Evidence.objects.none()
 
     # ── Serializer Resolution Helpers ────────────────────────────────
 
@@ -250,20 +252,18 @@ class EvidenceViewSet(viewsets.ViewSet):
         GET  /api/evidence/{id}/files/ — list attached files.
         POST /api/evidence/{id}/files/ — upload a new file.
         """
-        evidence = self._get_evidence(pk)
-
         if request.method == "GET":
-            files_qs = EvidenceFileService.get_files_for_evidence(evidence)
+            files_qs = EvidenceFileService.list_files(pk, request.user)
             serializer = EvidenceFileReadSerializer(files_qs, many=True)
             return Response(serializer.data, status=status.HTTP_200_OK)
 
-        # POST
+        # POST — multipart/form-data expected
         serializer = EvidenceFileUploadSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         evidence_file = EvidenceFileService.upload_file(
-            evidence, serializer.validated_data, request.user
+            pk, request.user, serializer.validated_data
         )
         response_serializer = EvidenceFileReadSerializer(evidence_file)
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
@@ -273,7 +273,6 @@ class EvidenceViewSet(viewsets.ViewSet):
     @action(detail=True, methods=["get"], url_path="chain-of-custody")
     def chain_of_custody(self, request: Request, pk: int = None) -> Response:
         """GET /api/evidence/{id}/chain-of-custody/ — Audit trail."""
-        evidence = self._get_evidence(pk)
-        trail = ChainOfCustodyService.get_custody_trail(evidence)
-        serializer = ChainOfCustodyEntrySerializer(trail, many=True)
+        logs = ChainOfCustodyService.get_chain_of_custody(pk, request.user)
+        serializer = ChainOfCustodyEntrySerializer(logs, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)

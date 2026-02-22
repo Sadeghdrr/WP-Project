@@ -50,6 +50,7 @@ _EVENT_TEMPLATES: dict[str, tuple[str, str]] = {
     # event_type: (title_template, message_template)
     # Templates may use {actor}, {payload.*} interpolation in the future.
     "evidence_added":        ("New Evidence Added",       "New evidence has been registered for a case you are assigned to."),
+    "bio_evidence_verified": ("Biological Evidence Verified", "Biological evidence in your case has been reviewed by the Coroner."),
     "case_status_changed":   ("Case Status Updated",     "A case you are involved with has changed status."),
     "suspect_approved":      ("Suspect Approved",        "A suspect in your case has been approved."),
     "suspect_rejected":      ("Suspect Rejected",        "A suspect in your case has been rejected."),

@@ -40,7 +40,9 @@ from core.permissions_constants import EvidencePerms
 
 from .models import (
     BiologicalEvidence,
+    CustodyAction,
     Evidence,
+    EvidenceCustodyLog,
     EvidenceFile,
     EvidenceType,
     IdentityEvidence,
@@ -506,24 +508,54 @@ class MedicalExaminerService:
     ) -> BiologicalEvidence:
         """
         Coroner approves or rejects a piece of biological evidence.
+
+        Verification is **irreversible**: once ``is_verified`` is set to
+        ``True``, subsequent calls will raise ``DomainError``.  A
+        ``select_for_update()`` lock prevents concurrent verification
+        attempts from racing each other.
+
+        Args:
+            evidence_id:    PK of the ``BiologicalEvidence`` item.
+            examiner_user:  The Coroner / Medical Examiner performing
+                            the verification.
+            decision:       ``"approve"`` or ``"reject"``.
+            forensic_result: Textual forensic examination report.
+                            Required when ``decision == "approve"``.
+            notes:          Additional notes or rejection reason.
+                            Required when ``decision == "reject"``.
+
+        Returns:
+            The updated ``BiologicalEvidence`` instance.
+
+        Raises:
+            PermissionDenied: If the user lacks ``CAN_VERIFY_EVIDENCE``.
+            NotFound:         If no ``BiologicalEvidence`` with the
+                              given PK exists.
+            DomainError:      If the evidence is already verified
+                              (irreversibility invariant) or required
+                              fields are missing.
         """
-        # 1. Permission check
+        # 1. Permission check — only Coroner
         if not examiner_user.has_perm(f"evidence.{EvidencePerms.CAN_VERIFY_EVIDENCE}"):
             raise PermissionDenied("Only the Coroner can verify biological evidence.")
 
-        # 2. Fetch evidence
+        # 2. Fetch evidence with a row-level lock to prevent race conditions
         try:
             bio_evidence = (
                 BiologicalEvidence.objects
+                .select_for_update()
                 .select_related("case", "registered_by")
                 .get(pk=evidence_id)
             )
         except BiologicalEvidence.DoesNotExist:
             raise NotFound(f"Biological evidence with id {evidence_id} not found.")
 
-        # 3. Idempotency guard
+        # 3. Irreversibility invariant — once verified, cannot be changed
         if bio_evidence.is_verified:
-            raise DomainError("This evidence has already been verified.")
+            raise DomainError(
+                "This evidence has already been verified. "
+                "Verification is irreversible."
+            )
 
         # 4. Decision processing
         if decision == "approve":
@@ -539,23 +571,31 @@ class MedicalExaminerService:
             bio_evidence.forensic_result = f"REJECTED: {notes}"
             bio_evidence.verified_by = examiner_user
 
-        # 5. Save
+        # 5. Persist verification metadata
         bio_evidence.save(update_fields=[
             "is_verified", "forensic_result", "verified_by", "updated_at",
         ])
 
-        # 6. Notify detective
+        # 6. Log custody entry for the verification action
+        action_label = "approved" if decision == "approve" else "rejected"
+        EvidenceCustodyLog.objects.create(
+            evidence=bio_evidence,
+            handled_by=examiner_user,
+            action_type=CustodyAction.ANALYSED,
+            notes=f"Biological evidence {action_label} by Coroner. {forensic_result or notes}".strip(),
+        )
+
+        # 7. Notify the assigned detective
         case = bio_evidence.case
         if hasattr(case, "assigned_detective") and case.assigned_detective:
-            event_msg = "approved" if decision == "approve" else "rejected"
             NotificationService.create(
                 actor=examiner_user,
                 recipients=case.assigned_detective,
-                event_type="evidence_added",
+                event_type="bio_evidence_verified",
                 payload={
                     "case_id": case.id,
                     "evidence_id": bio_evidence.id,
-                    "verification": event_msg,
+                    "verification": action_label,
                 },
                 related_object=bio_evidence,
             )
@@ -598,31 +638,93 @@ class EvidenceFileService:
     """
 
     @staticmethod
+    def list_files(
+        evidence_id: int,
+        user: Any,
+    ) -> QuerySet[EvidenceFile]:
+        """
+        List all file attachments for a given evidence item.
+
+        Validates that the requesting user has ``VIEW_EVIDENCE``
+        permission before returning results.
+
+        Args:
+            evidence_id: PK of the parent evidence item.
+            user:        The authenticated user making the request.
+
+        Returns:
+            QuerySet of ``EvidenceFile`` ordered by newest first.
+
+        Raises:
+            PermissionDenied: If the user lacks view permission.
+            NotFound:         If no evidence with the given PK exists.
+        """
+        if not user.has_perm(f"evidence.{EvidencePerms.VIEW_EVIDENCE}"):
+            raise PermissionDenied("You do not have permission to view evidence files.")
+
+        try:
+            evidence = Evidence.objects.get(pk=evidence_id)
+        except Evidence.DoesNotExist:
+            raise NotFound(f"Evidence with id {evidence_id} not found.")
+
+        return evidence.files.order_by("-created_at")
+
+    @staticmethod
     @transaction.atomic
     def upload_file(
-        evidence: Evidence,
+        evidence_id: int,
+        actor: Any,
         validated_data: dict[str, Any],
-        requesting_user: Any,
     ) -> EvidenceFile:
-        """Attach a file to an evidence item."""
-        if not requesting_user.has_perm(f"evidence.{EvidencePerms.ADD_EVIDENCEFILE}"):
+        """
+        Attach a file to an evidence item and log a custody entry.
+
+        After persisting the ``EvidenceFile``, an ``EvidenceCustodyLog``
+        record is created with ``action_type=CHECKED_IN`` to reflect
+        the physical addition of media to the evidence chain.
+
+        Args:
+            evidence_id:    PK of the parent evidence item.
+            actor:          The authenticated user uploading the file.
+            validated_data: Dict with ``file``, ``file_type``, and
+                            optional ``caption``.
+
+        Returns:
+            The newly created ``EvidenceFile`` instance.
+
+        Raises:
+            PermissionDenied: If the user lacks add-file permission.
+            NotFound:         If no evidence with the given PK exists.
+        """
+        if not actor.has_perm(f"evidence.{EvidencePerms.ADD_EVIDENCEFILE}"):
             raise PermissionDenied("You do not have permission to upload evidence files.")
+
+        try:
+            evidence = Evidence.objects.get(pk=evidence_id)
+        except Evidence.DoesNotExist:
+            raise NotFound(f"Evidence with id {evidence_id} not found.")
 
         evidence_file = EvidenceFile.objects.create(
             evidence=evidence, **validated_data
         )
+
+        # Log a chain-of-custody entry for the file upload
+        file_desc = evidence_file.get_file_type_display()
+        caption = evidence_file.caption or "No caption"
+        EvidenceCustodyLog.objects.create(
+            evidence=evidence,
+            handled_by=actor,
+            action_type=CustodyAction.CHECKED_IN,
+            notes=f"File uploaded: {file_desc} — {caption}",
+        )
+
         logger.info(
             "File #%d attached to Evidence #%d by user %s",
             evidence_file.pk,
             evidence.pk,
-            requesting_user,
+            actor,
         )
         return evidence_file
-
-    @staticmethod
-    def get_files_for_evidence(evidence: Evidence) -> QuerySet[EvidenceFile]:
-        """Return all file attachments for a given evidence item."""
-        return evidence.files.order_by("-created_at")
 
     @staticmethod
     @transaction.atomic
@@ -651,13 +753,63 @@ class EvidenceFileService:
 
 class ChainOfCustodyService:
     """
-    Assembles a read-only audit trail for an evidence item.
+    Assembles the chain-of-custody audit trail for an evidence item.
+
+    Returns chronologically ordered ``EvidenceCustodyLog`` entries
+    that document every physical handling event (file additions,
+    transfers, verifications) for the evidence.
     """
+
+    @staticmethod
+    def get_chain_of_custody(
+        evidence_id: int,
+        user: Any,
+    ) -> QuerySet[EvidenceCustodyLog]:
+        """
+        Return all ``EvidenceCustodyLog`` entries for the specified
+        evidence item, ordered chronologically (oldest first).
+
+        Args:
+            evidence_id: PK of the evidence item.
+            user:        The authenticated user requesting the trail.
+
+        Returns:
+            QuerySet of ``EvidenceCustodyLog`` with ``handled_by``
+            pre-fetched.
+
+        Raises:
+            PermissionDenied: If the user lacks ``VIEW_EVIDENCE``.
+            NotFound:         If no evidence with the given PK exists.
+        """
+        if not user.has_perm(f"evidence.{EvidencePerms.VIEW_EVIDENCE}"):
+            raise PermissionDenied(
+                "You do not have permission to view chain-of-custody data."
+            )
+
+        try:
+            evidence = Evidence.objects.get(pk=evidence_id)
+        except Evidence.DoesNotExist:
+            raise NotFound(f"Evidence with id {evidence_id} not found.")
+
+        return (
+            EvidenceCustodyLog.objects
+            .filter(evidence=evidence)
+            .select_related("handled_by")
+            .order_by("timestamp")
+        )
 
     @staticmethod
     def get_custody_trail(evidence: Evidence) -> list[dict[str, Any]]:
         """
         Build the full chain-of-custody trail for an evidence item.
+
+        This method assembles a **hybrid** trail combining:
+        1. The initial registration event.
+        2. File upload events.
+        3. Verification events (biological evidence only).
+        4. All explicit ``EvidenceCustodyLog`` entries.
+
+        Returns a list of dicts sorted chronologically.
         """
         trail: list[dict[str, Any]] = []
 
@@ -696,7 +848,17 @@ class ChainOfCustodyService:
             except BiologicalEvidence.DoesNotExist:
                 pass
 
-        # 4. Sort by timestamp
+        # 4. Explicit custody log entries
+        for log in evidence.custody_logs.select_related("handled_by").order_by("timestamp"):
+            trail.append({
+                "timestamp": log.timestamp,
+                "action": log.get_action_type_display(),
+                "performed_by": log.handled_by_id,
+                "performer_name": log.handled_by.get_full_name(),
+                "details": log.notes,
+            })
+
+        # 5. Sort by timestamp
         trail.sort(key=lambda e: e["timestamp"])
 
         return trail
