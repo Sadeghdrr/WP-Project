@@ -30,7 +30,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from core.domain.exceptions import DomainError, NotFound, PermissionDenied
+from core.domain.exceptions import DomainError, InvalidTransition, NotFound, PermissionDenied
 
 from .models import (
     Bail,
@@ -445,7 +445,28 @@ class SuspectViewSet(viewsets.ViewSet):
                 "priority": "high"
             }
         """
-        raise NotImplementedError
+        serializer = ArrestWarrantSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                serializer.errors, status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            suspect = ArrestAndWarrantService.issue_arrest_warrant(
+                suspect_id=pk,
+                issuing_sergeant=request.user,
+                warrant_reason=serializer.validated_data["warrant_reason"],
+                priority=serializer.validated_data.get("priority", "normal"),
+            )
+        except PermissionDenied as exc:
+            return Response(
+                {"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN,
+            )
+        except (DomainError, InvalidTransition) as exc:
+            return Response(
+                {"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST,
+            )
+        output = SuspectDetailSerializer(suspect)
+        return Response(output.data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["post"], url_path="arrest")
     def arrest(self, request: Request, pk: int = None) -> Response:
@@ -501,7 +522,33 @@ class SuspectViewSet(viewsets.ViewSet):
                 "warrant_override_justification": "Caught in the act."
             }
         """
-        raise NotImplementedError
+        serializer = ArrestPayloadSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                serializer.errors, status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            suspect = ArrestAndWarrantService.execute_arrest(
+                suspect_id=pk,
+                arresting_officer=request.user,
+                arrest_location=serializer.validated_data["arrest_location"],
+                arrest_notes=serializer.validated_data.get(
+                    "arrest_notes", "",
+                ),
+                warrant_override_justification=serializer.validated_data.get(
+                    "warrant_override_justification", "",
+                ),
+            )
+        except PermissionDenied as exc:
+            return Response(
+                {"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN,
+            )
+        except (DomainError, InvalidTransition) as exc:
+            return Response(
+                {"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST,
+            )
+        output = SuspectDetailSerializer(suspect)
+        return Response(output.data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["post"], url_path="transition-status")
     def transition_status(self, request: Request, pk: int = None) -> Response:
@@ -538,7 +585,28 @@ class SuspectViewSet(viewsets.ViewSet):
                 "reason": "Suspect arrested, beginning interrogation."
             }
         """
-        raise NotImplementedError
+        serializer = SuspectStatusTransitionSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                serializer.errors, status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            suspect = ArrestAndWarrantService.transition_status(
+                suspect_id=pk,
+                requesting_user=request.user,
+                new_status=serializer.validated_data["new_status"],
+                reason=serializer.validated_data["reason"],
+            )
+        except PermissionDenied as exc:
+            return Response(
+                {"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN,
+            )
+        except (DomainError, InvalidTransition) as exc:
+            return Response(
+                {"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST,
+            )
+        output = SuspectDetailSerializer(suspect)
+        return Response(output.data, status=status.HTTP_200_OK)
 
 
 # ═══════════════════════════════════════════════════════════════════

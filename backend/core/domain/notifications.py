@@ -55,6 +55,8 @@ _EVENT_TEMPLATES: dict[str, tuple[str, str]] = {
     "suspect_needs_review":  ("Suspect Pending Review",  "A new suspect has been identified and requires your review."),
     "suspect_approved":      ("Suspect Approved",        "A suspect in your case has been approved."),
     "suspect_rejected":      ("Suspect Rejected",        "A suspect in your case has been rejected."),
+    "warrant_issued":        ("Warrant Issued",           "An arrest warrant has been issued for a suspect in your case."),
+    "suspect_arrested":      ("Suspect Arrested",         "A suspect in your case has been arrested."),
     "interrogation_created": ("Interrogation Recorded",  "An interrogation has been logged for a suspect in your case."),
     "trial_created":         ("Trial Recorded",          "A trial verdict has been recorded for a suspect in your case."),
     "bounty_tip_submitted":  ("Bounty Tip Submitted",    "A citizen has submitted a bounty tip."),

@@ -1,6 +1,14 @@
 from django.contrib import admin
 
-from .models import Bail, BountyTip, Interrogation, Suspect, Trial, Warrant
+from .models import (
+    Bail,
+    BountyTip,
+    Interrogation,
+    Suspect,
+    SuspectStatusLog,
+    Trial,
+    Warrant,
+)
 
 
 @admin.register(Suspect)
@@ -16,6 +24,15 @@ class WarrantAdmin(admin.ModelAdmin):
     list_display = ("id", "suspect", "issued_by", "status", "issued_at")
     list_filter = ("status",)
     search_fields = ("reason",)
+
+
+@admin.register(SuspectStatusLog)
+class SuspectStatusLogAdmin(admin.ModelAdmin):
+    list_display = ("id", "suspect", "from_status", "to_status",
+                    "changed_by", "created_at")
+    list_filter = ("from_status", "to_status")
+    readonly_fields = ("suspect", "from_status", "to_status",
+                       "changed_by", "notes", "created_at")
 
 
 @admin.register(Interrogation)

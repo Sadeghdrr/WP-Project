@@ -137,6 +137,11 @@ class Suspect(TimeStampedModel):
         verbose_name="Wanted Since",
         db_index=True,
     )
+    arrested_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Arrested At",
+    )
 
     # ── Who identified / approved ───────────────────────────────────
     identified_by = models.ForeignKey(
@@ -539,6 +544,56 @@ class BountyTip(TimeStampedModel):
         """
         self.unique_code = uuid.uuid4().hex[:12].upper()
         self.save(update_fields=["unique_code"])
+
+
+class SuspectStatusLog(TimeStampedModel):
+    """
+    Immutable audit trail of every status transition for a suspect.
+
+    Mirrors the ``CaseStatusLog`` pattern from the cases app.
+    Stores the previous/new status, who made the change, and an
+    optional notes field.
+    """
+
+    suspect = models.ForeignKey(
+        Suspect,
+        on_delete=models.CASCADE,
+        related_name="status_logs",
+        verbose_name="Suspect",
+    )
+    from_status = models.CharField(
+        max_length=20,
+        choices=SuspectStatus.choices,
+        verbose_name="Previous Status",
+    )
+    to_status = models.CharField(
+        max_length=20,
+        choices=SuspectStatus.choices,
+        verbose_name="New Status",
+    )
+    changed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="suspect_status_changes",
+        verbose_name="Changed By",
+    )
+    notes = models.TextField(
+        blank=True,
+        default="",
+        verbose_name="Notes / Reason",
+    )
+
+    class Meta:
+        verbose_name = "Suspect Status Log"
+        verbose_name_plural = "Suspect Status Logs"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return (
+            f"Suspect #{self.suspect_id}: "
+            f"{self.from_status} → {self.to_status}"
+        )
 
 
 class Bail(TimeStampedModel):

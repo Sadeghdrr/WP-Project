@@ -52,8 +52,10 @@ from .models import (
     Interrogation,
     Suspect,
     SuspectStatus,
+    SuspectStatusLog,
     Trial,
     VerdictChoice,
+    Warrant,
 )
 
 logger = logging.getLogger(__name__)
@@ -689,7 +691,75 @@ class ArrestAndWarrantService:
         For this structural draft, the method signature and contract
         are defined; the storage mechanism is deferred.
         """
-        raise NotImplementedError
+        # ── Permission check ────────────────────────────────────────
+        if not issuing_sergeant.has_perm(
+            f"suspects.{SuspectsPerms.CAN_ISSUE_ARREST_WARRANT}"
+        ):
+            raise PermissionDenied(
+                "Only a Sergeant (or higher) can issue arrest warrants."
+            )
+
+        # ── Fetch suspect ───────────────────────────────────────────
+        try:
+            suspect = Suspect.objects.select_related(
+                "case", "identified_by",
+            ).get(pk=suspect_id)
+        except Suspect.DoesNotExist:
+            raise NotFound(f"Suspect with id {suspect_id} not found.")
+
+        # ── Guards ──────────────────────────────────────────────────
+        if suspect.sergeant_approval_status != "approved":
+            raise DomainError(
+                "Suspect must be approved by a sergeant before a "
+                "warrant can be issued."
+            )
+
+        if suspect.status != SuspectStatus.WANTED:
+            raise InvalidTransition(
+                current=suspect.status,
+                target=SuspectStatus.WANTED,
+                reason="Warrant can only be issued for suspects in 'Wanted' status.",
+            )
+
+        # Prevent duplicate active warrants
+        if suspect.warrants.filter(
+            status=Warrant.WarrantStatus.ACTIVE,
+        ).exists():
+            raise DomainError(
+                "An active warrant already exists for this suspect."
+            )
+
+        # ── Create warrant record ───────────────────────────────────
+        Warrant.objects.create(
+            suspect=suspect,
+            reason=warrant_reason,
+            issued_by=issuing_sergeant,
+            status=Warrant.WarrantStatus.ACTIVE,
+        )
+
+        # ── Notification to Detective ───────────────────────────────
+        detective = suspect.identified_by
+        if detective:
+            NotificationService.create(
+                actor=issuing_sergeant,
+                recipients=detective,
+                event_type="warrant_issued",
+                payload={
+                    "suspect_id": suspect.id,
+                    "suspect_name": suspect.full_name,
+                    "case_id": suspect.case_id,
+                    "case_title": suspect.case.title,
+                    "issued_by": issuing_sergeant.get_full_name(),
+                    "priority": priority,
+                },
+                related_object=suspect,
+            )
+
+        logger.info(
+            "Warrant issued for suspect %s (pk=%d) by %s",
+            suspect.full_name, suspect.id, issuing_sergeant,
+        )
+        return suspect
 
     @staticmethod
     @transaction.atomic
@@ -801,7 +871,117 @@ class ArrestAndWarrantService:
         - Override justification creates an auditable paper trail.
         - Status guard prevents double-arrest.
         """
-        raise NotImplementedError
+        # ── Permission check ────────────────────────────────────────
+        if not arresting_officer.has_perm(
+            f"suspects.{SuspectsPerms.CAN_ISSUE_ARREST_WARRANT}"
+        ):
+            raise PermissionDenied(
+                "Insufficient permissions to execute an arrest."
+            )
+
+        # ── Fetch suspect with lock ─────────────────────────────────
+        try:
+            suspect = Suspect.objects.select_for_update().select_related(
+                "case", "identified_by",
+            ).get(pk=suspect_id)
+        except Suspect.DoesNotExist:
+            raise NotFound(f"Suspect with id {suspect_id} not found.")
+
+        # ── Status guard ────────────────────────────────────────────
+        if suspect.status != SuspectStatus.WANTED:
+            raise InvalidTransition(
+                current=suspect.status,
+                target=SuspectStatus.ARRESTED,
+                reason=(
+                    f"Cannot arrest suspect in "
+                    f"'{suspect.get_status_display()}' status."
+                ),
+            )
+
+        # ── Approval guard ──────────────────────────────────────────
+        if suspect.sergeant_approval_status != "approved":
+            raise DomainError(
+                "Suspect must be approved by a sergeant before arrest."
+            )
+
+        # ── Warrant validation ──────────────────────────────────────
+        active_warrant = suspect.warrants.filter(
+            status=Warrant.WarrantStatus.ACTIVE,
+        ).first()
+
+        if not active_warrant:
+            if not warrant_override_justification.strip():
+                raise DomainError(
+                    "No active warrant exists for this suspect. "
+                    "Provide warrant_override_justification for a "
+                    "warrantless arrest."
+                )
+            warrant_used = False
+        else:
+            # Mark the warrant as executed
+            active_warrant.status = Warrant.WarrantStatus.EXECUTED
+            active_warrant.save(update_fields=["status", "updated_at"])
+            warrant_used = True
+
+        # ── Execute transition ──────────────────────────────────────
+        old_status = suspect.status
+        suspect.status = SuspectStatus.ARRESTED
+        suspect.arrested_at = timezone.now()
+        suspect.save(update_fields=["status", "arrested_at", "updated_at"])
+
+        # ── Audit log ──────────────────────────────────────────────
+        notes_parts = [f"Arrest location: {arrest_location}"]
+        if arrest_notes:
+            notes_parts.append(f"Notes: {arrest_notes}")
+        if warrant_used:
+            notes_parts.append(f"Warrant #{active_warrant.id} executed.")
+        else:
+            notes_parts.append(
+                f"Warrantless arrest — override: "
+                f"{warrant_override_justification}"
+            )
+
+        SuspectStatusLog.objects.create(
+            suspect=suspect,
+            from_status=old_status,
+            to_status=SuspectStatus.ARRESTED,
+            changed_by=arresting_officer,
+            notes="\n".join(notes_parts),
+        )
+
+        # ── Notifications ──────────────────────────────────────────
+        notification_payload = {
+            "suspect_id": suspect.id,
+            "suspect_name": suspect.full_name,
+            "case_id": suspect.case_id,
+            "case_title": suspect.case.title,
+            "arrested_by": arresting_officer.get_full_name(),
+            "arrest_location": arrest_location,
+        }
+
+        recipients = []
+        detective = suspect.identified_by
+        if detective:
+            recipients.append(detective)
+        sergeant = getattr(suspect.case, "assigned_sergeant", None)
+        if sergeant and sergeant != arresting_officer:
+            recipients.append(sergeant)
+
+        if recipients:
+            NotificationService.create(
+                actor=arresting_officer,
+                recipients=recipients,
+                event_type="suspect_arrested",
+                payload=notification_payload,
+                related_object=suspect,
+            )
+
+        logger.info(
+            "Suspect %s (pk=%d) arrested by %s at %s",
+            suspect.full_name, suspect.id, arresting_officer,
+            arrest_location,
+        )
+        return suspect
 
     @staticmethod
     @transaction.atomic
@@ -863,7 +1043,62 @@ class ArrestAndWarrantService:
         6. Record audit log entry with ``reason``.
         7. Return ``suspect``.
         """
-        raise NotImplementedError
+        # ── Fetch suspect with row lock ─────────────────────────────
+        try:
+            suspect = Suspect.objects.select_for_update().select_related(
+                "case",
+            ).get(pk=suspect_id)
+        except Suspect.DoesNotExist:
+            raise NotFound(f"Suspect with id {suspect_id} not found.")
+
+        current = suspect.status
+
+        # ── Validate transition is allowed ──────────────────────────
+        allowed_targets = ArrestAndWarrantService._ALLOWED_TRANSITIONS.get(
+            current, set(),
+        )
+        if new_status not in allowed_targets:
+            raise InvalidTransition(
+                current=current,
+                target=new_status,
+                reason=(
+                    f"Transition from '{suspect.get_status_display()}' "
+                    f"to '{new_status}' is not allowed."
+                ),
+            )
+
+        # ── Permission check for specific transition ────────────────
+        perm_codename = ArrestAndWarrantService._TRANSITION_PERMISSION_MAP.get(
+            (current, new_status),
+        )
+        if perm_codename and not requesting_user.has_perm(
+            f"suspects.{perm_codename}"
+        ):
+            raise PermissionDenied(
+                f"You do not have permission for the transition "
+                f"'{current}' → '{new_status}'."
+            )
+
+        # ── Execute transition ──────────────────────────────────────
+        old_status = suspect.status
+        suspect.status = new_status
+        suspect.save(update_fields=["status", "updated_at"])
+
+        # ── Audit log ──────────────────────────────────────────────
+        SuspectStatusLog.objects.create(
+            suspect=suspect,
+            from_status=old_status,
+            to_status=new_status,
+            changed_by=requesting_user,
+            notes=reason,
+        )
+
+        logger.info(
+            "Suspect %s (pk=%d) transitioned %s → %s by %s",
+            suspect.full_name, suspect.id, old_status, new_status,
+            requesting_user,
+        )
+        return suspect
 
     #: Maps each (current_status, new_status) pair to the required
     #: permission codename.
