@@ -138,7 +138,28 @@ class CaseViewSet(viewsets.ViewSet):
         4. Serialize result with ``CaseDetailSerializer``.
         5. Return HTTP 201.
         """
-        raise NotImplementedError
+        creation_type = request.data.get("creation_type")
+
+        if creation_type == "complaint":
+            serializer = ComplaintCaseCreateSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            case = CaseCreationService.create_complaint_case(
+                serializer.validated_data, request.user,
+            )
+        elif creation_type == "crime_scene":
+            serializer = CrimeSceneCaseCreateSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            case = CaseCreationService.create_crime_scene_case(
+                serializer.validated_data, request.user,
+            )
+        else:
+            return Response(
+                {"detail": "creation_type must be 'complaint' or 'crime_scene'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        out = CaseDetailSerializer(case, context={"request": request})
+        return Response(out.data, status=status.HTTP_201_CREATED)
 
     def retrieve(self, request: Request, pk: int = None) -> Response:
         """
@@ -198,7 +219,10 @@ class CaseViewSet(viewsets.ViewSet):
         2. Delegate to ``CaseWorkflowService.submit_for_review(case, request.user)``.
         3. Return HTTP 200 with ``CaseDetailSerializer`` payload.
         """
-        raise NotImplementedError
+        case = self._get_case(pk)
+        case = CaseWorkflowService.submit_for_review(case, request.user)
+        serializer = CaseDetailSerializer(case, context={"request": request})
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["post"], url_path="resubmit")
     def resubmit(self, request: Request, pk: int = None) -> Response:
@@ -214,7 +238,14 @@ class CaseViewSet(viewsets.ViewSet):
         3. Delegate to ``CaseWorkflowService.resubmit_complaint(case, validated_data, request.user)``.
         4. Return HTTP 200 with ``CaseDetailSerializer``.
         """
-        raise NotImplementedError
+        case = self._get_case(pk)
+        serializer = ResubmitComplaintSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        case = CaseWorkflowService.resubmit_complaint(
+            case, serializer.validated_data, request.user,
+        )
+        out = CaseDetailSerializer(case, context={"request": request})
+        return Response(out.data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["post"], url_path="cadet-review")
     def cadet_review(self, request: Request, pk: int = None) -> Response:
@@ -235,7 +266,17 @@ class CaseViewSet(viewsets.ViewSet):
            )``.
         4. Return HTTP 200 with ``CaseDetailSerializer``.
         """
-        raise NotImplementedError
+        case = self._get_case(pk)
+        serializer = CadetReviewSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        case = CaseWorkflowService.process_cadet_review(
+            case,
+            serializer.validated_data["decision"],
+            serializer.validated_data.get("message", ""),
+            request.user,
+        )
+        out = CaseDetailSerializer(case, context={"request": request})
+        return Response(out.data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["post"], url_path="officer-review")
     def officer_review(self, request: Request, pk: int = None) -> Response:
@@ -251,7 +292,17 @@ class CaseViewSet(viewsets.ViewSet):
         3. Delegate to ``CaseWorkflowService.process_officer_review``.
         4. Return HTTP 200 with ``CaseDetailSerializer``.
         """
-        raise NotImplementedError
+        case = self._get_case(pk)
+        serializer = OfficerReviewSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        case = CaseWorkflowService.process_officer_review(
+            case,
+            serializer.validated_data["decision"],
+            serializer.validated_data.get("message", ""),
+            request.user,
+        )
+        out = CaseDetailSerializer(case, context={"request": request})
+        return Response(out.data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["post"], url_path="approve-crime-scene")
     def approve_crime_scene(self, request: Request, pk: int = None) -> Response:
@@ -338,7 +389,17 @@ class CaseViewSet(viewsets.ViewSet):
            )``.
         4. Return HTTP 200 with ``CaseDetailSerializer``.
         """
-        raise NotImplementedError
+        case = self._get_case(pk)
+        serializer = CaseTransitionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        case = CaseWorkflowService.transition_state(
+            case,
+            serializer.validated_data["target_status"],
+            request.user,
+            serializer.validated_data.get("message", ""),
+        )
+        out = CaseDetailSerializer(case, context={"request": request})
+        return Response(out.data, status=status.HTTP_200_OK)
 
     # ── Assignment @actions ───────────────────────────────────────────
 
@@ -437,7 +498,30 @@ class CaseViewSet(viewsets.ViewSet):
         4. Delegate to ``CaseComplainantService.add_complainant(case, user, request.user)``.
         5. Return HTTP 201 with ``CaseComplainantSerializer``.
         """
-        raise NotImplementedError
+        case = self._get_case(pk)
+
+        if request.method == "GET":
+            qs = case.complainants.select_related("user", "reviewed_by")
+            serializer = CaseComplainantSerializer(qs, many=True)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+
+        # POST
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
+
+        serializer = AddComplainantSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = User.objects.filter(pk=serializer.validated_data["user_id"]).first()
+        if not user:
+            return Response(
+                {"detail": "User not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        complainant = CaseComplainantService.add_complainant(
+            case, user, request.user,
+        )
+        out = CaseComplainantSerializer(complainant)
+        return Response(out.data, status=status.HTTP_201_CREATED)
 
     @action(
         detail=True,
@@ -465,7 +549,17 @@ class CaseViewSet(viewsets.ViewSet):
            )``.
         5. Return HTTP 200 with ``CaseComplainantSerializer``.
         """
-        raise NotImplementedError
+        case = self._get_case(pk)
+        complainant = self._get_complainant(case, complainant_pk)
+        serializer = ComplainantReviewSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        complainant = CaseComplainantService.review_complainant(
+            complainant,
+            serializer.validated_data["decision"],
+            request.user,
+        )
+        out = CaseComplainantSerializer(complainant)
+        return Response(out.data, status=status.HTTP_200_OK)
 
     # ── Sub-resource @actions — Witnesses ────────────────────────────
 
@@ -509,7 +603,10 @@ class CaseViewSet(viewsets.ViewSet):
         3. Serialize with ``CaseStatusLogSerializer(logs, many=True)``.
         4. Return HTTP 200.
         """
-        raise NotImplementedError
+        case = self._get_case(pk)
+        logs = case.status_logs.select_related("changed_by").order_by("-created_at")
+        serializer = CaseStatusLogSerializer(logs, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["get"], url_path="calculations")
     def calculations(self, request: Request, pk: int = None) -> Response:
@@ -534,4 +631,7 @@ class CaseViewSet(viewsets.ViewSet):
               "reward_rials": 2700000000
             }
         """
-        raise NotImplementedError
+        case = self._get_case(pk)
+        data = CaseCalculationService.get_calculations_dict(case)
+        serializer = CaseCalculationsSerializer(data)
+        return Response(serializer.data, status=status.HTTP_200_OK)

@@ -72,7 +72,8 @@ from django.utils import timezone
 
 from core.constants import REWARD_MULTIPLIER
 from core.domain.access import apply_role_filter, get_user_role_name
-from core.domain.exceptions import NotFound, PermissionDenied
+from core.domain.exceptions import DomainError, InvalidTransition, NotFound, PermissionDenied
+from core.domain.notifications import NotificationService
 from core.permissions_constants import CasesPerms
 
 from .models import (
@@ -377,7 +378,27 @@ class CaseCreationService:
         6. Create initial ``CaseStatusLog(from_status="", to_status=COMPLAINT_REGISTERED, ...)``.
         7. Return ``case``.
         """
-        raise NotImplementedError
+        validated_data["creation_type"] = CaseCreationType.COMPLAINT
+        validated_data["status"] = CaseStatus.COMPLAINT_REGISTERED
+        validated_data["created_by"] = requesting_user
+
+        case = Case.objects.create(**validated_data)
+
+        CaseComplainant.objects.create(
+            case=case,
+            user=requesting_user,
+            is_primary=True,
+        )
+
+        CaseStatusLog.objects.create(
+            case=case,
+            from_status="",
+            to_status=CaseStatus.COMPLAINT_REGISTERED,
+            changed_by=requesting_user,
+            message="Complaint case created.",
+        )
+
+        return case
 
     @staticmethod
     @transaction.atomic
@@ -507,7 +528,66 @@ class CaseWorkflowService:
         10. _dispatch_notifications(case, target_status, requesting_user)
         11. Return case.
         """
-        raise NotImplementedError
+        # 1. Lock the row for concurrency safety
+        case = Case.objects.select_for_update().get(pk=case.pk)
+
+        # 2. Validate transition exists
+        key = (case.status, target_status)
+        if key not in ALLOWED_TRANSITIONS:
+            raise InvalidTransition(
+                current=case.status,
+                target=target_status,
+                reason="This transition is not allowed.",
+            )
+
+        # 3. Permission check (OR-logic)
+        required_perms = ALLOWED_TRANSITIONS[key]
+        if not any(
+            requesting_user.has_perm(f"cases.{p}") for p in required_perms
+        ):
+            raise PermissionDenied(
+                "You do not have permission to perform this transition."
+            )
+
+        # 4. Extra guards
+        # a. CHIEF_REVIEW target requires CRITICAL crime level
+        if target_status == CaseStatus.CHIEF_REVIEW:
+            if case.crime_level != CrimeLevel.CRITICAL:
+                raise InvalidTransition(
+                    current=case.status,
+                    target=target_status,
+                    reason="Only critical-level cases require Chief Review.",
+                )
+
+        # b. Rejection transitions require non-blank message
+        _rejection_transitions = {
+            (CaseStatus.CADET_REVIEW, CaseStatus.RETURNED_TO_COMPLAINANT),
+            (CaseStatus.OFFICER_REVIEW, CaseStatus.RETURNED_TO_CADET),
+            (CaseStatus.SERGEANT_REVIEW, CaseStatus.INVESTIGATION),
+        }
+        if key in _rejection_transitions and not message.strip():
+            raise DomainError(
+                "A rejection message is required for this transition."
+            )
+
+        # 5. Perform the transition
+        prev_status = case.status
+        case.status = target_status
+        case.save(update_fields=["status", "updated_at"])
+
+        # 6. Log the transition
+        CaseStatusLog.objects.create(
+            case=case,
+            from_status=prev_status,
+            to_status=target_status,
+            changed_by=requesting_user,
+            message=message,
+        )
+
+        # 7. Dispatch notifications
+        CaseWorkflowService._dispatch_notifications(case, target_status, requesting_user)
+
+        return case
 
     @staticmethod
     @transaction.atomic
@@ -542,7 +622,23 @@ class CaseWorkflowService:
         2. Assert CaseComplainant.objects.filter(case=case, user=requesting_user, is_primary=True).exists().
         3. Delegate to ``transition_state(case, CADET_REVIEW, requesting_user)``.
         """
-        raise NotImplementedError
+        if case.status != CaseStatus.COMPLAINT_REGISTERED:
+            raise InvalidTransition(
+                current=case.status,
+                target=CaseStatus.CADET_REVIEW,
+                reason="Case must be in COMPLAINT_REGISTERED status to submit.",
+            )
+
+        if not CaseComplainant.objects.filter(
+            case=case, user=requesting_user, is_primary=True
+        ).exists():
+            raise PermissionDenied(
+                "Only the primary complainant can submit this case for review."
+            )
+
+        return CaseWorkflowService.transition_state(
+            case, CaseStatus.CADET_REVIEW, requesting_user
+        )
 
     @staticmethod
     @transaction.atomic
@@ -580,7 +676,34 @@ class CaseWorkflowService:
         3. Update allowed mutable fields on case.
         4. Delegate to ``transition_state(case, CADET_REVIEW, requesting_user)``.
         """
-        raise NotImplementedError
+        if case.status != CaseStatus.RETURNED_TO_COMPLAINANT:
+            raise InvalidTransition(
+                current=case.status,
+                target=CaseStatus.CADET_REVIEW,
+                reason="Case must be in RETURNED_TO_COMPLAINANT status to resubmit.",
+            )
+
+        if not CaseComplainant.objects.filter(
+            case=case, user=requesting_user, is_primary=True
+        ).exists():
+            raise PermissionDenied(
+                "Only the primary complainant can resubmit this case."
+            )
+
+        # Update allowed mutable fields
+        mutable_fields = ["title", "description", "incident_date", "location"]
+        update_fields = []
+        for field in mutable_fields:
+            if field in validated_data:
+                setattr(case, field, validated_data[field])
+                update_fields.append(field)
+        if update_fields:
+            update_fields.append("updated_at")
+            case.save(update_fields=update_fields)
+
+        return CaseWorkflowService.transition_state(
+            case, CaseStatus.CADET_REVIEW, requesting_user
+        )
 
     @staticmethod
     @transaction.atomic
@@ -636,7 +759,39 @@ class CaseWorkflowService:
            transition_state(case, OFFICER_REVIEW, requesting_user)
         5. Return case.
         """
-        raise NotImplementedError
+        if case.status != CaseStatus.CADET_REVIEW:
+            raise InvalidTransition(
+                current=case.status,
+                target="approve/reject",
+                reason="Case must be in CADET_REVIEW status for cadet review.",
+            )
+
+        if not requesting_user.has_perm(f"cases.{CasesPerms.CAN_REVIEW_COMPLAINT}"):
+            raise PermissionDenied(
+                "You do not have permission to review complaints."
+            )
+
+        if decision == "reject":
+            # Lock the row before modifying rejection_count
+            case = Case.objects.select_for_update().get(pk=case.pk)
+            case.rejection_count += 1
+            case.save(update_fields=["rejection_count", "updated_at"])
+
+            if case.rejection_count >= MAX_REJECTION_COUNT:
+                case = CaseWorkflowService.transition_state(
+                    case, CaseStatus.VOIDED, requesting_user, message,
+                )
+            else:
+                case = CaseWorkflowService.transition_state(
+                    case, CaseStatus.RETURNED_TO_COMPLAINANT, requesting_user, message,
+                )
+        else:
+            # approve
+            case = CaseWorkflowService.transition_state(
+                case, CaseStatus.OFFICER_REVIEW, requesting_user,
+            )
+
+        return case
 
     @staticmethod
     @transaction.atomic
@@ -678,7 +833,32 @@ class CaseWorkflowService:
         4. If "reject": transition to RETURNED_TO_CADET with message.
         5. Return case.
         """
-        raise NotImplementedError
+        if case.status != CaseStatus.OFFICER_REVIEW:
+            raise InvalidTransition(
+                current=case.status,
+                target="approve/reject",
+                reason="Case must be in OFFICER_REVIEW status for officer review.",
+            )
+
+        if not requesting_user.has_perm(f"cases.{CasesPerms.CAN_APPROVE_CASE}"):
+            raise PermissionDenied(
+                "You do not have permission to approve or reject cases."
+            )
+
+        if decision == "approve":
+            case = Case.objects.select_for_update().get(pk=case.pk)
+            case.approved_by = requesting_user
+            case.save(update_fields=["approved_by", "updated_at"])
+            case = CaseWorkflowService.transition_state(
+                case, CaseStatus.OPEN, requesting_user,
+            )
+        else:
+            # reject → return to cadet
+            case = CaseWorkflowService.transition_state(
+                case, CaseStatus.RETURNED_TO_CADET, requesting_user, message,
+            )
+
+        return case
 
     @staticmethod
     @transaction.atomic
@@ -868,7 +1048,72 @@ class CaseWorkflowService:
         Do NOT send push/email here — that belongs in a Celery task
         triggered after the transaction commits.
         """
-        raise NotImplementedError
+        recipients = []
+        event_type = "case_status_changed"
+
+        if new_status == CaseStatus.RETURNED_TO_COMPLAINANT:
+            primary = case.complainants.filter(
+                is_primary=True,
+            ).select_related("user").first()
+            if primary:
+                recipients = [primary.user]
+            event_type = "complaint_returned"
+
+        elif new_status == CaseStatus.VOIDED:
+            primary = case.complainants.filter(
+                is_primary=True,
+            ).select_related("user").first()
+            if primary:
+                recipients = [primary.user]
+            event_type = "case_rejected"
+
+        elif new_status == CaseStatus.OPEN:
+            if case.created_by:
+                recipients = [case.created_by]
+            event_type = "case_approved"
+
+        elif new_status == CaseStatus.RETURNED_TO_CADET:
+            event_type = "case_rejected"
+
+        elif new_status == CaseStatus.INVESTIGATION:
+            if case.assigned_detective:
+                recipients = [case.assigned_detective]
+            event_type = "assignment_changed"
+
+        elif new_status in (
+            CaseStatus.SUSPECT_IDENTIFIED,
+            CaseStatus.SERGEANT_REVIEW,
+        ):
+            if case.assigned_sergeant:
+                recipients = [case.assigned_sergeant]
+
+        elif new_status == CaseStatus.ARREST_ORDERED:
+            if case.assigned_detective:
+                recipients = [case.assigned_detective]
+
+        elif new_status == CaseStatus.CAPTAIN_REVIEW:
+            if case.assigned_captain:
+                recipients = [case.assigned_captain]
+
+        elif new_status == CaseStatus.JUDICIARY:
+            if case.assigned_judge:
+                recipients = [case.assigned_judge]
+
+        elif new_status == CaseStatus.CLOSED:
+            close_recipients = []
+            if case.created_by:
+                close_recipients.append(case.created_by)
+            if case.assigned_detective:
+                close_recipients.append(case.assigned_detective)
+            recipients = close_recipients
+
+        if recipients:
+            NotificationService.create(
+                actor=actor,
+                recipients=recipients,
+                event_type=event_type,
+                related_object=case,
+            )
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -1098,7 +1343,25 @@ class CaseComplainantService:
         3. ``CaseComplainant.objects.create(case=case, user=user, is_primary=is_primary)``.
         4. Return the created record.
         """
-        raise NotImplementedError
+        if not (
+            requesting_user.has_perm(f"cases.{CasesPerms.ADD_CASECOMPLAINANT}")
+            or requesting_user.is_staff
+        ):
+            raise PermissionDenied(
+                "You do not have permission to add complainants."
+            )
+
+        if CaseComplainant.objects.filter(case=case, user=user).exists():
+            raise DomainError(
+                "This user is already registered as a complainant on this case."
+            )
+
+        complainant = CaseComplainant.objects.create(
+            case=case,
+            user=user,
+            is_primary=is_primary,
+        )
+        return complainant
 
     @staticmethod
     @transaction.atomic
@@ -1133,7 +1396,19 @@ class CaseComplainantService:
         5. complainant.save(update_fields=["status", "reviewed_by", "updated_at"]).
         6. Return complainant.
         """
-        raise NotImplementedError
+        if not requesting_user.has_perm(f"cases.{CasesPerms.CAN_REVIEW_COMPLAINT}"):
+            raise PermissionDenied(
+                "You do not have permission to review complainants."
+            )
+
+        status_map = {
+            "approve": ComplainantStatus.APPROVED,
+            "reject": ComplainantStatus.REJECTED,
+        }
+        complainant.status = status_map[decision]
+        complainant.reviewed_by = requesting_user
+        complainant.save(update_fields=["status", "reviewed_by", "updated_at"])
+        return complainant
 
 
 # ═══════════════════════════════════════════════════════════════════

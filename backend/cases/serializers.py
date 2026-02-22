@@ -340,7 +340,11 @@ class CaseWitnessCreateSerializer(serializers.ModelSerializer):
         If not ``value.isdigit()`` or len != 10:
         raise ``ValidationError("National ID must be exactly 10 digits.")``.
         """
-        raise NotImplementedError
+        if not value.isdigit() or len(value) != 10:
+            raise serializers.ValidationError(
+                "National ID must be exactly 10 digits."
+            )
+        return value
 
 
 class ComplaintCaseCreateSerializer(serializers.ModelSerializer):
@@ -377,7 +381,11 @@ class ComplaintCaseCreateSerializer(serializers.ModelSerializer):
         -----------------------
         Check ``value in CrimeLevel.values``; raise ``ValidationError`` if not.
         """
-        raise NotImplementedError
+        if value not in CrimeLevel.values:
+            raise serializers.ValidationError(
+                f"Invalid crime level. Choose from {list(CrimeLevel.values)}."
+            )
+        return value
 
 
 class CrimeSceneCaseCreateSerializer(serializers.ModelSerializer):
@@ -481,7 +489,11 @@ class CadetReviewSerializer(serializers.Serializer):
         If ``attrs["decision"] == "reject"`` and not ``attrs.get("message")``:
         raise ``ValidationError({"message": "A rejection reason is required."})``.
         """
-        raise NotImplementedError
+        if attrs["decision"] == "reject" and not attrs.get("message"):
+            raise serializers.ValidationError(
+                {"message": "A rejection reason is required."}
+            )
+        return attrs
 
 
 class OfficerReviewSerializer(serializers.Serializer):
@@ -507,7 +519,11 @@ class OfficerReviewSerializer(serializers.Serializer):
         Require ``message`` when ``decision == "reject"``.
         Same contract as ``CadetReviewSerializer.validate``.
         """
-        raise NotImplementedError
+        if attrs["decision"] == "reject" and not attrs.get("message"):
+            raise serializers.ValidationError(
+                {"message": "A rejection reason is required."}
+            )
+        return attrs
 
 
 class SergeantReviewSerializer(serializers.Serializer):
@@ -530,7 +546,11 @@ class SergeantReviewSerializer(serializers.Serializer):
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         """Require message on reject."""
-        raise NotImplementedError
+        if attrs["decision"] == "reject" and not attrs.get("message"):
+            raise serializers.ValidationError(
+                {"message": "A rejection reason is required."}
+            )
+        return attrs
 
 
 class AssignPersonnelSerializer(serializers.Serializer):
