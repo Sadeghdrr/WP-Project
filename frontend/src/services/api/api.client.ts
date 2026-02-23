@@ -1,9 +1,8 @@
 /**
- * Centralized Axios instance for API calls.
- * - baseURL from constants
- * - Attaches JWT Bearer token to requests
- * - On 401: attempts token refresh, then retries original request
- * - Clears tokens and redirects to /login on refresh failure
+ * Shared API client for authenticated endpoints.
+ * baseURL = API_BASE_URL (http://localhost:8000/api)
+ * Used for: /cases/, /evidence/, etc.
+ * Auth: Bearer token + 401 refresh flow
  */
 
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
@@ -13,10 +12,10 @@ import {
   REFRESH_TOKEN_KEY,
 } from '../../config/constants';
 
-const ACCOUNTS_BASE = `${API_BASE_URL}/accounts`;
+const REFRESH_URL = `${API_BASE_URL}/accounts/auth/token/refresh/`;
 
 export const apiClient = axios.create({
-  baseURL: ACCOUNTS_BASE,
+  baseURL: API_BASE_URL,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -78,7 +77,7 @@ apiClient.interceptors.response.use(
 
       try {
         const { data } = await axios.post<{ access: string; refresh?: string }>(
-          `${ACCOUNTS_BASE}/auth/token/refresh/`,
+          REFRESH_URL,
           { refresh: refreshToken }
         );
         localStorage.setItem(ACCESS_TOKEN_KEY, data.access);

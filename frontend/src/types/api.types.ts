@@ -1,21 +1,92 @@
-// TODO: Define shared API response types, pagination, error shapes
+/**
+ * Shared API response types — mirror backend DRF response shapes.
+ * Error format matches DRF ValidationError and domain exception handler.
+ */
 
 export interface PaginatedResponse<T> {
-  // TODO: count, next, previous, results
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: T[];
 }
 
+/**
+ * DRF error response shape.
+ * - detail: single error message (e.g. "Invalid credentials.", 409 Conflict)
+ * - field_name: array of validation errors for that field
+ */
 export interface ApiError {
-  // TODO: detail, field_errors, non_field_errors
+  detail?: string;
+  [field: string]: string[] | string | undefined;
 }
 
+/**
+ * JWT tokens from login response.
+ * Backend: CustomTokenObtainPairSerializer returns access + refresh.
+ */
 export interface AuthTokens {
-  // TODO: access, refresh
+  access: string;
+  refresh: string;
 }
 
+/**
+ * Login request — backend LoginRequestSerializer / CustomTokenObtainPairSerializer.
+ * identifier: username | national_id | phone_number | email
+ */
 export interface LoginRequest {
-  // TODO: identifier (username/email/phone/national_id) + password
+  identifier: string;
+  password: string;
 }
 
+/**
+ * Register request — backend RegisterRequestSerializer.
+ * Fields must match exactly.
+ */
 export interface RegisterRequest {
-  // TODO: username, password, email, phone_number, full_name, national_id
+  username: string;
+  password: string;
+  password_confirm: string;
+  email: string;
+  phone_number: string;
+  first_name: string;
+  last_name: string;
+  national_id: string;
+}
+
+/**
+ * Login response — backend TokenResponseSerializer + UserDetailSerializer.
+ */
+export interface LoginResponse {
+  access: string;
+  refresh: string;
+  user: {
+    id: number;
+    username: string;
+    email: string;
+    national_id: string;
+    phone_number: string;
+    first_name: string;
+    last_name: string;
+    is_active: boolean;
+    date_joined: string;
+    role: number;
+    role_detail: { id: number; name: string; description: string; hierarchy_level: number };
+    permissions: string[];
+  };
+}
+
+/**
+ * Token refresh request — SimpleJWT TokenRefreshView.
+ * ROTATE_REFRESH_TOKENS=True → response includes new refresh.
+ */
+export interface TokenRefreshRequest {
+  refresh: string;
+}
+
+/**
+ * Token refresh response — SimpleJWT with ROTATE_REFRESH_TOKENS.
+ */
+export interface TokenRefreshResponse {
+  access: string;
+  refresh?: string;
 }
