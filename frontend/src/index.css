@@ -12,13 +12,12 @@
 }
 
 :root {
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial,
-    sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
+  font-family: var(--font-sans, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif);
+  line-height: var(--leading-normal, 1.5);
+  font-weight: var(--font-normal, 400);
   color-scheme: light dark;
-  color: #213547;
-  background-color: #ffffff;
+  color: var(--color-text, #111827);
+  background-color: var(--color-bg, #ffffff);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -28,6 +27,7 @@
 body {
   min-width: 320px;
   min-height: 100vh;
+  font-size: var(--text-base, 0.875rem);
 }
 
 a {
@@ -46,9 +46,26 @@ svg {
   display: block;
 }
 
+/* Smooth scrolling */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Improved focus outline for accessibility */
+:focus-visible {
+  outline: 2px solid var(--color-primary-light, #3b82f6);
+  outline-offset: 2px;
+}
+
+/* Selection color */
+::selection {
+  background-color: var(--color-primary-subtle, rgba(59, 130, 246, 0.15));
+  color: var(--color-primary, #1e40af);
+}
+
 @media (prefers-color-scheme: dark) {
   :root {
-    color: rgba(255, 255, 255, 0.87);
-    background-color: #1a1a1a;
+    color: var(--color-text, rgba(255, 255, 255, 0.92));
+    background-color: var(--color-bg, #111827);
   }
 }
