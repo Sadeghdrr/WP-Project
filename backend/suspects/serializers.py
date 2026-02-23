@@ -1377,6 +1377,12 @@ class MostWantedSerializer(serializers.ModelSerializer):
     score, and bounty reward.  Visible to all authenticated users
     (including base users).
 
+    The queryset feeding this serializer is annotated by
+    ``SuspectProfileService.get_most_wanted_list()`` with:
+    - ``computed_days_wanted`` — days the suspect has been wanted.
+    - ``computed_score`` — ranking score (days × crime degree).
+    - ``computed_reward`` — bounty in Rials.
+
     Used in ``GET /api/suspects/most-wanted/``.
     """
 
@@ -1384,9 +1390,10 @@ class MostWantedSerializer(serializers.ModelSerializer):
         source="get_status_display",
         read_only=True,
     )
-    days_wanted = serializers.IntegerField(read_only=True)
-    most_wanted_score = serializers.IntegerField(read_only=True)
-    reward_amount = serializers.IntegerField(read_only=True)
+    days_wanted = serializers.SerializerMethodField()
+    most_wanted_score = serializers.SerializerMethodField()
+    reward_amount = serializers.SerializerMethodField()
+    calculated_reward = serializers.SerializerMethodField()
     case_title = serializers.SerializerMethodField()
 
     class Meta:
@@ -1406,8 +1413,25 @@ class MostWantedSerializer(serializers.ModelSerializer):
             "days_wanted",
             "most_wanted_score",
             "reward_amount",
+            "calculated_reward",
         ]
         read_only_fields = fields
+
+    def get_days_wanted(self, obj: Suspect) -> int:
+        """Return annotated days_wanted or fall back to model property."""
+        return getattr(obj, "computed_days_wanted", obj.days_wanted)
+
+    def get_most_wanted_score(self, obj: Suspect) -> int:
+        """Return annotated score or fall back to model property."""
+        return getattr(obj, "computed_score", obj.most_wanted_score)
+
+    def get_reward_amount(self, obj: Suspect) -> int:
+        """Return annotated reward or fall back to model property."""
+        return getattr(obj, "computed_reward", obj.reward_amount)
+
+    def get_calculated_reward(self, obj: Suspect) -> int:
+        """Alias for reward_amount — ensures the field name matches the spec."""
+        return self.get_reward_amount(obj)
 
     def get_case_title(self, obj: Suspect) -> str | None:
         """Return the case's title for public display."""

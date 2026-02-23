@@ -1776,6 +1776,10 @@ class CaseCalculationService:
     """
     Houses the two core formulas from project-doc §4.7.
 
+    **Delegates all math** to ``core.services.RewardCalculatorService``
+    to maintain a single source of truth.  This class provides
+    case-specific convenience wrappers.
+
     Formula context
     ---------------
     The formulas require two inputs:
@@ -1800,11 +1804,9 @@ class CaseCalculationService:
 
         Formula (project-doc §4.7 Note 1)::
 
-            threshold = max(L_j) × max(D_i)
-
-        At the case level this simplifies to::
-
             threshold = case.crime_level × days_since_creation
+
+        Delegates to ``RewardCalculatorService.compute_case_tracking_threshold``.
 
         Parameters
         ----------
@@ -1815,23 +1817,13 @@ class CaseCalculationService:
         -------
         int
             The tracking threshold value.
-
-        Implementation Contract
-        -----------------------
-        1. ``degree = case.crime_level``  (already stores the int 1–4).
-        2. ``days = (timezone.now().date() - case.created_at.date()).days``.
-        3. Return ``degree * days``.
-
-        Notes
-        -----
-        - When the suspects app is fully wired, replace ``days_since_creation``
-          with ``max(suspect.days_wanted for suspect in case.suspects.all())``.
-        - The final "max across all cases" aggregation for the Most-Wanted page
-          is performed in the *suspects* app, not here.
         """
-        degree = case.crime_level
-        days = (timezone.now().date() - case.created_at.date()).days
-        return degree * max(days, 0)
+        from core.services import RewardCalculatorService
+
+        days = max((timezone.now().date() - case.created_at.date()).days, 0)
+        return RewardCalculatorService.compute_case_tracking_threshold(
+            case.crime_level, days,
+        )
 
     @staticmethod
     def calculate_reward(case: Case) -> int:
@@ -1841,7 +1833,9 @@ class CaseCalculationService:
 
         Formula (project-doc §4.7 Note 2)::
 
-            reward = max(L_j) × max(D_i) × 20,000,000  (Rials)
+            reward = threshold × 20,000,000  (Rials)
+
+        Delegates to ``RewardCalculatorService.compute_case_reward``.
 
         Parameters
         ----------
@@ -1852,14 +1846,13 @@ class CaseCalculationService:
         -------
         int
             The reward amount in Rials.
-
-        Implementation Contract
-        -----------------------
-        1. ``threshold = CaseCalculationService.calculate_tracking_threshold(case)``.
-        2. Return ``threshold * REWARD_MULTIPLIER``.
         """
-        threshold = CaseCalculationService.calculate_tracking_threshold(case)
-        return threshold * REWARD_MULTIPLIER
+        from core.services import RewardCalculatorService
+
+        days = max((timezone.now().date() - case.created_at.date()).days, 0)
+        return RewardCalculatorService.compute_case_reward(
+            case.crime_level, days,
+        )
 
     @staticmethod
     def get_calculations_dict(case: Case) -> dict[str, int]:
@@ -1875,11 +1868,6 @@ class CaseCalculationService:
         dict
             ``{"tracking_threshold": <int>, "reward_rials": <int>,
                "crime_level_degree": <int>, "days_since_creation": <int>}``
-
-        Implementation Contract
-        -----------------------
-        Delegate to ``calculate_tracking_threshold`` and ``calculate_reward``;
-        include the two sub-inputs for transparency.
         """
         degree = case.crime_level
         days = max((timezone.now().date() - case.created_at.date()).days, 0)

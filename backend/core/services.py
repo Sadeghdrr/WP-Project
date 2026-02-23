@@ -45,12 +45,197 @@ and ensuring testability.
 
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import Any, TYPE_CHECKING
 
-from django.db.models import Count, Q, QuerySet
+from django.db.models import (
+    Count,
+    ExpressionWrapper,
+    F,
+    FloatField,
+    IntegerField,
+    Max,
+    Q,
+    QuerySet,
+    Value,
+)
+from django.db.models.functions import Cast, Coalesce, Greatest, Now
+from django.utils import timezone
+
+from core.constants import REWARD_MULTIPLIER
 
 if TYPE_CHECKING:
     from accounts.models import User
+
+
+# ════════════════════════════════════════════════════════════════════
+#  Reward Calculator Service — Single Source of Truth
+# ════════════════════════════════════════════════════════════════════
+
+class RewardCalculatorService:
+    """
+    **Single Source of Truth** for all Most-Wanted ranking and reward
+    calculations.
+
+    Both the ``cases`` and ``suspects`` apps MUST delegate to this
+    service instead of computing formulas independently, ensuring
+    mathematical consistency across the entire system.
+
+    Formulas (project-doc §4.7)
+    ---------------------------
+    **Score** (tracking threshold / ranking):
+
+    .. math::
+
+        \\text{score} = \\max(L_j) \\times \\max(D_i)
+
+    Where:
+        - :math:`L_j` = days the suspect has been wanted in each
+          *open* case (computed from ``Suspect.wanted_since``).
+        - :math:`D_i` = crime degree (``Case.crime_level``, 1–4)
+          across *all* cases (open or closed) the suspect is linked to.
+
+    **Reward** (bounty in Rials):
+
+    .. math::
+
+        \\text{reward} = \\text{score} \\times 20\\,000\\,000
+
+    **Most-Wanted eligibility**:
+        A suspect qualifies when they have been in the ``wanted``
+        status for **strictly more than 30 days** AND are linked to
+        at least one **open** case.
+
+    Constants
+    ---------
+    - ``REWARD_MULTIPLIER`` — imported from ``core.constants``
+      (currently 20,000,000 Rials).
+    - ``MOST_WANTED_THRESHOLD_DAYS`` — 30 days.
+    """
+
+    #: Number of days after which a suspect is eligible for Most-Wanted.
+    MOST_WANTED_THRESHOLD_DAYS: int = 30
+
+    # ── Pure calculation helpers ────────────────────────────────────
+
+    @staticmethod
+    def compute_days_wanted(wanted_since) -> int:
+        """
+        Compute the number of days a suspect has been wanted.
+
+        Parameters
+        ----------
+        wanted_since : datetime
+            The ``Suspect.wanted_since`` timestamp.
+
+        Returns
+        -------
+        int
+            Non-negative day count.
+        """
+        return max((timezone.now() - wanted_since).days, 0)
+
+    @staticmethod
+    def compute_score(max_days_wanted: int, max_crime_degree: int) -> int:
+        """
+        Compute the Most-Wanted ranking score.
+
+        Parameters
+        ----------
+        max_days_wanted : int
+            Maximum ``days_wanted`` across all *open* cases for
+            the suspect (grouped by ``national_id``).
+        max_crime_degree : int
+            Maximum ``case.crime_level`` (1–4) across *all* cases
+            (open or closed) for the suspect.
+
+        Returns
+        -------
+        int
+            ``max_days_wanted × max_crime_degree``.
+        """
+        return max_days_wanted * max_crime_degree
+
+    @staticmethod
+    def compute_reward(score: int) -> int:
+        """
+        Compute the bounty reward in Rials.
+
+        Parameters
+        ----------
+        score : int
+            The Most-Wanted score (from ``compute_score``).
+
+        Returns
+        -------
+        int
+            ``score × REWARD_MULTIPLIER`` (Rials).
+        """
+        return score * REWARD_MULTIPLIER
+
+    @staticmethod
+    def is_most_wanted(days_wanted: int) -> bool:
+        """
+        Determine whether a suspect qualifies for the Most Wanted page.
+
+        Parameters
+        ----------
+        days_wanted : int
+            Number of days the suspect has been wanted.
+
+        Returns
+        -------
+        bool
+            ``True`` when ``days_wanted`` is **strictly greater** than
+            ``MOST_WANTED_THRESHOLD_DAYS`` (30).
+        """
+        return days_wanted > RewardCalculatorService.MOST_WANTED_THRESHOLD_DAYS
+
+    # ── Per-case threshold (used by CaseCalculationService) ─────────
+
+    @staticmethod
+    def compute_case_tracking_threshold(crime_level: int, days: int) -> int:
+        """
+        Compute the tracking threshold for a single case.
+
+        This is the case-level simplification of the score formula
+        where ``max(D_i)`` reduces to the case's own crime level, and
+        ``max(L_j)`` reduces to the number of days since the case was
+        created (or the suspect's wanted_since in that case).
+
+        Parameters
+        ----------
+        crime_level : int
+            ``Case.crime_level`` integer (1–4).
+        days : int
+            Days elapsed (since creation or since wanted).
+
+        Returns
+        -------
+        int
+            ``crime_level × max(days, 0)``.
+        """
+        return crime_level * max(days, 0)
+
+    @staticmethod
+    def compute_case_reward(crime_level: int, days: int) -> int:
+        """
+        Compute the bounty reward for a single case.
+
+        Parameters
+        ----------
+        crime_level : int
+        days : int
+
+        Returns
+        -------
+        int
+            ``threshold × REWARD_MULTIPLIER``.
+        """
+        threshold = RewardCalculatorService.compute_case_tracking_threshold(
+            crime_level, days,
+        )
+        return threshold * REWARD_MULTIPLIER
 
 
 # ════════════════════════════════════════════════════════════════════

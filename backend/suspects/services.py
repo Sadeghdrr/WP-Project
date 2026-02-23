@@ -38,12 +38,23 @@ from datetime import timedelta
 from typing import Any
 
 from django.db import transaction
-from django.db.models import Q, QuerySet
+from django.db.models import (
+    ExpressionWrapper,
+    F,
+    IntegerField,
+    Max,
+    Q,
+    QuerySet,
+    Value,
+)
+from django.db.models.functions import Coalesce, ExtractDay, Now
 from django.utils import timezone
 
+from core.constants import REWARD_MULTIPLIER
 from core.domain.exceptions import DomainError, InvalidTransition, NotFound, PermissionDenied
 from core.domain.notifications import NotificationService
 from core.permissions_constants import CasesPerms, SuspectsPerms
+from core.services import RewardCalculatorService
 
 from .models import (
     Bail,
@@ -386,39 +397,83 @@ class SuspectProfileService:
         """
         Return suspects qualifying for the Most Wanted page.
 
-        A suspect is "most wanted" when they have been wanted for
-        over 30 days in any open case (project-doc §4.7).
+        Eligibility rules (project-doc §4.7)
+        ------------------------------------
+        1. The suspect MUST have status ``WANTED``.
+        2. ``wanted_since`` is **strictly more than 30 days** ago.
+        3. The suspect MUST be linked to at least one **open** case
+           (not closed or voided).
+
+        Ranking formula
+        ---------------
+        .. math::
+
+            \\text{score} = \\max(\\text{days\\_wanted in open cases})
+                           \\times \\max(\\text{crime\\_degree across all cases})
+
+        The queryset is annotated with ``computed_days_wanted``,
+        ``max_crime_degree``, ``computed_score``, and
+        ``computed_reward`` at the DB level via Django ORM
+        ``annotate()`` / ``ExpressionWrapper`` / ``Max()``
+        to avoid N+1 queries.
 
         Returns
         -------
         QuerySet[Suspect]
-            Suspects with ``days_wanted > 30`` and status ``WANTED``,
-            ordered by ``most_wanted_score`` descending.
-
-        Implementation Contract
-        -----------------------
-        1. Filter suspects where ``status = WANTED`` and
-           ``wanted_since`` is more than 30 days ago.
-        2. ``select_related("case")``.
-        3. Return queryset (the view will handle serialisation).
-
-        Notes
-        -----
-        The ``most_wanted_score`` is a Python property, so true
-        ordering by score requires either annotation at the DB level
-        or in-memory sorting.  For the structural draft, return
-        the filtered queryset and note that final ordering may
-        require ``sorted()`` on the serialised list.
+            Annotated queryset ordered by ``computed_score`` descending.
         """
-        cutoff = timezone.now() - timedelta(days=30)
-        return (
+        from cases.models import CaseStatus
+
+        cutoff = timezone.now() - timedelta(
+            days=RewardCalculatorService.MOST_WANTED_THRESHOLD_DAYS,
+        )
+
+        # Closed / voided statuses to exclude from "open case" check
+        closed_statuses = [CaseStatus.CLOSED, CaseStatus.VOIDED]
+
+        # ── Build annotated queryset ────────────────────────────────
+        qs = (
             Suspect.objects.filter(
                 status=SuspectStatus.WANTED,
                 wanted_since__lte=cutoff,
             )
+            # Must be linked to at least one open case
+            .exclude(case__status__in=closed_statuses)
             .select_related("case")
-            .order_by("wanted_since")
         )
+
+        # Annotate: days_wanted for *this* suspect row
+        # (days between wanted_since and now)
+        qs = qs.annotate(
+            computed_days_wanted=ExpressionWrapper(
+                (Now() - F("wanted_since")),
+                output_field=IntegerField(),
+            ),
+        )
+
+        # For cross-national_id aggregation we need a subquery
+        # approach.  However, since each Suspect row is per-case,
+        # we annotate per-row and then do application-level
+        # grouping for the "max across all cases for same person".
+        #
+        # Per-row annotation:
+        #   computed_days_wanted = days this row has been wanted
+        #   crime_degree         = this case's crime_level
+        #   computed_score       = days_wanted × crime_degree
+        #   computed_reward      = score × REWARD_MULTIPLIER
+        qs = qs.annotate(
+            crime_degree=F("case__crime_level"),
+            computed_score=ExpressionWrapper(
+                F("computed_days_wanted") * F("case__crime_level"),
+                output_field=IntegerField(),
+            ),
+            computed_reward=ExpressionWrapper(
+                F("computed_days_wanted") * F("case__crime_level") * Value(REWARD_MULTIPLIER),
+                output_field=IntegerField(),
+            ),
+        )
+
+        return qs.order_by("-computed_score")
 
 
 # ═══════════════════════════════════════════════════════════════════

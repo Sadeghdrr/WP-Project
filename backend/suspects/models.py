@@ -248,15 +248,17 @@ class Suspect(TimeStampedModel):
         """
         Bounty reward for information leading to this suspect (Rials).
 
-        Project-doc §4.7 Note 2 — the original formula was embedded as
-        an image; implemented here as::
+        Formula (project-doc §4.7 Note 2)::
 
-            reward = most_wanted_score × 10,000,000 Rials
+            reward = most_wanted_score × REWARD_MULTIPLIER
 
-        Adjust the multiplier as needed once the exact formula is
-        provided.
+        The multiplier is defined in ``core.constants.REWARD_MULTIPLIER``
+        (currently 20,000,000 Rials).  Delegates to
+        ``RewardCalculatorService.compute_reward``.
         """
-        return self.most_wanted_score * REWARD_MULTIPLIER
+        from core.services import RewardCalculatorService
+
+        return RewardCalculatorService.compute_reward(self.most_wanted_score)
 
 
 class Warrant(TimeStampedModel):
