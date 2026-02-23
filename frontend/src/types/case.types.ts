@@ -148,23 +148,6 @@ export interface ComplaintCaseCreateRequest {
   location?: string;
 }
 
-/** Witness — from CaseWitnessCreateSerializer (nested in crime scene create) */
-export interface WitnessCreateRequest {
-  full_name: string;
-  phone_number: string;
-  national_id: string;
-}
-
-/** Crime scene case create — from CrimeSceneCaseCreateSerializer */
-export interface CrimeSceneCaseCreateRequest {
-  title: string;
-  description: string;
-  crime_level: CrimeLevelValue;
-  incident_date: string;
-  location: string;
-  witnesses?: WitnessCreateRequest[];
-}
-
 /** Resubmit — from ResubmitComplaintSerializer */
 export interface ResubmitComplaintRequest {
   title?: string;

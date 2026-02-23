@@ -12,7 +12,6 @@ import type {
   CaseComplainant,
   CaseStatusLog,
   ComplaintCaseCreateRequest,
-  CrimeSceneCaseCreateRequest,
   ResubmitComplaintRequest,
   ReviewDecisionRequest,
   AddComplainantRequest,
@@ -60,23 +59,6 @@ export async function createComplaintCase(
   const { data } = await apiClient.post<Case>('/cases/', {
     ...payload,
     creation_type: 'complaint',
-  });
-  return data;
-}
-
-/**
- * POST /api/cases/
- * Create a case via crime-scene path.
- * Request body must include creation_type: "crime_scene".
- * Required: title, description, crime_level, incident_date, location.
- * Optional: witnesses (array of {full_name, phone_number, national_id}).
- */
-export async function createCrimeSceneCase(
-  payload: CrimeSceneCaseCreateRequest
-): Promise<Case> {
-  const { data } = await apiClient.post<Case>('/cases/', {
-    ...payload,
-    creation_type: 'crime_scene',
   });
   return data;
 }
@@ -135,15 +117,6 @@ export async function cadetReview(
   payload: ReviewDecisionRequest
 ): Promise<Case> {
   const { data } = await apiClient.post<Case>(`/cases/${id}/cadet-review/`, payload);
-  return data;
-}
-
-/**
- * POST /api/cases/{id}/approve-crime-scene/
- * Superior approves a crime-scene case (PENDING_APPROVAL → OPEN).
- */
-export async function approveCrimeScene(id: number): Promise<Case> {
-  const { data } = await apiClient.post<Case>(`/cases/${id}/approve-crime-scene/`);
   return data;
 }
 
