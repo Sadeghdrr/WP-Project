@@ -34,6 +34,7 @@ Permission Constants (from ``core.permissions_constants.SuspectsPerms``)
 from __future__ import annotations
 
 import logging
+import secrets
 from datetime import timedelta
 from typing import Any
 
@@ -2079,6 +2080,25 @@ class BountyTipService:
     4. Citizen presents unique_code at station to claim reward.
     """
 
+    # 32-byte hex string → 64 characters; cryptographically secure
+    _CODE_BYTE_LENGTH: int = 16
+
+    @staticmethod
+    def _generate_secure_code() -> str:
+        """
+        Generate a cryptographically secure, unguessable reward code.
+
+        Uses ``secrets.token_hex`` (backed by ``os.urandom``) which is
+        explicitly designed for security tokens and is resistant to
+        brute-force / prediction attacks.
+
+        Returns
+        -------
+        str
+            32-character uppercase hex string (128-bit entropy).
+        """
+        return secrets.token_hex(BountyTipService._CODE_BYTE_LENGTH).upper()
+
     @staticmethod
     def get_bounty_tips(
         requesting_user: Any,
@@ -2087,23 +2107,44 @@ class BountyTipService:
         """
         Return bounty tips visible to the requesting user.
 
-        Parameters
-        ----------
-        requesting_user : User
-        filters : dict, optional
-            Optional filter parameters.
-
-        Returns
-        -------
-        QuerySet[BountyTip]
-
-        Implementation Contract
-        -----------------------
         Base users see only their own submitted tips.
         Officers/Detectives see all tips for their cases.
         Admin/Chief see all tips.
         """
-        raise NotImplementedError
+        qs = BountyTip.objects.select_related(
+            "suspect", "case", "informant", "reviewed_by", "verified_by",
+        )
+
+        user = requesting_user
+        role_name = ""
+        if hasattr(user, "role") and user.role:
+            role_name = user.role.name.lower()
+
+        high_level_roles = {
+            "captain", "police chief", "admin", "system administrator",
+            "judge", "officer", "police officer",
+        }
+        if role_name not in high_level_roles and not user.is_superuser:
+            if role_name == "detective":
+                qs = qs.filter(
+                    Q(case__assigned_detective=user)
+                    | Q(suspect__identified_by=user)
+                )
+            elif role_name == "sergeant":
+                qs = qs.filter(case__assigned_sergeant=user)
+            else:
+                # Base user / citizen — only their own tips
+                qs = qs.filter(informant=user)
+
+        if filters:
+            if "status" in filters:
+                qs = qs.filter(status=filters["status"])
+            if "suspect" in filters:
+                qs = qs.filter(suspect_id=filters["suspect"])
+            if "case" in filters:
+                qs = qs.filter(case_id=filters["case"])
+
+        return qs.order_by("-created_at")
 
     @staticmethod
     @transaction.atomic
@@ -2114,26 +2155,29 @@ class BountyTipService:
         """
         Citizen submits a bounty tip about a suspect or case.
 
-        Parameters
-        ----------
-        validated_data : dict
-            From ``BountyTipCreateSerializer``.
-            Keys: ``suspect``, ``case``, ``information``.
-        requesting_user : User
-            The citizen submitting the tip.
-
-        Returns
-        -------
-        BountyTip
-            The newly created tip.
-
-        Implementation Contract
-        -----------------------
-        1. Inject ``informant = requesting_user``.
-        2. Inject ``status = BountyTipStatus.PENDING``.
-        3. Create and return the tip.
+        Creates a new tip with status PENDING. No unique code is
+        generated yet.
         """
-        raise NotImplementedError
+        tip = BountyTip.objects.create(
+            informant=requesting_user,
+            status=BountyTipStatus.PENDING,
+            **validated_data,
+        )
+
+        logger.info(
+            "BountyTip #%d submitted by user=%s", tip.pk, requesting_user,
+        )
+
+        # Notify officers that a new tip has been submitted
+        NotificationService.create(
+            actor=requesting_user,
+            recipients=requesting_user,
+            event_type="bounty_tip_submitted",
+            payload={"tip_id": tip.pk},
+            related_object=tip,
+        )
+
+        return tip
 
     @staticmethod
     @transaction.atomic
@@ -2146,36 +2190,81 @@ class BountyTipService:
         """
         Police Officer reviews a bounty tip.
 
-        Parameters
-        ----------
-        tip_id : int
-            PK of the tip.
-        officer_user : User
-            Must have ``CAN_REVIEW_BOUNTY_TIP``.
-        decision : str
-            ``"accept"`` or ``"reject"``.
-        review_notes : str
+        Validation: Only users with CAN_REVIEW_BOUNTY_TIP permission
+        (Officer role or higher admins) can review.
 
-        Returns
-        -------
-        BountyTip
-
-        Raises
-        ------
-        PermissionError
-            If lacking review permission.
-        django.core.exceptions.ValidationError
-            If tip is not in ``PENDING`` status.
-
-        Implementation Contract
-        -----------------------
-        1. Assert permission.
-        2. Fetch tip, guard status == PENDING.
-        3. If accept: status → OFFICER_REVIEWED, set reviewed_by.
-        4. If reject: status → REJECTED, set reviewed_by.
-        5. Save and return.
+        If decision is 'reject', update status to REJECTED and notify
+        the citizen.
+        If decision is 'accept', update status to OFFICER_REVIEWED and
+        notify the assigned Detective of the related case/suspect.
         """
-        raise NotImplementedError
+        perm = f"suspects.{SuspectsPerms.CAN_REVIEW_BOUNTY_TIP}"
+        if not officer_user.has_perm(perm):
+            raise PermissionDenied(
+                "You do not have permission to review bounty tips.",
+            )
+
+        try:
+            tip = BountyTip.objects.select_related(
+                "suspect", "case", "informant",
+                "suspect__case__assigned_detective",
+            ).select_for_update().get(pk=tip_id)
+        except BountyTip.DoesNotExist:
+            raise NotFound(f"Bounty tip with id {tip_id} not found.")
+
+        if tip.status != BountyTipStatus.PENDING:
+            raise InvalidTransition(
+                current=tip.status,
+                target="officer_reviewed / rejected",
+                reason="Only tips in PENDING status can be reviewed.",
+            )
+
+        tip.reviewed_by = officer_user
+
+        if decision == "reject":
+            tip.status = BountyTipStatus.REJECTED
+            tip.save(update_fields=["status", "reviewed_by", "updated_at"])
+
+            # Notify the citizen that their tip was rejected
+            NotificationService.create(
+                actor=officer_user,
+                recipients=tip.informant,
+                event_type="bounty_tip_rejected",
+                payload={
+                    "tip_id": tip.pk,
+                    "review_notes": review_notes,
+                },
+                related_object=tip,
+            )
+        else:
+            # decision == "accept" → forward to detective
+            tip.status = BountyTipStatus.OFFICER_REVIEWED
+            tip.save(update_fields=["status", "reviewed_by", "updated_at"])
+
+            # Notify the assigned detective (from case or suspect's case)
+            detective = None
+            case = tip.case or (tip.suspect.case if tip.suspect else None)
+            if case and hasattr(case, "assigned_detective") and case.assigned_detective:
+                detective = case.assigned_detective
+
+            if detective:
+                NotificationService.create(
+                    actor=officer_user,
+                    recipients=detective,
+                    event_type="bounty_tip_reviewed",
+                    payload={
+                        "tip_id": tip.pk,
+                        "review_notes": review_notes,
+                    },
+                    related_object=tip,
+                )
+
+        logger.info(
+            "BountyTip #%d reviewed by officer=%s decision=%s",
+            tip.pk, officer_user, decision,
+        )
+
+        return tip
 
     @staticmethod
     @transaction.atomic
@@ -2188,44 +2277,106 @@ class BountyTipService:
         """
         Detective verifies a bounty tip after officer review.
 
-        Upon verification, a unique reward code is generated.
+        Validation: Actor MUST have CAN_VERIFY_BOUNTY_TIP permission and
+        MUST be the assigned Detective for the suspect/case.
 
-        Parameters
-        ----------
-        tip_id : int
-            PK of the tip.
-        detective_user : User
-            Must have ``CAN_VERIFY_BOUNTY_TIP``.
-        decision : str
-            ``"verify"`` or ``"reject"``.
-        verification_notes : str
-
-        Returns
-        -------
-        BountyTip
-
-        Raises
-        ------
-        PermissionError
-            If lacking verify permission.
-        django.core.exceptions.ValidationError
-            If tip is not in ``OFFICER_REVIEWED`` status.
-
-        Implementation Contract
-        -----------------------
-        1. Assert permission.
-        2. Fetch tip, guard status == OFFICER_REVIEWED.
-        3. If verify:
-           - status → VERIFIED
-           - set verified_by
-           - call ``tip.generate_unique_code()``
-           - calculate and set ``reward_amount`` from suspect's
-             ``reward_amount`` property
-           - Notify the informant with the unique code.
-        4. If reject: status → REJECTED, set verified_by.
-        5. Save and return.
+        If REJECTED, update status and notify the citizen.
+        If VERIFIED, update status to VERIFIED, generate a secure unique_code,
+        save it, compute reward_amount, and dispatch a notification containing
+        the code to the citizen.
         """
-        raise NotImplementedError
+        perm = f"suspects.{SuspectsPerms.CAN_VERIFY_BOUNTY_TIP}"
+        if not detective_user.has_perm(perm):
+            raise PermissionDenied(
+                "You do not have permission to verify bounty tips.",
+            )
+
+        try:
+            tip = BountyTip.objects.select_related(
+                "suspect", "case", "informant",
+            ).select_for_update().get(pk=tip_id)
+        except BountyTip.DoesNotExist:
+            raise NotFound(f"Bounty tip with id {tip_id} not found.")
+
+        if tip.status != BountyTipStatus.OFFICER_REVIEWED:
+            raise InvalidTransition(
+                current=tip.status,
+                target="verified / rejected",
+                reason="Only tips in OFFICER_REVIEWED status can be verified.",
+            )
+
+        # Validate the detective is assigned to the related case
+        case = tip.case or (tip.suspect.case if tip.suspect else None)
+        if case and hasattr(case, "assigned_detective"):
+            if case.assigned_detective and case.assigned_detective != detective_user:
+                raise PermissionDenied(
+                    "You are not the assigned detective for this case.",
+                )
+
+        tip.verified_by = detective_user
+
+        if decision == "reject":
+            tip.status = BountyTipStatus.REJECTED
+            tip.save(update_fields=["status", "verified_by", "updated_at"])
+
+            NotificationService.create(
+                actor=detective_user,
+                recipients=tip.informant,
+                event_type="bounty_tip_rejected",
+                payload={
+                    "tip_id": tip.pk,
+                    "verification_notes": verification_notes,
+                },
+                related_object=tip,
+            )
+        else:
+            # decision == "verify"
+            tip.status = BountyTipStatus.VERIFIED
+
+            # Generate cryptographically secure unique code
+            tip.unique_code = BountyTipService._generate_secure_code()
+
+            # Compute reward amount from suspect's reward_amount property
+            if tip.suspect:
+                tip.reward_amount = tip.suspect.reward_amount
+            elif tip.case:
+                # Fallback: use the highest reward among wanted suspects in the case
+                from suspects.models import Suspect as SuspectModel
+                suspects_in_case = SuspectModel.objects.filter(
+                    case=tip.case, status=SuspectStatus.WANTED,
+                )
+                max_reward = 0
+                for s in suspects_in_case:
+                    max_reward = max(max_reward, s.reward_amount)
+                tip.reward_amount = max_reward if max_reward else 0
+            else:
+                tip.reward_amount = 0
+
+            tip.save(update_fields=[
+                "status", "verified_by", "unique_code",
+                "reward_amount", "updated_at",
+            ])
+
+            # Notify the citizen with the unique code
+            NotificationService.create(
+                actor=detective_user,
+                recipients=tip.informant,
+                event_type="bounty_tip_verified",
+                payload={
+                    "tip_id": tip.pk,
+                    "unique_code": tip.unique_code,
+                    "reward_amount": str(tip.reward_amount),
+                    "verification_notes": verification_notes,
+                },
+                related_object=tip,
+            )
+
+        logger.info(
+            "BountyTip #%d verified by detective=%s decision=%s",
+            tip.pk, detective_user, decision,
+        )
+
+        return tip
 
     @staticmethod
     def lookup_reward(
@@ -2236,42 +2387,33 @@ class BountyTipService:
         """
         Look up bounty reward info using national ID and unique code.
 
-        Any police rank can use this to verify a citizen's reward claim
-        at the station (project-doc §4.8).
-
-        Parameters
-        ----------
-        national_id : str
-            The citizen's national ID.
-        unique_code : str
-            The reward claim code.
-        requesting_user : User
-            Must be a police rank.
-
-        Returns
-        -------
-        dict
-            Contains: ``tip_id``, ``informant_name``, ``informant_national_id``,
-            ``reward_amount``, ``is_claimed``, ``suspect_name``, ``case_id``.
-
-        Raises
-        ------
-        PermissionError
-            If the user lacks police rank permissions.
-        django.core.exceptions.ValidationError
-            If no matching tip is found.
-
-        Implementation Contract
-        -----------------------
-        1. Assert user is a police rank.
-        2. Fetch ``BountyTip`` where:
-           - ``informant__national_id == national_id`` (user's national_id)
-           - ``unique_code == unique_code``
-           - ``status == VERIFIED``
-        3. If not found, raise ValidationError.
-        4. Return dict with reward information.
+        Searches for a VERIFIED tip matching BOTH the citizen's
+        national_id and the exact unique_code. Returns the reward status
+        and details. If not found, raises NotFound.
         """
-        raise NotImplementedError
+        tip = BountyTip.objects.select_related(
+            "suspect", "case", "informant",
+        ).filter(
+            informant__national_id=national_id,
+            unique_code=unique_code,
+            status=BountyTipStatus.VERIFIED,
+        ).first()
+
+        if tip is None:
+            raise NotFound(
+                "No verified bounty tip found matching the provided "
+                "national ID and unique code.",
+            )
+
+        return {
+            "tip_id": tip.pk,
+            "informant_name": tip.informant.get_full_name(),
+            "informant_national_id": national_id,
+            "reward_amount": tip.reward_amount,
+            "is_claimed": tip.is_claimed,
+            "suspect_name": tip.suspect.full_name if tip.suspect else None,
+            "case_id": tip.case_id or (tip.suspect.case_id if tip.suspect else None),
+        }
 
 
 # ═══════════════════════════════════════════════════════════════════

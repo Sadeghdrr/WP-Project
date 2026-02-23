@@ -1298,16 +1298,12 @@ class BountyTipViewSet(viewsets.ViewSet):
         GET /api/bounty-tips/
 
         List bounty tips visible to the authenticated user.
-
-        Steps
-        -----
-        1. Get queryset via ``BountyTipService.get_bounty_tips(
-               requesting_user=request.user,
-           )``.
-        2. Serialize with ``BountyTipListSerializer(queryset, many=True)``.
-        3. Return HTTP 200.
         """
-        raise NotImplementedError
+        tips = BountyTipService.get_bounty_tips(
+            requesting_user=request.user,
+        )
+        serializer = BountyTipListSerializer(tips, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
     @extend_schema(
         summary="Submit a bounty tip",
@@ -1324,30 +1320,23 @@ class BountyTipViewSet(viewsets.ViewSet):
         POST /api/bounty-tips/
 
         Citizen submits a bounty tip.
-
-        Steps
-        -----
-        1. Validate ``request.data`` with ``BountyTipCreateSerializer``.
-        2. If invalid, return HTTP 400.
-        3. Delegate to ``BountyTipService.submit_tip(
-               validated_data=serializer.validated_data,
-               requesting_user=request.user,
-           )``.
-        4. Serialize result with ``BountyTipDetailSerializer``.
-        5. Return HTTP 201.
-
-        Example Request
-        ---------------
-        ::
-
-            POST /api/bounty-tips/
-            {
-                "suspect": 12,
-                "case": 5,
-                "information": "Saw the suspect at the docks at 3 AM."
-            }
         """
-        raise NotImplementedError
+        serializer = BountyTipCreateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                serializer.errors, status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            tip = BountyTipService.submit_tip(
+                validated_data=serializer.validated_data,
+                requesting_user=request.user,
+            )
+        except DomainError as exc:
+            return Response(
+                {"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST,
+            )
+        output = BountyTipDetailSerializer(tip)
+        return Response(output.data, status=status.HTTP_201_CREATED)
 
     @extend_schema(
         summary="Retrieve bounty tip detail",
@@ -1360,14 +1349,18 @@ class BountyTipViewSet(viewsets.ViewSet):
         GET /api/bounty-tips/{id}/
 
         Retrieve a single bounty tip detail.
-
-        Steps
-        -----
-        1. Fetch tip by PK.
-        2. Serialize with ``BountyTipDetailSerializer``.
-        3. Return HTTP 200.
         """
-        raise NotImplementedError
+        try:
+            tip = BountyTip.objects.select_related(
+                "suspect", "case", "informant", "reviewed_by", "verified_by",
+            ).get(pk=pk)
+        except BountyTip.DoesNotExist:
+            return Response(
+                {"detail": f"Bounty tip with id {pk} not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        serializer = BountyTipDetailSerializer(tip)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["post"], url_path="review")
     @extend_schema(
@@ -1385,29 +1378,34 @@ class BountyTipViewSet(viewsets.ViewSet):
         """
         POST /api/bounty-tips/{id}/review/
 
-        **Police Officer reviews a bounty tip.**
-
-        Steps
-        -----
-        1. Validate ``request.data`` with ``BountyTipReviewSerializer``.
-        2. If invalid, return HTTP 400.
-        3. Delegate to ``BountyTipService.officer_review_tip(
-               tip_id=pk,
-               officer_user=request.user,
-               decision=validated_data["decision"],
-               review_notes=validated_data.get("review_notes", ""),
-           )``.
-        4. Serialize result with ``BountyTipDetailSerializer``.
-        5. Return HTTP 200.
-
-        Example Request
-        ---------------
-        ::
-
-            POST /api/bounty-tips/7/review/
-            {"decision": "accept", "review_notes": "Information appears credible."}
+        Police Officer reviews a bounty tip.
         """
-        raise NotImplementedError
+        serializer = BountyTipReviewSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                serializer.errors, status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            tip = BountyTipService.officer_review_tip(
+                tip_id=pk,
+                officer_user=request.user,
+                decision=serializer.validated_data["decision"],
+                review_notes=serializer.validated_data.get("review_notes", ""),
+            )
+        except PermissionDenied as exc:
+            return Response(
+                {"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN,
+            )
+        except NotFound as exc:
+            return Response(
+                {"detail": str(exc)}, status=status.HTTP_404_NOT_FOUND,
+            )
+        except (DomainError, InvalidTransition) as exc:
+            return Response(
+                {"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST,
+            )
+        output = BountyTipDetailSerializer(tip)
+        return Response(output.data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["post"], url_path="verify")
     @extend_schema(
@@ -1428,32 +1426,37 @@ class BountyTipViewSet(viewsets.ViewSet):
         """
         POST /api/bounty-tips/{id}/verify/
 
-        **Detective verifies a bounty tip.**
-
-        Upon verification, a unique reward code is generated for the
-        informant.
-
-        Steps
-        -----
-        1. Validate ``request.data`` with ``BountyTipVerifySerializer``.
-        2. If invalid, return HTTP 400.
-        3. Delegate to ``BountyTipService.detective_verify_tip(
-               tip_id=pk,
-               detective_user=request.user,
-               decision=validated_data["decision"],
-               verification_notes=validated_data.get("verification_notes", ""),
-           )``.
-        4. Serialize result with ``BountyTipDetailSerializer``.
-        5. Return HTTP 200.
-
-        Example Request
-        ---------------
-        ::
-
-            POST /api/bounty-tips/7/verify/
-            {"decision": "verify", "verification_notes": "Info confirmed by field check."}
+        Detective verifies a bounty tip. Upon verification, a unique
+        reward code is generated for the informant.
         """
-        raise NotImplementedError
+        serializer = BountyTipVerifySerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                serializer.errors, status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            tip = BountyTipService.detective_verify_tip(
+                tip_id=pk,
+                detective_user=request.user,
+                decision=serializer.validated_data["decision"],
+                verification_notes=serializer.validated_data.get(
+                    "verification_notes", "",
+                ),
+            )
+        except PermissionDenied as exc:
+            return Response(
+                {"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN,
+            )
+        except NotFound as exc:
+            return Response(
+                {"detail": str(exc)}, status=status.HTTP_404_NOT_FOUND,
+            )
+        except (DomainError, InvalidTransition) as exc:
+            return Response(
+                {"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST,
+            )
+        output = BountyTipDetailSerializer(tip)
+        return Response(output.data, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=["post"], url_path="lookup-reward")
     @extend_schema(
@@ -1473,41 +1476,25 @@ class BountyTipViewSet(viewsets.ViewSet):
         """
         POST /api/bounty-tips/lookup-reward/
 
-        **Look up bounty reward using citizen's national ID and unique code.**
-
-        Any police rank can use this to verify a reward claim at the
-        station (project-doc §4.8).
-
-        Steps
-        -----
-        1. Validate ``request.data`` with ``BountyRewardLookupSerializer``.
-        2. If invalid, return HTTP 400.
-        3. Delegate to ``BountyTipService.lookup_reward(
-               national_id=validated_data["national_id"],
-               unique_code=validated_data["unique_code"],
-               requesting_user=request.user,
-           )``.
-        4. Return HTTP 200 with the reward info dict.
-
-        Example Request
-        ---------------
-        ::
-
-            POST /api/bounty-tips/lookup-reward/
-            {"national_id": "1234567890", "unique_code": "A1B2C3D4E5F6"}
-
-        Example Response
-        ----------------
-        ::
-
-            {
-                "tip_id": 7,
-                "informant_name": "John Citizen",
-                "informant_national_id": "1234567890",
-                "reward_amount": 1520000000,
-                "is_claimed": false,
-                "suspect_name": "Roy Earle",
-                "case_id": 5
-            }
+        Look up bounty reward using citizen's national ID and unique code.
         """
-        raise NotImplementedError
+        serializer = BountyRewardLookupSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                serializer.errors, status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            result = BountyTipService.lookup_reward(
+                national_id=serializer.validated_data["national_id"],
+                unique_code=serializer.validated_data["unique_code"],
+                requesting_user=request.user,
+            )
+        except NotFound as exc:
+            return Response(
+                {"detail": str(exc)}, status=status.HTTP_404_NOT_FOUND,
+            )
+        except DomainError as exc:
+            return Response(
+                {"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(result, status=status.HTTP_200_OK)

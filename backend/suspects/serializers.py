@@ -1089,7 +1089,9 @@ class BountyTipListSerializer(serializers.ModelSerializer):
 
     def get_informant_name(self, obj: BountyTip) -> str | None:
         """Return the informant's full name."""
-        raise NotImplementedError
+        if obj.informant:
+            return obj.informant.get_full_name() or obj.informant.username
+        return None
 
 
 class BountyTipDetailSerializer(serializers.ModelSerializer):
@@ -1130,15 +1132,21 @@ class BountyTipDetailSerializer(serializers.ModelSerializer):
 
     def get_informant_name(self, obj: BountyTip) -> str | None:
         """Return the informant's full name."""
-        raise NotImplementedError
+        if obj.informant:
+            return obj.informant.get_full_name() or obj.informant.username
+        return None
 
     def get_reviewed_by_name(self, obj: BountyTip) -> str | None:
         """Return the reviewing officer's name, or None."""
-        raise NotImplementedError
+        if obj.reviewed_by:
+            return obj.reviewed_by.get_full_name() or obj.reviewed_by.username
+        return None
 
     def get_verified_by_name(self, obj: BountyTip) -> str | None:
         """Return the verifying detective's name, or None."""
-        raise NotImplementedError
+        if obj.verified_by:
+            return obj.verified_by.get_full_name() or obj.verified_by.username
+        return None
 
 
 class BountyTipCreateSerializer(serializers.ModelSerializer):
@@ -1176,13 +1184,12 @@ class BountyTipCreateSerializer(serializers.ModelSerializer):
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         """
         Ensure at least one of ``suspect`` or ``case`` is provided.
-
-        Implementation Contract
-        -----------------------
-        If neither ``suspect`` nor ``case`` is in attrs (or both are None),
-        raise ``ValidationError("At least one of 'suspect' or 'case' must be provided.")``.
         """
-        raise NotImplementedError
+        if not attrs.get("suspect") and not attrs.get("case"):
+            raise serializers.ValidationError(
+                "At least one of 'suspect' or 'case' must be provided.",
+            )
+        return attrs
 
 
 class BountyTipReviewSerializer(serializers.Serializer):
