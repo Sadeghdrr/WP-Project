@@ -39,6 +39,7 @@ import { PublicLayout } from '@/components/layout/PublicLayout';
 import { AuthLayout } from '@/components/layout/AuthLayout';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { ProtectedRoute } from '@/components/layout/ProtectedRoute';
+import { Loader } from '@/components/ui/Loader';
 
 /* ── Lazy page imports ───────────────────────────────────────────── */
 
@@ -126,9 +127,7 @@ const AdminPanelPage = lazy(() =>
 
 /* ── Loading fallback ────────────────────────────────────────────── */
 
-const PageLoader = () => (
-  <div style={{ padding: '2rem', textAlign: 'center' }}>Loading…</div>
-);
+const PageLoader = () => <Loader fullScreen label="Loading page…" />;
 
 /* ── Router definition ───────────────────────────────────────────── */
 

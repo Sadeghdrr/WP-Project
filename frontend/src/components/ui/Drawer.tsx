@@ -1,28 +1,26 @@
 /**
- * Modal — portal-based dialog with overlay, keyboard dismiss, and scroll lock.
+ * Drawer — slide-in panel overlay from left or right.
  */
 import { useEffect, useCallback, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
-export interface ModalProps {
+export interface DrawerProps {
   open: boolean;
   onClose: () => void;
   title?: string;
   children: ReactNode;
-  footer?: ReactNode;
+  position?: 'left' | 'right';
   size?: 'sm' | 'md' | 'lg';
-  closeOnOverlay?: boolean;
 }
 
-export function Modal({
+export function Drawer({
   open,
   onClose,
   title,
   children,
-  footer,
+  position = 'right',
   size = 'md',
-  closeOnOverlay = true,
-}: ModalProps) {
+}: DrawerProps) {
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -43,23 +41,19 @@ export function Modal({
   if (!open) return null;
 
   return createPortal(
-    <div
-      className="modal-overlay"
-      onClick={closeOnOverlay ? onClose : undefined}
-      role="presentation"
-    >
+    <div className="drawer-overlay" onClick={onClose} role="presentation">
       <div
-        className={`modal modal--${size}`}
+        className={`drawer drawer--${position} drawer--${size}`}
         role="dialog"
         aria-modal="true"
-        aria-label={title}
+        aria-label={title ?? 'Drawer'}
         onClick={(e) => e.stopPropagation()}
       >
         {title && (
-          <div className="modal__header">
-            <h2 className="modal__title">{title}</h2>
+          <div className="drawer__header">
+            <h2 className="drawer__title">{title}</h2>
             <button
-              className="modal__close"
+              className="drawer__close"
               onClick={onClose}
               aria-label="Close"
             >
@@ -67,8 +61,7 @@ export function Modal({
             </button>
           </div>
         )}
-        <div className="modal__body">{children}</div>
-        {footer && <div className="modal__footer">{footer}</div>}
+        <div className="drawer__body">{children}</div>
       </div>
     </div>,
     document.body,

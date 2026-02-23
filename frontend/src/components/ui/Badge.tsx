@@ -1,8 +1,24 @@
-import React from 'react';
+/**
+ * Badge — semantic status tag.
+ */
+import type { ReactNode } from 'react';
 
-// TODO: Badge/Tag component for statuses (case status, suspect status, crime level)
-// Props: label, variant (success, warning, danger, info, neutral), size
+export interface BadgeProps {
+  children: ReactNode;
+  variant?: 'success' | 'warning' | 'danger' | 'info' | 'neutral' | 'primary';
+  size?: 'sm' | 'md';
+  className?: string;
+}
 
-export const Badge: React.FC = () => {
-  return <span>{/* TODO: Implement Badge */}</span>;
-};
+export function Badge({
+  children,
+  variant = 'neutral',
+  size = 'md',
+  className = '',
+}: BadgeProps) {
+  return (
+    <span className={`badge badge--${variant} badge--${size} ${className}`}>
+      {children}
+    </span>
+  );
+}

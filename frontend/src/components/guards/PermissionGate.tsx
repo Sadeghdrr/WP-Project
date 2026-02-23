@@ -16,7 +16,7 @@
 import type { ReactNode } from 'react';
 import { usePermissions } from '@/hooks/usePermissions';
 
-interface PermissionGateProps {
+export interface PermissionGateProps {
   /** Permission codenames to check. */
   permissions: string[];
   /** If true, ALL permissions must be present (default: any). */
