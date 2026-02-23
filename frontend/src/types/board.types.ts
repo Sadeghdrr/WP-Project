@@ -1,18 +1,82 @@
-// TODO: Define DetectiveBoard, BoardItem, BoardNote, BoardConnection interfaces
-// Should mirror backend board app models
+/**
+ * Detective Board types — mirrors backend board.models.
+ */
+import type { UserListItem } from './user.types';
 
-export interface DetectiveBoard {
-  // TODO: id, case, detective, items, connections
+/* ── Board ─────────────────────────────────────────────────────────── */
+
+export interface BoardListItem {
+  id: number;
+  case: number;
+  title: string;
+  created_by: UserListItem;
+  created_at: string;
+  updated_at: string;
 }
+
+export interface BoardCreateRequest {
+  case: number;
+  title: string;
+}
+
+export type BoardUpdateRequest = Partial<BoardCreateRequest>;
+
+/** Full board state including items, notes, and connections */
+export interface FullBoardState extends BoardListItem {
+  items: BoardItem[];
+  connections: BoardConnection[];
+  notes: BoardNote[];
+}
+
+/* ── Board Item ────────────────────────────────────────────────────── */
 
 export interface BoardItem {
-  // TODO: id, board, content_type, object_id, position_x, position_y
+  id: number;
+  content_type: string;
+  object_id: number;
+  content_object_summary: string;
+  position_x: number;
+  position_y: number;
 }
+
+export interface BoardItemCreateRequest {
+  content_object: string;
+  position_x: number;
+  position_y: number;
+}
+
+export interface BoardItemBatchCoordinatesRequest {
+  items: { id: number; position_x: number; position_y: number }[];
+}
+
+/* ── Board Note ────────────────────────────────────────────────────── */
 
 export interface BoardNote {
-  // TODO: id, board, title, content
+  id: number;
+  title: string;
+  content: string;
+  created_by: UserListItem;
+  created_at: string;
 }
 
+export interface BoardNoteCreateRequest {
+  title: string;
+  content: string;
+}
+
+export type BoardNoteUpdateRequest = Partial<BoardNoteCreateRequest>;
+
+/* ── Board Connection ──────────────────────────────────────────────── */
+
 export interface BoardConnection {
-  // TODO: id, board, from_item, to_item
+  id: number;
+  from_item: number;
+  to_item: number;
+  label: string;
+}
+
+export interface BoardConnectionCreateRequest {
+  from_item: number;
+  to_item: number;
+  label?: string;
 }

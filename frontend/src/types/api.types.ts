@@ -1,21 +1,72 @@
-// TODO: Define shared API response types, pagination, error shapes
+/**
+ * Shared API response / request shapes used across all services.
+ */
+
+/* ── Generic pagination envelope (DRF default) ──────────────────── */
 
 export interface PaginatedResponse<T> {
-  // TODO: count, next, previous, results
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: T[];
+}
+
+/* ── Standard error shapes ───────────────────────────────────────── */
+
+export interface FieldErrors {
+  [field: string]: string[];
 }
 
 export interface ApiError {
-  // TODO: detail, field_errors, non_field_errors
+  detail?: string;
+  code?: string;
+  field_errors?: FieldErrors;
+  non_field_errors?: string[];
 }
 
+/* ── Auth tokens (SimpleJWT) ─────────────────────────────────────── */
+
 export interface AuthTokens {
-  // TODO: access, refresh
+  access: string;
+  refresh: string;
 }
 
 export interface LoginRequest {
-  // TODO: identifier (username/email/phone/national_id) + password
+  identifier: string;
+  password: string;
 }
 
 export interface RegisterRequest {
-  // TODO: username, password, email, phone_number, full_name, national_id
+  username: string;
+  password: string;
+  email: string;
+  first_name: string;
+  last_name: string;
+  national_id: string;
+  phone_number: string;
 }
+
+export interface TokenRefreshRequest {
+  refresh: string;
+}
+
+export interface TokenRefreshResponse {
+  access: string;
+}
+
+/* ── Query-string helpers ────────────────────────────────────────── */
+
+export interface PaginationParams {
+  page?: number;
+  page_size?: number;
+}
+
+export interface OrderingParams {
+  ordering?: string;
+}
+
+export interface SearchParams {
+  search?: string;
+}
+
+export type ListParams = PaginationParams & OrderingParams & SearchParams;

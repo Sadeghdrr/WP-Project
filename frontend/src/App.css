@@ -1,42 +1,194 @@
-#root {
-  max-width: 1280px;
+/*
+ * App.css — Minimal structural styles for the layout system.
+ * Component-specific styles should live alongside their components.
+ * These are intentionally low-level to avoid coupling to a CSS framework.
+ */
+
+/* ── Auth Layout ─────────────────────────────────────────────────── */
+
+.auth-layout {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.auth-layout__card {
+  width: 100%;
+  max-width: 420px;
+}
+
+/* ── Public Layout ───────────────────────────────────────────────── */
+
+.public-layout__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1.5rem;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.public-layout__brand {
+  font-weight: 700;
+  font-size: 1.125rem;
+  text-decoration: none;
+  color: inherit;
+}
+
+.public-layout__nav {
+  display: flex;
+  gap: 1rem;
+}
+
+.public-layout__nav a {
+  text-decoration: none;
+  color: inherit;
+}
+
+.public-layout__content {
+  max-width: 1200px;
   margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
+  padding: 1.5rem;
 }
 
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: filter 300ms;
-}
-.logo:hover {
-  filter: drop-shadow(0 0 2em #646cffaa);
-}
-.logo.react:hover {
-  filter: drop-shadow(0 0 2em #61dafbaa);
+/* ── Dashboard Layout ────────────────────────────────────────────── */
+
+.dashboard-layout {
+  display: flex;
+  min-height: 100vh;
 }
 
-@keyframes logo-spin {
-  from {
-    transform: rotate(0deg);
+.dashboard-layout__main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0; /* prevent flex children from overflowing */
+}
+
+.dashboard-layout__content {
+  flex: 1;
+  padding: 1.5rem;
+  overflow-y: auto;
+}
+
+/* ── Sidebar ─────────────────────────────────────────────────────── */
+
+.sidebar {
+  width: 240px;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid #e5e7eb;
+  transition: width 0.2s ease;
+}
+
+.sidebar--collapsed {
+  width: 60px;
+}
+
+.sidebar--collapsed .sidebar__label,
+.sidebar--collapsed .sidebar__brand span,
+.sidebar--collapsed .sidebar__footer {
+  display: none;
+}
+
+.sidebar__brand {
+  padding: 1rem;
+  font-weight: 700;
+  font-size: 1.125rem;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.sidebar__nav {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 0.5rem 0;
+}
+
+.sidebar__link {
+  display: flex;
+  align-items: center;
+  padding: 0.625rem 1rem;
+  text-decoration: none;
+  color: inherit;
+  transition: background 0.15s;
+}
+
+.sidebar__link:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.sidebar__link--active {
+  font-weight: 600;
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.sidebar__footer {
+  padding: 0.75rem 1rem;
+  border-top: 1px solid #e5e7eb;
+  font-size: 0.85rem;
+}
+
+.sidebar__user {
+  display: block;
+  font-weight: 600;
+}
+
+.sidebar__role {
+  display: block;
+  opacity: 0.6;
+  font-size: 0.8rem;
+}
+
+/* ── Topbar ──────────────────────────────────────────────────────── */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 1.5rem;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.topbar__spacer {
+  flex: 1;
+}
+
+.topbar__menu-toggle {
+  display: none;        /* visible only on mobile */
+  background: none;
+  border: none;
+  font-size: 1.25rem;
+  cursor: pointer;
+}
+
+.topbar__logout {
+  cursor: pointer;
+}
+
+/* ── Responsive ──────────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .sidebar {
+    position: fixed;
+    z-index: 40;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
   }
-  to {
-    transform: rotate(360deg);
+
+  .dashboard-layout:not(.dashboard-layout--collapsed) .sidebar {
+    transform: translateX(0);
   }
-}
 
-@media (prefers-reduced-motion: no-preference) {
-  a:nth-of-type(2) .logo {
-    animation: logo-spin infinite 20s linear;
+  .dashboard-layout--collapsed .sidebar {
+    transform: translateX(-100%);
   }
-}
 
-.card {
-  padding: 2em;
-}
-
-.read-the-docs {
-  color: #888;
+  .topbar__menu-toggle {
+    display: block;
+  }
 }

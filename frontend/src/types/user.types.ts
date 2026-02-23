@@ -1,14 +1,70 @@
-// TODO: Define User, Role, and authentication-related interfaces
-// Should mirror backend accounts app models (User, Role)
+/**
+ * User & Role types — mirrors backend accounts.models.
+ */
 
-export interface Role {
-  // TODO: id, name, description, hierarchy_level, permissions
+/* ── Permission ──────────────────────────────────────────────────── */
+
+export interface Permission {
+  id: number;
+  name: string;
+  codename: string;
+  content_type?: number;
 }
 
-export interface User {
-  // TODO: id, username, email, phone_number, national_id, full_name, role, etc.
+/* ── Role ─────────────────────────────────────────────────────────── */
+
+export interface RoleListItem {
+  id: number;
+  name: string;
+  hierarchy_level: number;
 }
 
-export interface UserProfile {
-  // TODO: Extended user info for profile views
+export interface Role extends RoleListItem {
+  description: string;
+  permissions: Permission[];
+}
+
+export interface RoleCreateRequest {
+  name: string;
+  description?: string;
+  hierarchy_level?: number;
+}
+
+export type RoleUpdateRequest = Partial<RoleCreateRequest>;
+
+export interface AssignPermissionsRequest {
+  permissions: number[];
+}
+
+/* ── User ─────────────────────────────────────────────────────────── */
+
+export interface UserListItem {
+  id: number;
+  username: string;
+  email: string;
+  first_name: string;
+  last_name: string;
+  is_active: boolean;
+  role: RoleListItem | null;
+}
+
+export interface User extends UserListItem {
+  national_id: string;
+  phone_number: string;
+  permissions: string[];
+  date_joined: string;
+}
+
+/** Shape returned by /api/accounts/me/ */
+export type MeUser = User;
+
+export interface MeUpdateRequest {
+  email?: string;
+  phone_number?: string;
+  first_name?: string;
+  last_name?: string;
+}
+
+export interface AssignRoleRequest {
+  role_id: number;
 }

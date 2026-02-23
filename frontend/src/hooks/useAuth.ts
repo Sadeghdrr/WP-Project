@@ -1,3 +1,14 @@
-// TODO: Custom hook to access AuthContext
-// Returns: user, login(), logout(), isAuthenticated, isLoading
-// Throws if used outside AuthProvider
+/**
+ * useAuth — convenience hook that exposes the AuthContext value.
+ * Throws when called outside <AuthProvider>.
+ */
+import { useContext } from 'react';
+import { AuthContext, type AuthContextValue } from '@/context/AuthContext';
+
+export function useAuth(): AuthContextValue {
+  const ctx = useContext(AuthContext);
+  if (ctx === undefined) {
+    throw new Error('useAuth must be used within an <AuthProvider>');
+  }
+  return ctx;
+}

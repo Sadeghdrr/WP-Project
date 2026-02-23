@@ -1,15 +1,27 @@
-import React from 'react';
+/**
+ * DashboardLayout — the authenticated shell.
+ * Composes Sidebar + Topbar + scrollable main content area (<Outlet />).
+ * The sidebar is collapsible on mobile via state toggle.
+ */
+import { useState } from 'react';
+import { Outlet } from 'react-router-dom';
+import { Sidebar } from './Sidebar';
+import { Topbar } from './Topbar';
 
-// TODO: Layout for authenticated pages (Dashboard, Cases, etc.)
-// Composes: Sidebar + Topbar + main content area (<Outlet />)
-// Wraps content in ProtectedRoute
+export const DashboardLayout = () => {
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
-export const DashboardLayout: React.FC = () => {
   return (
-    <div>
-      {/* TODO: Sidebar */}
-      {/* TODO: Topbar */}
-      {/* TODO: <Outlet /> for nested routes */}
+    <div className={`dashboard-layout ${sidebarCollapsed ? 'dashboard-layout--collapsed' : ''}`}>
+      <Sidebar collapsed={sidebarCollapsed} />
+
+      <div className="dashboard-layout__main">
+        <Topbar onToggleSidebar={() => setSidebarCollapsed((p) => !p)} />
+
+        <main className="dashboard-layout__content">
+          <Outlet />
+        </main>
+      </div>
     </div>
   );
 };
