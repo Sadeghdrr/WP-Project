@@ -16,7 +16,7 @@
 
 .auth-layout__card {
   width: 100%;
-  max-width: 420px;
+  max-width: 480px;
 }
 
 /* ── Public Layout ───────────────────────────────────────────────── */
@@ -190,5 +190,114 @@
 
   .topbar__menu-toggle {
     display: block;
+  }
+}
+
+/* ── Auth Form ───────────────────────────────────────────────────── */
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.auth-form__header {
+  text-align: center;
+  margin-bottom: 0.5rem;
+}
+
+.auth-form__title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin: 0;
+  color: #111827;
+}
+
+.auth-form__subtitle {
+  margin: 0.25rem 0 0;
+  color: #6b7280;
+  font-size: 0.875rem;
+}
+
+.auth-form__fields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+}
+
+.auth-form__row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.auth-form__submit {
+  margin-top: 0.25rem;
+}
+
+.auth-form__footer {
+  text-align: center;
+  font-size: 0.875rem;
+  color: #6b7280;
+  margin: 0;
+}
+
+.auth-form__link {
+  color: var(--color-primary, #1e40af);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.auth-form__link:hover {
+  text-decoration: underline;
+}
+
+/* ── Unauthorized / Error Pages ──────────────────────────────────── */
+
+.unauthorized-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+}
+
+.unauthorized-page__card {
+  text-align: center;
+  max-width: 480px;
+  width: 100%;
+}
+
+.unauthorized-page__code {
+  font-size: 4rem;
+  font-weight: 800;
+  color: var(--color-primary, #1e40af);
+  line-height: 1;
+  margin-bottom: 0.5rem;
+}
+
+.unauthorized-page__title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin: 0 0 1rem;
+}
+
+.unauthorized-page__message {
+  color: #6b7280;
+  margin: 0 0 1.5rem;
+}
+
+.unauthorized-page__actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+  margin-top: 1.5rem;
+}
+
+/* ── Responsive: auth forms ──────────────────────────────────────── */
+
+@media (max-width: 480px) {
+  .auth-form__row {
+    grid-template-columns: 1fr;
   }
 }

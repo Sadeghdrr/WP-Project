@@ -124,6 +124,16 @@ const AdminPanelPage = lazy(() =>
     default: m.AdminPanelPage,
   })),
 );
+const UnauthorizedPage = lazy(() =>
+  import('@/pages/errors/UnauthorizedPage').then((m) => ({
+    default: m.UnauthorizedPage,
+  })),
+);
+const NotFoundPage = lazy(() =>
+  import('@/pages/errors/NotFoundPage').then((m) => ({
+    default: m.NotFoundPage,
+  })),
+);
 
 /* ── Loading fallback ────────────────────────────────────────────── */
 
@@ -188,6 +198,10 @@ const router = createBrowserRouter([
       },
     ],
   },
+
+  /* ── Error / utility routes ─────────────────────────────────────── */
+  { path: 'unauthorized', element: <UnauthorizedPage /> },
+  { path: '*', element: <NotFoundPage /> },
 ]);
 
 /* ── Exported component ──────────────────────────────────────────── */
