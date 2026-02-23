@@ -13,9 +13,6 @@ import { RegisterPage } from '../pages/auth/RegisterPage';
 import { HomePage } from '../pages/home/HomePage';
 import { OverviewPage } from '../pages/dashboard/OverviewPage';
 import { MostWantedPage } from '../pages/suspects/MostWantedPage';
-import { CasesListPage } from '../pages/cases/CasesListPage';
-import { CaseCreatePage } from '../pages/cases/CaseCreatePage';
-import { CaseDetailsPage } from '../pages/cases/CaseDetailsPage';
 
 export const AppRouter: React.FC = () => {
   return (
@@ -37,9 +34,9 @@ export const AppRouter: React.FC = () => {
           }
         >
           <Route path="/dashboard" element={<OverviewPage />} />
-          <Route path="/cases" element={<CasesListPage />} />
-          <Route path="/cases/new" element={<CaseCreatePage />} />
-          <Route path="/cases/:id" element={<CaseDetailsPage />} />
+          <Route path="/cases" element={<div className="p-6">Cases (placeholder)</div>} />
+          <Route path="/cases/new" element={<div className="p-6">New Case (placeholder)</div>} />
+          <Route path="/cases/:id" element={<div className="p-6">Case Details (placeholder)</div>} />
           <Route path="/board/:caseId" element={<div className="p-6">Board (placeholder)</div>} />
           <Route path="/evidence" element={<div className="p-6">Evidence (placeholder)</div>} />
           <Route path="/evidence/new" element={<div className="p-6">New Evidence (placeholder)</div>} />

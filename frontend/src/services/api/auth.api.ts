@@ -10,7 +10,7 @@
  */
 
 import axios from 'axios';
-import { apiClient } from './api.client';
+import { apiClient } from './axios.instance';
 import type {
   LoginRequest,
   LoginResponse,
@@ -72,7 +72,7 @@ export async function refreshToken(refresh: string): Promise<TokenRefreshRespons
  * Response: UserDetailSerializer
  */
 export async function getMe(): Promise<User> {
-  const { data } = await apiClient.get<User>(`/accounts/me/`);
+  const { data } = await apiClient.get<User>(`/me/`);
   return data;
 }
 
