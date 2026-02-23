@@ -598,8 +598,18 @@ class CaseWorkflowService:
         10. _dispatch_notifications(case, target_status, requesting_user)
         11. Return case.
         """
-        # 1. Lock the row for concurrency safety
-        case = Case.objects.select_for_update().get(pk=case.pk)
+        # 1. Lock the row for concurrency safety and pre-load FKs
+        #    used by _dispatch_notifications.
+        case = (
+            Case.objects
+            .select_for_update()
+            .select_related(
+                "created_by", "assigned_detective",
+                "assigned_sergeant", "assigned_captain",
+                "assigned_judge",
+            )
+            .get(pk=case.pk)
+        )
 
         # 2. Validate transition exists
         key = (case.status, target_status)
@@ -1948,25 +1958,25 @@ class CaseReportingService:
             case = (
                 Case.objects
                 .select_related(
-                    "created_by",
-                    "approved_by",
-                    "assigned_detective",
-                    "assigned_sergeant",
-                    "assigned_captain",
-                    "assigned_judge",
+                    "created_by__role",
+                    "approved_by__role",
+                    "assigned_detective__role",
+                    "assigned_sergeant__role",
+                    "assigned_captain__role",
+                    "assigned_judge__role",
                 )
                 .prefetch_related(
                     Prefetch(
                         "complainants",
                         queryset=CaseComplainant.objects.select_related(
-                            "user", "reviewed_by",
+                            "user__role", "reviewed_by__role",
                         ),
                     ),
                     "witnesses",
                     Prefetch(
                         "status_logs",
                         queryset=CaseStatusLog.objects.select_related(
-                            "changed_by",
+                            "changed_by__role",
                         ).order_by("created_at"),
                     ),
                 )
@@ -1983,7 +1993,7 @@ class CaseReportingService:
         evidences_qs = (
             Evidence.objects
             .filter(case=case)
-            .select_related("registered_by")
+            .select_related("registered_by__role")
             .order_by("-created_at")
         )
         evidence_list = []
@@ -2001,17 +2011,23 @@ class CaseReportingService:
         suspects_qs = (
             Suspect.objects
             .filter(case=case)
-            .select_related("identified_by", "approved_by_sergeant", "user")
+            .select_related(
+                "identified_by__role",
+                "approved_by_sergeant__role",
+                "user__role",
+            )
             .prefetch_related(
                 Prefetch(
                     "interrogations",
                     queryset=Interrogation.objects.select_related(
-                        "detective", "sergeant",
+                        "detective__role", "sergeant__role",
                     ).order_by("-created_at"),
                 ),
                 Prefetch(
                     "trials",
-                    queryset=Trial.objects.select_related("judge").order_by("-created_at"),
+                    queryset=Trial.objects.select_related(
+                        "judge__role",
+                    ).order_by("-created_at"),
                 ),
             )
             .order_by("-wanted_since")

@@ -2342,11 +2342,14 @@ class BountyTipService:
             if tip.suspect:
                 tip.reward_amount = tip.suspect.reward_amount
             elif tip.case:
-                # Fallback: use the highest reward among wanted suspects in the case
+                # Fallback: use the highest reward among wanted suspects
+                # in the case.  Use select_related("case") so that the
+                # ``reward_amount`` property (which reads case.crime_level)
+                # does not trigger an extra query per suspect.
                 from suspects.models import Suspect as SuspectModel
                 suspects_in_case = SuspectModel.objects.filter(
                     case=tip.case, status=SuspectStatus.WANTED,
-                )
+                ).select_related("case")
                 max_reward = 0
                 for s in suspects_in_case:
                     max_reward = max(max_reward, s.reward_amount)
@@ -2662,11 +2665,53 @@ class BailService:
         """
         Mark a bail as paid and release the suspect.
 
-        .. note::
-            Payment gateway integration is **out of scope** for this
-            phase.  This method stub is retained for future use but
-            raises ``NotImplementedError``.
+        Parameters
+        ----------
+        bail_id : int
+            PK of the bail record.
+        payment_reference : str
+            Reference string from the payment gateway.
+        requesting_user : User
+            The user processing the payment.
+
+        Returns
+        -------
+        Bail
+            The updated bail record with ``is_paid=True``.
+
+        Raises
+        ------
+        NotFound
+            If the bail does not exist.
+        DomainError
+            If the bail is already paid.
         """
-        raise NotImplementedError(
-            "Payment gateway integration is out of scope for this phase."
+        try:
+            bail = Bail.objects.select_related("suspect", "case").get(pk=bail_id)
+        except Bail.DoesNotExist:
+            raise NotFound(f"Bail with id {bail_id} not found.")
+
+        if bail.is_paid:
+            raise DomainError("This bail has already been paid.")
+
+        bail.is_paid = True
+        bail.payment_reference = payment_reference
+        bail.paid_at = timezone.now()
+        bail.save(update_fields=["is_paid", "payment_reference", "paid_at"])
+
+        # Transition suspect to RELEASED if currently eligible
+        suspect = bail.suspect
+        if suspect.status == SuspectStatus.CONVICTED:
+            suspect.status = SuspectStatus.RELEASED
+            suspect.save(update_fields=["status"])
+            logger.info(
+                "Suspect #%d released after bail #%d payment by %s",
+                suspect.pk, bail.pk, requesting_user,
+            )
+
+        logger.info(
+            "Bail #%d paid — ref: %s, by: %s",
+            bail.pk, payment_reference, requesting_user,
         )
+
+        return bail

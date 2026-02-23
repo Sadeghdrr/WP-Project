@@ -160,7 +160,15 @@ class EvidenceQueryService:
         try:
             evidence = (
                 Evidence.objects
-                .select_related("registered_by", "case")
+                .select_related(
+                    "registered_by", "case",
+                    # Pre-load all OneToOne child types in a single
+                    # LEFT JOIN instead of one query per accessor.
+                    "testimonyevidence",
+                    "biologicalevidence",
+                    "vehicleevidence",
+                    "identityevidence",
+                )
                 .prefetch_related("files")
                 .get(pk=pk)
             )
@@ -787,7 +795,12 @@ class ChainOfCustodyService:
             )
 
         try:
-            evidence = Evidence.objects.get(pk=evidence_id)
+            evidence = (
+                Evidence.objects
+                .select_related("registered_by")
+                .prefetch_related("files")
+                .get(pk=evidence_id)
+            )
         except Evidence.DoesNotExist:
             raise NotFound(f"Evidence with id {evidence_id} not found.")
 
@@ -813,6 +826,17 @@ class ChainOfCustodyService:
         """
         trail: list[dict[str, Any]] = []
 
+        # Ensure FKs we access are pre-loaded.  If the caller already
+        # loaded them (e.g. via get_evidence_detail) the ORM will
+        # short-circuit to the cache.
+        if not hasattr(evidence, "_state") or evidence.registered_by_id and not Evidence.registered_by.is_cached(evidence):
+            evidence = (
+                Evidence.objects
+                .select_related("registered_by")
+                .prefetch_related("files")
+                .get(pk=evidence.pk)
+            )
+
         # 1. Registration event
         trail.append({
             "timestamp": evidence.created_at,
@@ -836,7 +860,12 @@ class ChainOfCustodyService:
         if evidence.evidence_type == EvidenceType.BIOLOGICAL:
             try:
                 bio = evidence if isinstance(evidence, BiologicalEvidence) else evidence.biologicalevidence
-                if bio.verified_by is not None:
+                if bio.verified_by_id is not None:
+                    # Ensure the FK is loaded
+                    if not BiologicalEvidence.verified_by.is_cached(bio):
+                        bio = BiologicalEvidence.objects.select_related(
+                            "verified_by",
+                        ).get(pk=bio.pk)
                     action_label = "Verified by Coroner" if bio.is_verified else "Rejected by Coroner"
                     trail.append({
                         "timestamp": bio.updated_at,

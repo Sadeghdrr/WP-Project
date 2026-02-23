@@ -35,6 +35,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from core.domain.exceptions import NotFound, PermissionDenied
+from core.domain.access import get_user_role_name
 
 from .models import Case, CaseComplainant
 from .serializers import (
@@ -252,7 +253,12 @@ class CaseViewSet(viewsets.ViewSet):
         3. Apply updates (simple field writes — no service needed for this).
         4. Return HTTP 200 with ``CaseDetailSerializer`` payload.
         """
-        raise NotImplementedError
+        case = self._get_case(pk)
+        serializer = CaseUpdateSerializer(case, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        out = CaseDetailSerializer(case, context={"request": request})
+        return Response(out.data, status=status.HTTP_200_OK)
 
     @extend_schema(
         summary="Delete a case",
@@ -280,7 +286,15 @@ class CaseViewSet(viewsets.ViewSet):
         3. ``case.delete()``.
         4. Return HTTP 204.
         """
-        raise NotImplementedError
+        case = self._get_case(pk)
+        role_name = get_user_role_name(request.user)
+        if role_name != "system_admin" and not request.user.is_superuser:
+            return Response(
+                {"detail": "Only System Administrators may delete cases."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        case.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     # ── Workflow @actions ─────────────────────────────────────────────
 

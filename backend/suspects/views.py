@@ -567,7 +567,15 @@ class SuspectViewSet(viewsets.ViewSet):
             return Response(
                 {"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN,
             )
-        except (DomainError, InvalidTransition) as exc:
+        except NotFound as exc:
+            return Response(
+                {"detail": str(exc)}, status=status.HTTP_404_NOT_FOUND,
+            )
+        except InvalidTransition as exc:
+            return Response(
+                {"detail": str(exc)}, status=status.HTTP_409_CONFLICT,
+            )
+        except DomainError as exc:
             return Response(
                 {"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST,
             )
@@ -664,7 +672,15 @@ class SuspectViewSet(viewsets.ViewSet):
             return Response(
                 {"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN,
             )
-        except (DomainError, InvalidTransition) as exc:
+        except NotFound as exc:
+            return Response(
+                {"detail": str(exc)}, status=status.HTTP_404_NOT_FOUND,
+            )
+        except InvalidTransition as exc:
+            return Response(
+                {"detail": str(exc)}, status=status.HTTP_409_CONFLICT,
+            )
+        except DomainError as exc:
             return Response(
                 {"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST,
             )
@@ -736,7 +752,15 @@ class SuspectViewSet(viewsets.ViewSet):
             return Response(
                 {"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN,
             )
-        except (DomainError, InvalidTransition) as exc:
+        except NotFound as exc:
+            return Response(
+                {"detail": str(exc)}, status=status.HTTP_404_NOT_FOUND,
+            )
+        except InvalidTransition as exc:
+            return Response(
+                {"detail": str(exc)}, status=status.HTTP_409_CONFLICT,
+            )
+        except DomainError as exc:
             return Response(
                 {"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST,
             )
@@ -781,7 +805,15 @@ class SuspectViewSet(viewsets.ViewSet):
             return Response(
                 {"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN,
             )
-        except (DomainError, InvalidTransition) as exc:
+        except NotFound as exc:
+            return Response(
+                {"detail": str(exc)}, status=status.HTTP_404_NOT_FOUND,
+            )
+        except InvalidTransition as exc:
+            return Response(
+                {"detail": str(exc)}, status=status.HTTP_409_CONFLICT,
+            )
+        except DomainError as exc:
             return Response(
                 {"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST,
             )
@@ -835,7 +867,15 @@ class SuspectViewSet(viewsets.ViewSet):
             return Response(
                 {"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN,
             )
-        except (DomainError, InvalidTransition) as exc:
+        except NotFound as exc:
+            return Response(
+                {"detail": str(exc)}, status=status.HTTP_404_NOT_FOUND,
+            )
+        except InvalidTransition as exc:
+            return Response(
+                {"detail": str(exc)}, status=status.HTTP_409_CONFLICT,
+            )
+        except DomainError as exc:
             return Response(
                 {"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST,
             )
@@ -1263,7 +1303,32 @@ class BailViewSet(viewsets.ViewSet):
             POST /api/suspects/12/bails/5/pay/
             {"payment_reference": "ZP-TXN-20260222-001"}
         """
-        raise NotImplementedError
+        payment_reference = request.data.get("payment_reference", "")
+        if not payment_reference:
+            return Response(
+                {"detail": "payment_reference is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            bail = BailService.process_bail_payment(
+                bail_id=pk,
+                payment_reference=payment_reference,
+                requesting_user=request.user,
+            )
+        except NotFound as exc:
+            return Response(
+                {"detail": str(exc)}, status=status.HTTP_404_NOT_FOUND,
+            )
+        except PermissionDenied as exc:
+            return Response(
+                {"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN,
+            )
+        except DomainError as exc:
+            return Response(
+                {"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST,
+            )
+        output = BailDetailSerializer(bail)
+        return Response(output.data, status=status.HTTP_200_OK)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -1343,6 +1408,14 @@ class BountyTipViewSet(viewsets.ViewSet):
                 validated_data=serializer.validated_data,
                 requesting_user=request.user,
             )
+        except PermissionDenied as exc:
+            return Response(
+                {"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN,
+            )
+        except NotFound as exc:
+            return Response(
+                {"detail": str(exc)}, status=status.HTTP_404_NOT_FOUND,
+            )
         except DomainError as exc:
             return Response(
                 {"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST,
@@ -1412,7 +1485,11 @@ class BountyTipViewSet(viewsets.ViewSet):
             return Response(
                 {"detail": str(exc)}, status=status.HTTP_404_NOT_FOUND,
             )
-        except (DomainError, InvalidTransition) as exc:
+        except InvalidTransition as exc:
+            return Response(
+                {"detail": str(exc)}, status=status.HTTP_409_CONFLICT,
+            )
+        except DomainError as exc:
             return Response(
                 {"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST,
             )
@@ -1463,7 +1540,11 @@ class BountyTipViewSet(viewsets.ViewSet):
             return Response(
                 {"detail": str(exc)}, status=status.HTTP_404_NOT_FOUND,
             )
-        except (DomainError, InvalidTransition) as exc:
+        except InvalidTransition as exc:
+            return Response(
+                {"detail": str(exc)}, status=status.HTTP_409_CONFLICT,
+            )
+        except DomainError as exc:
             return Response(
                 {"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST,
             )
@@ -1500,6 +1581,10 @@ class BountyTipViewSet(viewsets.ViewSet):
                 national_id=serializer.validated_data["national_id"],
                 unique_code=serializer.validated_data["unique_code"],
                 requesting_user=request.user,
+            )
+        except PermissionDenied as exc:
+            return Response(
+                {"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN,
             )
         except NotFound as exc:
             return Response(

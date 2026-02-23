@@ -392,39 +392,33 @@ class DashboardAggregationService:
         ]
 
     def _get_top_wanted_suspects(self) -> list[dict[str, Any]]:
-        """Return the top N most-wanted suspects ordered by score descending."""
-        Suspect = apps.get_model("suspects", "Suspect")
+        """Return the top N most-wanted suspects ordered by score descending.
 
-        threshold = timezone.now() - timedelta(
-            days=RewardCalculatorService.MOST_WANTED_THRESHOLD_DAYS,
+        Uses the DB-level annotated queryset from
+        ``SuspectProfileService.get_most_wanted_list()`` to avoid the
+        N+1 caused by the ``most_wanted_score`` property.
+        """
+        from suspects.services import SuspectProfileService
+
+        qs = (
+            SuspectProfileService.get_most_wanted_list()
+            [:self.TOP_WANTED_LIMIT]
         )
-        wanted_qs = (
-            Suspect.objects
-            .filter(status="wanted", wanted_since__lte=threshold)
-            .select_related("case")
-        )
 
-        # Compute score in Python (cross-case grouping via national_id
-        # requires joins that are complex to express purely in ORM).
-        scored: list[dict[str, Any]] = []
-        for suspect in wanted_qs:
-            score = suspect.most_wanted_score
-            reward = RewardCalculatorService.compute_reward(score)
-            photo_url = suspect.photo.url if suspect.photo else None
-            scored.append({
-                "id": suspect.pk,
-                "full_name": suspect.full_name,
-                "national_id": suspect.national_id,
-                "photo_url": photo_url,
-                "most_wanted_score": score,
-                "reward_amount": reward,
-                "days_wanted": suspect.days_wanted,
-                "case_id": suspect.case_id,
-                "case_title": suspect.case.title,
-            })
-
-        scored.sort(key=lambda s: s["most_wanted_score"], reverse=True)
-        return scored[: self.TOP_WANTED_LIMIT]
+        return [
+            {
+                "id": s.pk,
+                "full_name": s.full_name,
+                "national_id": s.national_id,
+                "photo_url": s.photo.url if s.photo else None,
+                "most_wanted_score": s.computed_score,
+                "reward_amount": s.computed_reward,
+                "days_wanted": s.computed_days_wanted,
+                "case_id": s.case_id,
+                "case_title": s.case.title,
+            }
+            for s in qs
+        ]
 
     def _get_recent_activity(self) -> list[dict[str, Any]]:
         """Return the latest activity feed items."""
@@ -768,7 +762,12 @@ class NotificationService:
         """Return all notifications for ``self.user``, ordered most recent first."""
         from core.models import Notification
 
-        return Notification.objects.filter(recipient=self.user).order_by("-created_at")
+        return (
+            Notification.objects
+            .filter(recipient=self.user)
+            .select_related("content_type")
+            .order_by("-created_at")
+        )
 
     def mark_as_read(self, notification_id: int) -> Any:
         """Mark a single notification as read."""
