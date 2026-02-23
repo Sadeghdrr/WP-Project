@@ -793,6 +793,7 @@ class ArrestAndWarrantService:
             reason=warrant_reason,
             issued_by=issuing_sergeant,
             status=Warrant.WarrantStatus.ACTIVE,
+            priority=priority,
         )
 
         # ── Notification to Detective ───────────────────────────────

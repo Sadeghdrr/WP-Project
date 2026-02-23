@@ -277,6 +277,13 @@ class Warrant(TimeStampedModel):
         EXPIRED = "expired", "Expired"
         CANCELLED = "cancelled", "Cancelled"
 
+    class PriorityChoices(models.TextChoices):
+        """Urgency level of an arrest warrant."""
+
+        NORMAL = "normal", "Normal"
+        HIGH = "high", "High"
+        CRITICAL = "critical", "Critical"
+
     suspect = models.ForeignKey(
         Suspect,
         on_delete=models.CASCADE,
@@ -302,6 +309,13 @@ class Warrant(TimeStampedModel):
         choices=WarrantStatus.choices,
         default=WarrantStatus.ACTIVE,
         verbose_name="Status",
+        db_index=True,
+    )
+    priority = models.CharField(
+        max_length=10,
+        choices=PriorityChoices.choices,
+        default=PriorityChoices.NORMAL,
+        verbose_name="Priority",
         db_index=True,
     )
 
