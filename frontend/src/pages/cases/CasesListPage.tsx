@@ -8,8 +8,9 @@ import { Select } from '@/components/ui/Select';
 import { Button } from '@/components/ui/Button';
 import { Pagination } from '@/components/ui/Pagination';
 import { Alert } from '@/components/ui/Alert';
-import { Skeleton } from '@/components/ui/Skeleton';
+import { TableSkeleton } from '@/components/ui/SkeletonPresets';
 import { PermissionGate } from '@/components/guards/PermissionGate';
+import { useDelayedLoading } from '@/hooks/useDelayedLoading';
 import { CaseTable } from '@/features/cases/CaseTable';
 import { casesApi } from '@/services/api/cases.api';
 import { CasesPerms } from '@/config/permissions';
@@ -63,6 +64,8 @@ export function CasesListPage() {
       }),
   });
 
+  const showSkeleton = useDelayedLoading(isLoading);
+
   return (
     <div className="page-cases-list">
       <div className="page-header">
@@ -99,8 +102,8 @@ export function CasesListPage() {
       {/* Content */}
       {error && <Alert type="error">Failed to load cases.</Alert>}
 
-      {isLoading ? (
-        <Skeleton height={400} />
+      {showSkeleton ? (
+        <TableSkeleton columns={6} rows={8} />
       ) : data ? (
         <>
           <CaseTable

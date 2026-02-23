@@ -1,13 +1,15 @@
 /**
  * InterrogationForm — record an interrogation.
+ *
+ * Uses useApiMutation for automatic toast feedback and error handling.
  */
 import { useState, type FormEvent } from 'react';
 import { Input, Textarea } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { Alert } from '@/components/ui/Alert';
 import { interrogationsApi } from '@/services/api/suspects.api';
+import { useApiMutation } from '@/hooks/useApiMutation';
 import { extractErrorMessage } from '@/utils/errors';
-import { useToast } from '@/context/ToastContext';
 
 interface InterrogationFormProps {
   suspectId: number;
@@ -15,46 +17,55 @@ interface InterrogationFormProps {
 }
 
 export function InterrogationForm({ suspectId, onSuccess }: InterrogationFormProps) {
-  const toast = useToast();
   const [technique, setTechnique] = useState('');
   const [questions, setQuestions] = useState('');
   const [responses, setResponses] = useState('');
   const [score, setScore] = useState('');
   const [notes, setNotes] = useState('');
   const [duration, setDuration] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [validationError, setValidationError] = useState('');
 
-  const handleSubmit = async (e: FormEvent) => {
+  const mutation = useApiMutation(
+    (data: {
+      technique?: string;
+      questions?: string;
+      responses?: string;
+      score: number;
+      notes?: string;
+      duration_minutes?: number;
+    }) => interrogationsApi.create(suspectId, data),
+    {
+      successMessage: 'Interrogation recorded',
+      invalidateKeys: [['suspects', suspectId]],
+    },
+  );
+
+  const displayError = validationError || (mutation.error ? extractErrorMessage(mutation.error) : '');
+
+  const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
     if (!score || Number(score) < 1 || Number(score) > 10) {
-      setError('Guilt score must be between 1 and 10');
+      setValidationError('Guilt score must be between 1 and 10');
       return;
     }
-    setError('');
-    setLoading(true);
-    try {
-      await interrogationsApi.create(suspectId, {
+    setValidationError('');
+    mutation.mutate(
+      {
         technique: technique || undefined,
         questions: questions || undefined,
         responses: responses || undefined,
         score: Number(score),
         notes: notes || undefined,
         duration_minutes: duration ? Number(duration) : undefined,
-      });
-      toast.success('Interrogation recorded');
-      onSuccess();
-    } catch (err) {
-      setError(extractErrorMessage(err));
-    } finally {
-      setLoading(false);
-    }
+      },
+      { onSuccess },
+    );
   };
 
   return (
     <form className="interrogation-form" onSubmit={handleSubmit}>
       <h3>Record Interrogation</h3>
-      {error && <Alert type="error" onClose={() => setError('')}>{error}</Alert>}
+      {displayError && <Alert type="error" onClose={() => { setValidationError(''); mutation.reset(); }}>{displayError}</Alert>}
 
       <Input label="Technique" value={technique} onChange={(e) => setTechnique(e.target.value)} placeholder="e.g. Standard, Reid" />
       <Textarea label="Questions" value={questions} onChange={(e) => setQuestions(e.target.value)} rows={3} />
@@ -64,7 +75,7 @@ export function InterrogationForm({ suspectId, onSuccess }: InterrogationFormPro
         <Input label="Duration (min)" type="number" value={duration} onChange={(e) => setDuration(e.target.value)} />
       </div>
       <Textarea label="Notes" value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
-      <Button type="submit" variant="primary" loading={loading}>Submit Interrogation</Button>
+      <Button type="submit" variant="primary" loading={mutation.isPending}>Submit Interrogation</Button>
     </form>
   );
 }

@@ -2,8 +2,9 @@
  * OverviewPage — modular dashboard with role-based module cards.
  */
 import { useQuery } from '@tanstack/react-query';
-import { Skeleton } from '@/components/ui/Skeleton';
 import { Alert } from '@/components/ui/Alert';
+import { StatsSkeleton } from '@/components/ui/SkeletonPresets';
+import { useDelayedLoading } from '@/hooks/useDelayedLoading';
 import { StatsCards } from '@/features/dashboard/StatsCards';
 import { DashboardModule } from '@/features/dashboard/DashboardModule';
 import { coreApi } from '@/services/api/core.api';
@@ -16,6 +17,8 @@ export function OverviewPage() {
     queryFn: () => coreApi.dashboardStats(),
   });
 
+  const showSkeleton = useDelayedLoading(isLoading);
+
   return (
     <div className="page-overview">
       <div className="page-header">
@@ -24,8 +27,8 @@ export function OverviewPage() {
 
       {error && <Alert type="error">Failed to load dashboard stats.</Alert>}
 
-      {isLoading ? (
-        <Skeleton height={300} />
+      {showSkeleton ? (
+        <StatsSkeleton cards={4} />
       ) : stats ? (
         <StatsCards stats={stats} loading={isLoading} />
       ) : null}

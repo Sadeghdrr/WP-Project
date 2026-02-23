@@ -43,3 +43,16 @@ export type { TabsProps, TabItem } from './Tabs';
 
 export { Alert } from './Alert';
 export type { AlertProps } from './Alert';
+
+/* ── UX Layer ────────────────────────────────────────────────────── */
+
+export { ErrorBoundary } from './ErrorBoundary';
+
+export {
+  TableSkeleton,
+  CardSkeleton,
+  DetailSkeleton,
+  ListSkeleton,
+  StatsSkeleton,
+  FormSkeleton,
+} from './SkeletonPresets';

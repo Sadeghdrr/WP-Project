@@ -6,8 +6,9 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
-import { Skeleton } from '@/components/ui/Skeleton';
+import { DetailSkeleton } from '@/components/ui/SkeletonPresets';
 import { Alert } from '@/components/ui/Alert';
+import { useDelayedLoading } from '@/hooks/useDelayedLoading';
 import { PermissionGate } from '@/components/guards/PermissionGate';
 import { InterrogationForm } from '@/features/suspects/InterrogationForm';
 import { TrialForm } from '@/features/suspects/TrialForm';
@@ -27,11 +28,13 @@ export function SuspectDetailPage() {
     enabled: !Number.isNaN(suspectId),
   });
 
+  const showSkeleton = useDelayedLoading(isLoading);
+
   const handleRefresh = () => {
     queryClient.invalidateQueries({ queryKey: ['suspects', suspectId] });
   };
 
-  if (isLoading) return <Skeleton height={600} />;
+  if (showSkeleton) return <DetailSkeleton sections={4} />;
   if (error || !suspect) {
     return (
       <div className="page-suspect-detail">

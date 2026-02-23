@@ -1015,6 +1015,198 @@
   }
 }
 
+/* ── Error Boundary ───────────────────────────────────────────────── */
+
+.error-boundary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 300px;
+  padding: 2rem;
+}
+
+.error-boundary__card {
+  background: var(--color-bg, #ffffff);
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 12px;
+  padding: 2.5rem;
+  max-width: 520px;
+  width: 100%;
+  text-align: center;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+}
+
+.error-boundary__icon {
+  font-size: 3rem;
+  margin-bottom: 1rem;
+}
+
+.error-boundary__title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--color-text, #111827);
+  margin: 0 0 0.5rem;
+}
+
+.error-boundary__message {
+  color: var(--color-text-secondary, #6b7280);
+  font-size: 0.9375rem;
+  margin: 0 0 1.5rem;
+  line-height: 1.5;
+}
+
+.error-boundary__details {
+  text-align: left;
+  margin-bottom: 1.5rem;
+}
+
+.error-boundary__details summary {
+  cursor: pointer;
+  font-size: 0.8125rem;
+  color: var(--color-text-secondary, #6b7280);
+  user-select: none;
+}
+
+.error-boundary__stack {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.75rem;
+  background: #f3f4f6;
+  padding: 0.75rem;
+  border-radius: 6px;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 200px;
+  overflow-y: auto;
+  margin-top: 0.5rem;
+  color: #dc2626;
+}
+
+.error-boundary__actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+}
+
+/* ── Skeleton Presets ─────────────────────────────────────────────── */
+
+.skeleton-table {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.skeleton-table__header {
+  display: grid;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  background: #f9fafb;
+  border-bottom: 1px solid var(--color-border, #e5e7eb);
+}
+
+.skeleton-table__row {
+  display: grid;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--color-border, #e5e7eb);
+}
+
+.skeleton-table__row:last-child {
+  border-bottom: none;
+}
+
+.skeleton-card {
+  background: var(--color-bg, #ffffff);
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 8px;
+  padding: 1.25rem;
+}
+
+.skeleton-card__header {
+  margin-bottom: 1rem;
+}
+
+.skeleton-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+}
+
+.skeleton-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.skeleton-detail__header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.skeleton-detail__badges {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.skeleton-detail__section {
+  background: var(--color-bg, #ffffff);
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 8px;
+  padding: 1.25rem;
+}
+
+.skeleton-detail__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 1rem;
+  margin-top: 0.75rem;
+}
+
+.skeleton-detail__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.skeleton-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1rem;
+}
+
+.skeleton-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 1rem;
+}
+
+.skeleton-stats__card {
+  background: var(--color-bg, #ffffff);
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 8px;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.skeleton-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  max-width: 600px;
+}
+
+.skeleton-form__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
 /* ── Dark mode ───────────────────────────────────────────────────── */
 
 @media (prefers-color-scheme: dark) {
@@ -1092,5 +1284,42 @@
 
   .empty-state__title {
     color: rgba(255, 255, 255, 0.87);
+  }
+
+  /* Error Boundary dark */
+  .error-boundary__card {
+    background: #1f2937;
+    border-color: #374151;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+  }
+
+  .error-boundary__title {
+    color: rgba(255, 255, 255, 0.87);
+  }
+
+  .error-boundary__stack {
+    background: #111827;
+    color: #f87171;
+  }
+
+  /* Skeleton Presets dark */
+  .skeleton-table {
+    border-color: #374151;
+  }
+
+  .skeleton-table__header {
+    background: #111827;
+    border-bottom-color: #374151;
+  }
+
+  .skeleton-table__row {
+    border-bottom-color: #374151;
+  }
+
+  .skeleton-card,
+  .skeleton-detail__section,
+  .skeleton-stats__card {
+    background: #1f2937;
+    border-color: #374151;
   }
 }

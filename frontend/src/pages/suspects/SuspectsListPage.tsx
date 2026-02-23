@@ -7,7 +7,8 @@ import { useQuery } from '@tanstack/react-query';
 import { Select } from '@/components/ui/Select';
 import { Pagination } from '@/components/ui/Pagination';
 import { Alert } from '@/components/ui/Alert';
-import { Skeleton } from '@/components/ui/Skeleton';
+import { TableSkeleton } from '@/components/ui/SkeletonPresets';
+import { useDelayedLoading } from '@/hooks/useDelayedLoading';
 import { SuspectList } from '@/features/suspects/SuspectList';
 import { suspectsApi } from '@/services/api/suspects.api';
 import type { SuspectStatus } from '@/types/suspect.types';
@@ -40,6 +41,8 @@ export function SuspectsListPage() {
       }),
   });
 
+  const showSkeleton = useDelayedLoading(isLoading);
+
   return (
     <div className="page-suspects-list">
       <div className="page-header">
@@ -57,8 +60,8 @@ export function SuspectsListPage() {
 
       {error && <Alert type="error">Failed to load suspects.</Alert>}
 
-      {isLoading ? (
-        <Skeleton height={400} />
+      {showSkeleton ? (
+        <TableSkeleton columns={5} rows={8} />
       ) : data ? (
         <>
           <SuspectList

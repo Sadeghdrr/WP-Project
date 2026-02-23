@@ -8,8 +8,9 @@ import { Select } from '@/components/ui/Select';
 import { Button } from '@/components/ui/Button';
 import { Pagination } from '@/components/ui/Pagination';
 import { Alert } from '@/components/ui/Alert';
-import { Skeleton } from '@/components/ui/Skeleton';
+import { TableSkeleton } from '@/components/ui/SkeletonPresets';
 import { PermissionGate } from '@/components/guards/PermissionGate';
+import { useDelayedLoading } from '@/hooks/useDelayedLoading';
 import { EvidenceTable } from '@/features/evidence/EvidenceTable';
 import { evidenceApi } from '@/services/api/evidence.api';
 import { EvidencePerms } from '@/config/permissions';
@@ -41,6 +42,8 @@ export function EvidenceVaultPage() {
       }),
   });
 
+  const showSkeleton = useDelayedLoading(isLoading);
+
   return (
     <div className="page-evidence-vault">
       <div className="page-header">
@@ -63,8 +66,8 @@ export function EvidenceVaultPage() {
 
       {error && <Alert type="error">Failed to load evidence.</Alert>}
 
-      {isLoading ? (
-        <Skeleton height={400} />
+      {showSkeleton ? (
+        <TableSkeleton columns={5} rows={8} />
       ) : data ? (
         <>
           <EvidenceTable

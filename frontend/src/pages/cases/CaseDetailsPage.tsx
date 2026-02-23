@@ -6,8 +6,9 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
-import { Skeleton } from '@/components/ui/Skeleton';
+import { DetailSkeleton } from '@/components/ui/SkeletonPresets';
 import { Alert } from '@/components/ui/Alert';
+import { useDelayedLoading } from '@/hooks/useDelayedLoading';
 import { CaseTimeline } from '@/features/cases/CaseTimeline';
 import { CaseReviewActions } from '@/features/cases/CaseReviewActions';
 import { ComplainantManager } from '@/features/cases/ComplainantManager';
@@ -33,11 +34,13 @@ export function CaseDetailsPage() {
     enabled: !Number.isNaN(caseId),
   });
 
+  const showSkeleton = useDelayedLoading(isLoading);
+
   const handleUpdate = () => {
     queryClient.invalidateQueries({ queryKey: ['cases', caseId] });
   };
 
-  if (isLoading) return <Skeleton height={600} />;
+  if (showSkeleton) return <DetailSkeleton sections={4} />;
   if (error || !caseData) {
     return (
       <div className="page-case-detail">
