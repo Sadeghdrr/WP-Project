@@ -301,3 +301,452 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   Phase 4 — Core Page Styles
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── Shared Page Utilities ───────────────────────────────────────── */
+
+.page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.page-header__title {
+  font-size: 1.75rem;
+  font-weight: 700;
+  margin: 0;
+  color: #111827;
+}
+
+.page-header__meta {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.375rem;
+  flex-wrap: wrap;
+}
+
+.page-filters {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+  flex-wrap: wrap;
+}
+
+/* ── Home Page ───────────────────────────────────────────────────── */
+
+.home-hero {
+  text-align: center;
+  padding: 3rem 1rem;
+}
+
+.home-hero__title {
+  font-size: 2.25rem;
+  font-weight: 800;
+  margin: 0 0 0.75rem;
+  color: #111827;
+}
+
+.home-hero__subtitle {
+  font-size: 1.125rem;
+  color: #6b7280;
+  margin: 0 0 1.5rem;
+}
+
+.home-hero__actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+}
+
+.home-features {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 1rem;
+  margin-top: 2rem;
+}
+
+.home-feature-card {
+  text-align: center;
+  padding: 1.5rem;
+}
+
+.home-feature-card h3 { font-size: 1.125rem; margin: 0 0 0.5rem; }
+.home-feature-card p  { color: #6b7280; margin: 0; font-size: 0.875rem; }
+
+/* ── Stats Cards ─────────────────────────────────────────────────── */
+
+.stats-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+/* ── Most Wanted ─────────────────────────────────────────────────── */
+
+.most-wanted-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1rem;
+}
+
+.most-wanted-card {
+  display: flex;
+  gap: 1rem;
+  padding: 1rem;
+}
+
+.most-wanted-card__rank {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: var(--color-primary, #1e40af);
+  min-width: 2rem;
+}
+
+.most-wanted-card__photo {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #e5e7eb;
+}
+
+.most-wanted-card__photo-placeholder {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: #e5e7eb;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+  color: #9ca3af;
+}
+
+.most-wanted-card__info { flex: 1; }
+.most-wanted-card__name { font-weight: 600; margin: 0 0 0.25rem; }
+.most-wanted-card__badges { display: flex; gap: 0.375rem; margin: 0.375rem 0; flex-wrap: wrap; }
+.most-wanted-card__reward { font-size: 0.85rem; color: #6b7280; }
+
+/* ── Case Timeline ───────────────────────────────────────────────── */
+
+.case-timeline { list-style: none; padding: 0; margin: 0; }
+
+.case-timeline__entry {
+  display: flex;
+  gap: 0.75rem;
+  padding: 0.625rem 0;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.case-timeline__marker {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--color-primary, #1e40af);
+  margin-top: 0.35rem;
+  flex-shrink: 0;
+}
+
+.case-timeline__status { font-weight: 600; }
+.case-timeline__date   { font-size: 0.8rem; color: #9ca3af; }
+.case-timeline__actor  { font-size: 0.85rem; color: #6b7280; }
+.case-timeline__msg    { font-size: 0.85rem; color: #6b7280; font-style: italic; }
+
+/* ── Case Form ───────────────────────────────────────────────────── */
+
+.case-form,
+.evidence-form,
+.interrogation-form,
+.trial-form,
+.bounty-tip-form,
+.coroner-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  max-width: 720px;
+}
+
+.case-form__row,
+.evidence-form__row,
+.interrogation-form__row,
+.bounty-tip-form__row,
+.bounty-lookup__row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.75rem;
+}
+
+/* ── Case Review Actions ─────────────────────────────────────────── */
+
+.case-review-actions {
+  margin: 1rem 0;
+}
+
+.case-review-actions__title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin: 0 0 0.75rem;
+}
+
+.case-review-actions__buttons {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 0.75rem;
+}
+
+/* ── Complainant Manager ─────────────────────────────────────────── */
+
+.complainant-manager {
+  margin: 1rem 0;
+}
+
+.complainant-manager__title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin: 0 0 0.75rem;
+}
+
+.complainant-manager__list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.complainant-manager__item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.complainant-manager__name { flex: 1; display: flex; align-items: center; gap: 0.5rem; }
+.complainant-manager__actions { display: flex; gap: 0.375rem; }
+.complainant-manager__empty { color: #9ca3af; font-size: 0.875rem; }
+
+.complainant-manager__add {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-end;
+  margin-top: 0.75rem;
+}
+
+/* ── Case Detail Grid ────────────────────────────────────────────── */
+
+.case-info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0.75rem;
+}
+
+.case-info-grid strong { display: block; font-size: 0.8rem; color: #9ca3af; text-transform: uppercase; }
+.case-info-grid p      { margin: 0.125rem 0 0; }
+
+/* ── Evidence Card ───────────────────────────────────────────────── */
+
+.evidence-card__header {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.evidence-card__title { font-size: 1.25rem; font-weight: 600; margin: 0; }
+.evidence-card__desc { color: #374151; margin: 0 0 0.75rem; }
+
+.evidence-card__meta {
+  display: flex;
+  gap: 1.25rem;
+  flex-wrap: wrap;
+  font-size: 0.875rem;
+  color: #6b7280;
+  margin-bottom: 1rem;
+}
+
+.evidence-card__section { margin-top: 1rem; }
+.evidence-card__section h4 { font-size: 1rem; margin: 0 0 0.375rem; }
+.evidence-card__files,
+.evidence-card__custody { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.375rem; }
+
+/* ── Coroner Form ────────────────────────────────────────────────── */
+
+.coroner-form__title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin: 0 0 0.75rem;
+}
+
+.coroner-form__actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+/* ── Case Report ─────────────────────────────────────────────────── */
+
+.case-report {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.case-report__section h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1.125rem;
+}
+
+.case-report__section ul {
+  padding-left: 1.25rem;
+  margin: 0;
+}
+
+/* ── Role Manager ────────────────────────────────────────────────── */
+
+.role-manager__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.role-manager__list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.role-manager__item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.625rem 0;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.role-manager__name { flex: 1; font-weight: 500; }
+
+.role-manager__perms { margin-top: 1rem; }
+.role-manager__perm-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0.25rem;
+  max-height: 240px;
+  overflow-y: auto;
+  margin-top: 0.5rem;
+}
+
+.role-manager__perm-label {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.role-manager__modal-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+/* ── User Manager ────────────────────────────────────────────────── */
+
+.user-manager__actions {
+  display: flex;
+  gap: 0.375rem;
+}
+
+/* ── Dashboard Modules ───────────────────────────────────────────── */
+
+.dashboard-modules {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+/* ── Bail Payment ────────────────────────────────────────────────── */
+
+.bail-payment { margin: 1rem 0; }
+.bail-payment__card { margin-bottom: 0.75rem; }
+.bail-payment__info { display: flex; flex-direction: column; gap: 0.25rem; margin-bottom: 0.5rem; }
+
+/* ── Bounty Lookup ───────────────────────────────────────────────── */
+
+.bounty-lookup { margin-top: 2rem; }
+.bounty-lookup__result {
+  margin-top: 1rem;
+  background: #f9fafb;
+  padding: 1rem;
+  border-radius: 0.375rem;
+  font-size: 0.85rem;
+  overflow-x: auto;
+}
+
+/* ── Witness List ────────────────────────────────────────────────── */
+
+.witness-list { list-style: none; padding: 0; margin: 0; }
+.witness-list__item {
+  display: flex;
+  gap: 1.5rem;
+  padding: 0.375rem 0;
+  border-bottom: 1px solid #f3f4f6;
+  font-size: 0.875rem;
+}
+
+/* ── Interrogation / Trial Lists ─────────────────────────────────── */
+
+.interrogation-list,
+.trial-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.interrogation-list li,
+.trial-list li {
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #f3f4f6;
+  font-size: 0.875rem;
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+/* ── Responsive: Pages ───────────────────────────────────────────── */
+
+@media (max-width: 640px) {
+  .page-header {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .page-filters {
+    flex-direction: column;
+  }
+
+  .case-form__row,
+  .evidence-form__row,
+  .interrogation-form__row,
+  .bounty-tip-form__row,
+  .bounty-lookup__row {
+    grid-template-columns: 1fr;
+  }
+
+  .case-info-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .home-hero__title {
+    font-size: 1.625rem;
+  }
+}

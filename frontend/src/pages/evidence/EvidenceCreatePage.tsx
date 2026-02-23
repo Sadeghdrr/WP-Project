@@ -1,9 +1,23 @@
-import React from 'react';
+/**
+ * EvidenceCreatePage — wraps EvidenceForm, navigates on success.
+ */
+import { useNavigate } from 'react-router-dom';
+import { EvidenceForm } from '@/features/evidence/EvidenceForm';
+import type { EvidenceDetail } from '@/types/evidence.types';
 
-// TODO: Evidence registration page
-// - EvidenceForm component (polymorphic for all types)
-// Route: /evidence/new
+export function EvidenceCreatePage() {
+  const navigate = useNavigate();
 
-export const EvidenceCreatePage: React.FC = () => {
-  return <div>{/* TODO: Implement Evidence Registration Page */}</div>;
-};
+  const handleSuccess = (created: EvidenceDetail) => {
+    navigate(`/evidence/${created.id}`);
+  };
+
+  return (
+    <div className="page-evidence-create">
+      <div className="page-header">
+        <h1 className="page-header__title">Register New Evidence</h1>
+      </div>
+      <EvidenceForm onSuccess={handleSuccess} />
+    </div>
+  );
+}

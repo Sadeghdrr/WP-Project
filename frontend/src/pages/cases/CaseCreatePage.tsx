@@ -1,10 +1,23 @@
-import React from 'react';
+/**
+ * CaseCreatePage — wraps CaseForm and navigates to the new case on success.
+ */
+import { useNavigate } from 'react-router-dom';
+import { CaseForm } from '@/features/cases/CaseForm';
+import type { CaseDetail } from '@/types/case.types';
 
-// TODO: Case creation page
-// - CaseForm component
-// - Supports complaint and crime-scene creation types
-// Route: /cases/new
+export function CaseCreatePage() {
+  const navigate = useNavigate();
 
-export const CaseCreatePage: React.FC = () => {
-  return <div>{/* TODO: Implement Case Creation Page */}</div>;
-};
+  const handleSuccess = (created: CaseDetail) => {
+    navigate(`/cases/${created.id}`);
+  };
+
+  return (
+    <div className="page-case-create">
+      <div className="page-header">
+        <h1 className="page-header__title">Create New Case</h1>
+      </div>
+      <CaseForm onSuccess={handleSuccess} />
+    </div>
+  );
+}
