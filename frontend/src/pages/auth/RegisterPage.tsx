@@ -1,6 +1,8 @@
 import React from 'react';
-import { RegisterForm } from '../../features/auth/RegisterForm';
+
+// TODO: Registration page — wraps RegisterForm component
+// Route: /register
 
 export const RegisterPage: React.FC = () => {
-  return <RegisterForm />;
+  return <div>{/* TODO: Render RegisterForm */}</div>;
 };

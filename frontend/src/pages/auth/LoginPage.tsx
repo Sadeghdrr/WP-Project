@@ -1,6 +1,8 @@
 import React from 'react';
-import { LoginForm } from '../../features/auth/LoginForm';
+
+// TODO: Login page — wraps LoginForm component
+// Route: /login
 
 export const LoginPage: React.FC = () => {
-  return <LoginForm />;
+  return <div>{/* TODO: Render LoginForm */}</div>;
 };

@@ -1,28 +1,14 @@
-/**
- * User and Role types — mirror backend accounts app (UserDetailSerializer, RoleListSerializer).
- * DO NOT modify without verifying backend DTOs.
- */
+// TODO: Define User, Role, and authentication-related interfaces
+// Should mirror backend accounts app models (User, Role)
 
-export interface RoleDetail {
-  id: number;
-  name: string;
-  description: string;
-  hierarchy_level: number;
+export interface Role {
+  // TODO: id, name, description, hierarchy_level, permissions
 }
 
 export interface User {
-  id: number;
-  username: string;
-  email: string;
-  national_id: string;
-  phone_number: string;
-  first_name: string;
-  last_name: string;
-  is_active: boolean;
-  date_joined: string;
-  role: number;
-  role_detail: RoleDetail;
-  permissions: string[];
+  // TODO: id, username, email, phone_number, national_id, full_name, role, etc.
 }
 
-export interface UserProfile extends User {}
+export interface UserProfile {
+  // TODO: Extended user info for profile views
+}

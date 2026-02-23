@@ -1,43 +1,10 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
-import { useAuth } from '../../hooks/useAuth';
+
+// TODO: Public home page (§5.1)
+// - General introduction to the system and police department
+// - Display statistics: total solved cases, total employees, active cases
+// Route: /
 
 export const HomePage: React.FC = () => {
-  const { isAuthenticated } = useAuth();
-
-  return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-slate-900 px-4">
-      <h1 className="mb-6 text-right text-3xl font-bold text-slate-100">
-        L.A. Noire Police Department
-      </h1>
-      <p className="mb-8 text-right text-slate-400">
-        سیستم مدیریت اداره پلیس
-      </p>
-      <div className="flex gap-4">
-        {isAuthenticated ? (
-          <Link
-            to="/dashboard"
-            className="rounded-lg bg-blue-600 px-6 py-2 font-medium text-white hover:bg-blue-700"
-          >
-            داشبورد
-          </Link>
-        ) : (
-          <>
-            <Link
-              to="/login"
-              className="rounded-lg bg-blue-600 px-6 py-2 font-medium text-white hover:bg-blue-700"
-            >
-              ورود
-            </Link>
-            <Link
-              to="/register"
-              className="rounded-lg border border-slate-600 px-6 py-2 font-medium text-slate-300 hover:bg-slate-800"
-            >
-              ثبت‌نام
-            </Link>
-          </>
-        )}
-      </div>
-    </div>
-  );
+  return <div>{/* TODO: Implement Home Page with stats */}</div>;
 };
