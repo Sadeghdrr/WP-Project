@@ -1145,17 +1145,18 @@ class BailViewSet(viewsets.ViewSet):
         GET /api/suspects/{suspect_pk}/bails/
 
         List all bail records for the given suspect.
-
-        Steps
-        -----
-        1. Get queryset via ``BailService.get_bails_for_suspect(
-               suspect_id=suspect_pk,
-               requesting_user=request.user,
-           )``.
-        2. Serialize with ``BailListSerializer(queryset, many=True)``.
-        3. Return HTTP 200.
         """
-        raise NotImplementedError
+        try:
+            bails = BailService.get_bails_for_suspect(
+                suspect_id=suspect_pk,
+                requesting_user=request.user,
+            )
+        except NotFound as exc:
+            return Response(
+                {"detail": str(exc)}, status=status.HTTP_404_NOT_FOUND,
+            )
+        serializer = BailListSerializer(bails, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
     @extend_schema(
         summary="Create bail record",
@@ -1172,27 +1173,33 @@ class BailViewSet(viewsets.ViewSet):
         POST /api/suspects/{suspect_pk}/bails/
 
         Create a bail record for the suspect (Sergeant action).
-
-        Steps
-        -----
-        1. Validate ``request.data`` with ``BailCreateSerializer``.
-        2. If invalid, return HTTP 400.
-        3. Delegate to ``BailService.create_bail(
-               suspect_id=suspect_pk,
-               validated_data=serializer.validated_data,
-               requesting_user=request.user,
-           )``.
-        4. Serialize result with ``BailDetailSerializer``.
-        5. Return HTTP 201.
-
-        Example Request
-        ---------------
-        ::
-
-            POST /api/suspects/12/bails/
-            {"amount": 50000000}
         """
-        raise NotImplementedError
+        serializer = BailCreateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                serializer.errors, status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            bail = BailService.create_bail(
+                actor=request.user,
+                suspect_id=suspect_pk,
+                amount=serializer.validated_data["amount"],
+                conditions=serializer.validated_data.get("conditions", ""),
+            )
+        except PermissionDenied as exc:
+            return Response(
+                {"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN,
+            )
+        except NotFound as exc:
+            return Response(
+                {"detail": str(exc)}, status=status.HTTP_404_NOT_FOUND,
+            )
+        except DomainError as exc:
+            return Response(
+                {"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST,
+            )
+        output = BailDetailSerializer(bail)
+        return Response(output.data, status=status.HTTP_201_CREATED)
 
     @extend_schema(
         summary="Retrieve bail detail",
@@ -1207,14 +1214,19 @@ class BailViewSet(viewsets.ViewSet):
         GET /api/suspects/{suspect_pk}/bails/{id}/
 
         Retrieve a single bail record detail.
-
-        Steps
-        -----
-        1. Fetch bail via service or direct lookup.
-        2. Serialize with ``BailDetailSerializer``.
-        3. Return HTTP 200.
         """
-        raise NotImplementedError
+        try:
+            bail = BailService.get_bail_detail(
+                suspect_id=suspect_pk,
+                bail_id=pk,
+                requesting_user=request.user,
+            )
+        except NotFound as exc:
+            return Response(
+                {"detail": str(exc)}, status=status.HTTP_404_NOT_FOUND,
+            )
+        serializer = BailDetailSerializer(bail)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["post"], url_path="pay")
     @extend_schema(

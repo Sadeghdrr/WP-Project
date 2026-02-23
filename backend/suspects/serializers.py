@@ -1289,6 +1289,7 @@ class BailListSerializer(serializers.ModelSerializer):
             "suspect",
             "case",
             "amount",
+            "conditions",
             "is_paid",
             "approved_by",
             "approved_by_name",
@@ -1299,7 +1300,9 @@ class BailListSerializer(serializers.ModelSerializer):
 
     def get_approved_by_name(self, obj: Bail) -> str | None:
         """Return the approving sergeant's full name."""
-        raise NotImplementedError
+        if obj.approved_by:
+            return obj.approved_by.get_full_name() or str(obj.approved_by)
+        return None
 
 
 class BailDetailSerializer(serializers.ModelSerializer):
@@ -1318,6 +1321,7 @@ class BailDetailSerializer(serializers.ModelSerializer):
             "suspect_name",
             "case",
             "amount",
+            "conditions",
             "is_paid",
             "payment_reference",
             "paid_at",
@@ -1330,11 +1334,15 @@ class BailDetailSerializer(serializers.ModelSerializer):
 
     def get_approved_by_name(self, obj: Bail) -> str | None:
         """Return the approving sergeant's full name."""
-        raise NotImplementedError
+        if obj.approved_by:
+            return obj.approved_by.get_full_name() or str(obj.approved_by)
+        return None
 
     def get_suspect_name(self, obj: Bail) -> str | None:
         """Return the suspect's full name."""
-        raise NotImplementedError
+        if obj.suspect:
+            return obj.suspect.full_name
+        return None
 
 
 class BailCreateSerializer(serializers.ModelSerializer):
@@ -1361,14 +1369,30 @@ class BailCreateSerializer(serializers.ModelSerializer):
         }
     """
 
+    conditions = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Optional bail conditions imposed on the suspect.",
+    )
+
     class Meta:
         model = Bail
         fields = [
             "amount",
+            "conditions",
         ]
         extra_kwargs = {
             "amount": {"required": True},
         }
+
+    def validate_amount(self, value):
+        """Ensure the bail amount is positive."""
+        if value <= 0:
+            raise serializers.ValidationError(
+                "Bail amount must be a positive number."
+            )
+        return value
 
 
 # ═══════════════════════════════════════════════════════════════════

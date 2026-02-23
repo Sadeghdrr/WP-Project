@@ -51,7 +51,9 @@ from django.db.models import (
 from django.db.models.functions import Coalesce, ExtractDay, Now
 from django.utils import timezone
 
+from cases.models import CrimeLevel
 from core.constants import REWARD_MULTIPLIER
+from core.domain.access import apply_role_filter, get_user_role_name
 from core.domain.exceptions import DomainError, InvalidTransition, NotFound, PermissionDenied
 from core.domain.notifications import NotificationService
 from core.permissions_constants import CasesPerms, SuspectsPerms
@@ -2426,82 +2428,229 @@ class BailService:
     Manages bail/fine records for suspects.
 
     Only applicable to Level 2 / Level 3 suspects and Level 3 convicted
-    criminals (project-doc §4.9).  The amount is decided by the Sergeant
-    and payment is processed via a payment gateway.
+    criminals (project-doc §4.9).  The amount is decided by the Sergeant.
+
+    Eligibility Rules
+    -----------------
+    - **Level 1 (Major) / Critical**: Bail is **never** allowed.
+    - **Level 2 (Medium)**: Bail allowed for ``ARRESTED`` suspects only.
+      The actor must have at least a Sergeant role (``CAN_SET_BAIL_AMOUNT``).
+    - **Level 3 (Minor)**: Bail allowed for ``ARRESTED`` suspects **and**
+      ``CONVICTED`` criminals. Sergeant approval required.
     """
 
+    #: Role-based scope config for bail visibility.
+    #: Mirrors the pattern used by CaseQueryService's ``CASE_SCOPE_CONFIG``.
+    BAIL_SCOPE_CONFIG: dict[str, Any] = {
+        # Detectives see bails for suspects on their assigned cases
+        "detective":      lambda qs, u: qs.filter(
+                              Q(case__assigned_detective=u) | Q(suspect__identified_by=u)
+                          ),
+        # Sergeants see bails for suspects on cases they supervise
+        "sergeant":       lambda qs, u: qs.filter(
+                              Q(case__assigned_sergeant=u) | Q(approved_by=u)
+                          ),
+        # Senior / admin roles — unrestricted
+        "captain":        lambda qs, u: qs,
+        "police_chief":   lambda qs, u: qs,
+        "system_admin":   lambda qs, u: qs,
+        # Judge — only bails on cases assigned to them
+        "judge":          lambda qs, u: qs.filter(case__assigned_judge=u),
+    }
+
+    # Roles considered at least Sergeant rank or higher for bail authorization
+    _SERGEANT_OR_HIGHER = {
+        "sergeant", "captain", "police_chief", "system_admin",
+    }
+
     @staticmethod
+    def _get_suspect_or_404(suspect_id: int) -> Suspect:
+        """Fetch suspect with related case, or raise ``NotFound``."""
+        try:
+            return Suspect.objects.select_related("case").get(pk=suspect_id)
+        except Suspect.DoesNotExist:
+            raise NotFound(f"Suspect #{suspect_id} not found.")
+
+    @classmethod
+    def _check_eligibility(cls, suspect: Suspect, actor: Any) -> None:
+        """
+        Enforce bail eligibility business rules.
+
+        Raises ``DomainError`` or ``PermissionDenied`` when bail is not
+        allowed for the given suspect/actor combination.
+        """
+        crime_level = suspect.case.crime_level
+        suspect_status = suspect.status
+
+        # ── Rule 1: Level 1 and Critical crimes are never bail-eligible ──
+        if crime_level >= CrimeLevel.LEVEL_1:
+            raise DomainError(
+                "Bail is not allowed for Level 1 (major) or Critical crimes."
+            )
+
+        # ── Rule 2: Suspect must be ARRESTED or CONVICTED ───────────────
+        allowed_statuses = {SuspectStatus.ARRESTED}
+        if crime_level == CrimeLevel.LEVEL_3:
+            # Level 3 convicted criminals are also eligible
+            allowed_statuses.add(SuspectStatus.CONVICTED)
+
+        if suspect_status not in allowed_statuses:
+            if crime_level == CrimeLevel.LEVEL_3:
+                raise DomainError(
+                    f"Bail for Level 3 crimes requires the suspect to be "
+                    f"arrested or convicted. Current status: {suspect_status}."
+                )
+            raise DomainError(
+                f"Bail for Level 2 crimes requires the suspect to be "
+                f"arrested. Current status: {suspect_status}."
+            )
+
+        # ── Rule 3: Actor must be Sergeant or higher ────────────────────
+        role_name = get_user_role_name(actor)
+        if role_name not in cls._SERGEANT_OR_HIGHER:
+            raise PermissionDenied(
+                "Only a Sergeant or higher rank can set bail amounts."
+            )
+
+    @classmethod
     def get_bails_for_suspect(
+        cls,
         suspect_id: int,
         requesting_user: Any,
     ) -> QuerySet[Bail]:
         """
-        Return all bail records for a given suspect.
-
-        Parameters
-        ----------
-        suspect_id : int
-        requesting_user : User
-
-        Returns
-        -------
-        QuerySet[Bail]
-
-        Implementation Contract
-        -----------------------
-        1. Assert VIEW_BAIL permission.
-        2. Return filtered, select_related queryset.
-        """
-        raise NotImplementedError
-
-    @staticmethod
-    @transaction.atomic
-    def create_bail(
-        suspect_id: int,
-        validated_data: dict[str, Any],
-        requesting_user: Any,
-    ) -> Bail:
-        """
-        Create a bail record for a suspect.
+        Return all bail records for a given suspect, scoped to the
+        requesting user's role.
 
         Parameters
         ----------
         suspect_id : int
             PK of the suspect.
-        validated_data : dict
-            From ``BailCreateSerializer``.  Keys: ``amount``.
         requesting_user : User
-            The Sergeant setting the bail.  Must have
-            ``CAN_SET_BAIL_AMOUNT``.
+            Authenticated user; used for role-based scoping.
+
+        Returns
+        -------
+        QuerySet[Bail]
+            Filtered, ``select_related`` queryset.
+        """
+        # Ensure suspect exists
+        cls._get_suspect_or_404(suspect_id)
+
+        qs = Bail.objects.filter(suspect_id=suspect_id).select_related(
+            "suspect", "case", "approved_by",
+        )
+
+        # Apply role scoping
+        qs = apply_role_filter(
+            qs,
+            requesting_user,
+            scope_config=cls.BAIL_SCOPE_CONFIG,
+            default="none",
+        )
+
+        return qs.order_by("-created_at")
+
+    @classmethod
+    def get_bail_detail(
+        cls,
+        suspect_id: int,
+        bail_id: int,
+        requesting_user: Any,
+    ) -> Bail:
+        """
+        Return a single bail record, scoped to the requesting user's role.
+
+        Parameters
+        ----------
+        suspect_id : int
+        bail_id : int
+        requesting_user : User
 
         Returns
         -------
         Bail
-            The newly created bail record.
 
         Raises
         ------
-        PermissionError
-            If lacking ``CAN_SET_BAIL_AMOUNT``.
-        django.core.exceptions.ValidationError
-            - If suspect's case is not Level 2 or Level 3.
-            - If suspect is not in ``ARRESTED`` or ``CONVICTED`` status.
-
-        Implementation Contract
-        -----------------------
-        1. Assert ``CAN_SET_BAIL_AMOUNT`` permission.
-        2. Fetch suspect with ``select_related("case")``.
-        3. Guard: ``case.crime_level`` must be 2 or 3 (Level 2 or Level 3).
-           For convicted criminals, only Level 3 is eligible.
-        4. Guard: suspect status must be ``ARRESTED`` or ``CONVICTED``.
-        5. Inject:
-           - ``suspect = suspect``
-           - ``case = suspect.case``
-           - ``approved_by = requesting_user``
-        6. Create bail record.
-        7. Return ``bail``.
+        NotFound
+            If the bail does not exist or is not visible to the user.
         """
-        raise NotImplementedError
+        qs = Bail.objects.filter(
+            pk=bail_id,
+            suspect_id=suspect_id,
+        ).select_related("suspect", "case", "approved_by")
+
+        qs = apply_role_filter(
+            qs,
+            requesting_user,
+            scope_config=cls.BAIL_SCOPE_CONFIG,
+            default="none",
+        )
+
+        try:
+            return qs.get()
+        except Bail.DoesNotExist:
+            raise NotFound(
+                f"Bail #{bail_id} not found or not accessible."
+            )
+
+    @classmethod
+    @transaction.atomic
+    def create_bail(
+        cls,
+        actor: Any,
+        suspect_id: int,
+        amount: Any,
+        conditions: str | None = None,
+    ) -> Bail:
+        """
+        Create a bail record for a suspect after checking eligibility.
+
+        Parameters
+        ----------
+        actor : User
+            The Sergeant (or higher) setting the bail.
+        suspect_id : int
+            PK of the suspect.
+        amount : Decimal | int
+            Bail amount in Rials. Must be positive.
+        conditions : str | None
+            Optional bail conditions text.
+
+        Returns
+        -------
+        Bail
+            The newly created bail record. Payment-related fields
+            (``is_paid``, ``payment_reference``, ``paid_at``) are left
+            at their defaults.
+
+        Raises
+        ------
+        PermissionDenied
+            If the actor lacks the required rank.
+        DomainError
+            If the suspect/case is ineligible for bail.
+        NotFound
+            If the suspect does not exist.
+        """
+        suspect = cls._get_suspect_or_404(suspect_id)
+        cls._check_eligibility(suspect, actor)
+
+        bail = Bail.objects.create(
+            suspect=suspect,
+            case=suspect.case,
+            amount=amount,
+            conditions=conditions or "",
+            approved_by=actor,
+        )
+
+        logger.info(
+            "Bail #%d created for Suspect #%d (Case #%d) by %s — amount: %s",
+            bail.pk, suspect.pk, suspect.case_id, actor, amount,
+        )
+
+        return bail
 
     @staticmethod
     @transaction.atomic
@@ -2513,28 +2662,11 @@ class BailService:
         """
         Mark a bail as paid and release the suspect.
 
-        Parameters
-        ----------
-        bail_id : int
-            PK of the bail record.
-        payment_reference : str
-            Payment gateway reference/transaction ID.
-        requesting_user : User
-
-        Returns
-        -------
-        Bail
-            The updated bail record.
-
-        Implementation Contract
-        -----------------------
-        1. Fetch bail.
-        2. Guard: bail must not already be paid.
-        3. Set ``is_paid = True``, ``payment_reference``,
-           ``paid_at = timezone.now()``.
-        4. Save bail.
-        5. Transition suspect status to ``RELEASED``
-           (via ``ArrestAndWarrantService.transition_status``).
-        6. Return bail.
+        .. note::
+            Payment gateway integration is **out of scope** for this
+            phase.  This method stub is retained for future use but
+            raises ``NotImplementedError``.
         """
-        raise NotImplementedError
+        raise NotImplementedError(
+            "Payment gateway integration is out of scope for this phase."
+        )

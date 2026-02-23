@@ -632,6 +632,12 @@ class Bail(TimeStampedModel):
         related_name="approved_bails",
         verbose_name="Approved By (Sergeant)",
     )
+    conditions = models.TextField(
+        blank=True,
+        default="",
+        verbose_name="Bail Conditions",
+        help_text="Optional conditions imposed on the bail release.",
+    )
     is_paid = models.BooleanField(
         default=False,
         verbose_name="Paid",
