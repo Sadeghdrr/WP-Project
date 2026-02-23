@@ -1,46 +1,37 @@
 /**
- * DashboardModule — a permission-gated module card for the dashboard.
+ * DashboardModule — renders a single module card from a registry definition.
  *
- * Wraps a ModuleCard and only renders if the user has the required permission.
+ * The parent (OverviewPage) has already filtered the registry via
+ * useDashboardModules, so this component does NOT re-check permissions.
+ * It simply renders the ModuleCard with the data it receives.
+ *
+ * Navigation uses React Router (useNavigate) — no page reloads.
  */
+import { useNavigate } from 'react-router-dom';
 import { ModuleCard } from '@/components/dashboard/ModuleCard';
-import { usePermissions } from '@/hooks/usePermissions';
-import type { ReactNode } from 'react';
+import type { DashboardModuleDefinition } from '@/config/dashboardModules';
 
 interface DashboardModuleProps {
-  permission: string;
-  title: string;
+  module: DashboardModuleDefinition;
   value: string | number;
-  description?: string;
-  icon?: ReactNode;
-  to?: string;
-  trend?: { value: number; direction: 'up' | 'down' | 'neutral' };
   loading?: boolean;
 }
 
 export function DashboardModule({
-  permission,
-  title,
+  module,
   value,
-  description,
-  icon,
-  to,
-  trend,
   loading,
 }: DashboardModuleProps) {
-  const { hasPermission } = usePermissions();
-
-  if (!hasPermission(permission)) return null;
+  const navigate = useNavigate();
 
   return (
     <ModuleCard
-      title={title}
+      title={module.title}
       value={value}
-      subtitle={description}
-      icon={icon}
-      trend={trend}
+      subtitle={module.description}
+      icon={module.icon ? <span aria-hidden>{module.icon}</span> : undefined}
       loading={loading}
-      onClick={to ? () => window.location.assign(to) : undefined}
+      onClick={() => navigate(module.route)}
     />
   );
 }

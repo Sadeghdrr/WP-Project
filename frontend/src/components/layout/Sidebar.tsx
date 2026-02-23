@@ -1,36 +1,16 @@
 /**
- * Sidebar — dynamic navigation built from a permission-driven config.
+ * Sidebar — dynamic navigation driven by the centralised module registry.
  *
- * Each nav item declares which permission codename(s) it requires.
- * Items the user cannot access are silently hidden.
- * The configuration lives here so adding a new module is a one-liner.
+ * Navigation items are derived from dashboardModules.ts via
+ * useDashboardModules. The "Dashboard" link is always shown as the
+ * first item; the remaining items come from the filtered registry.
+ *
+ * Adding a new module to the registry automatically adds it to the
+ * sidebar (unless showInSidebar is set to false).
  */
 import { NavLink } from 'react-router-dom';
-import { usePermissions } from '@/hooks/usePermissions';
+import { useDashboardModules } from '@/hooks/useDashboardModules';
 import { useAuth } from '@/hooks/useAuth';
-
-/* ── Navigation config (permission-driven, no hardcoded role names) ─ */
-
-export interface NavItem {
-  label: string;
-  to: string;
-  /** If empty, visible to all authenticated users. */
-  permissions: string[];
-  /** If true, ALL permissions are required (default: any). */
-  requireAll?: boolean;
-}
-
-export const NAV_ITEMS: NavItem[] = [
-  { label: 'Dashboard', to: '/dashboard', permissions: [] },
-  { label: 'Cases', to: '/cases', permissions: ['view_case'] },
-  { label: 'Evidence', to: '/evidence', permissions: ['view_evidence'] },
-  { label: 'Suspects', to: '/suspects', permissions: ['view_suspect'] },
-  { label: 'Board', to: '/boards', permissions: ['view_detectiveboard'] },
-  { label: 'Reports', to: '/reports', permissions: ['can_forward_to_judiciary'] },
-  { label: 'Bounty Tips', to: '/bounty', permissions: [] },
-  { label: 'Most Wanted', to: '/most-wanted', permissions: [] },
-  { label: 'Admin', to: '/admin', permissions: ['add_role', 'change_role'] },
-];
 
 /* ── Component ───────────────────────────────────────────────────── */
 
@@ -39,15 +19,8 @@ interface SidebarProps {
 }
 
 export const Sidebar = ({ collapsed = false }: SidebarProps) => {
-  const { hasAnyPermission, hasAllPermissions } = usePermissions();
+  const { sidebarItems } = useDashboardModules();
   const { user } = useAuth();
-
-  const visible = NAV_ITEMS.filter((item) => {
-    if (item.permissions.length === 0) return true;
-    return item.requireAll
-      ? hasAllPermissions(item.permissions)
-      : hasAnyPermission(item.permissions);
-  });
 
   return (
     <aside className={`sidebar ${collapsed ? 'sidebar--collapsed' : ''}`}>
@@ -56,15 +29,26 @@ export const Sidebar = ({ collapsed = false }: SidebarProps) => {
       </div>
 
       <nav className="sidebar__nav">
-        {visible.map((item) => (
+        {/* Dashboard link — always visible to authenticated users */}
+        <NavLink
+          to="/dashboard"
+          className={({ isActive }) =>
+            `sidebar__link ${isActive ? 'sidebar__link--active' : ''}`
+          }
+        >
+          <span className="sidebar__label">Dashboard</span>
+        </NavLink>
+
+        {/* Registry-driven module links */}
+        {sidebarItems.map((mod) => (
           <NavLink
-            key={item.to}
-            to={item.to}
+            key={mod.id}
+            to={mod.route}
             className={({ isActive }) =>
               `sidebar__link ${isActive ? 'sidebar__link--active' : ''}`
             }
           >
-            <span className="sidebar__label">{item.label}</span>
+            <span className="sidebar__label">{mod.title}</span>
           </NavLink>
         ))}
       </nav>

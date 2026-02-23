@@ -1,14 +1,19 @@
 /**
  * OverviewPage — modular dashboard with role-based module cards.
+ *
+ * Module visibility is driven entirely by the centralised module registry
+ * (dashboardModules.ts) and the user's permission set. No role names are
+ * referenced. Adding a new module to the registry is sufficient — this page
+ * renders whatever the engine returns.
  */
 import { useQuery } from '@tanstack/react-query';
 import { Alert } from '@/components/ui/Alert';
 import { StatsSkeleton } from '@/components/ui/SkeletonPresets';
 import { useDelayedLoading } from '@/hooks/useDelayedLoading';
+import { useDashboardModules } from '@/hooks/useDashboardModules';
 import { StatsCards } from '@/features/dashboard/StatsCards';
 import { DashboardModule } from '@/features/dashboard/DashboardModule';
 import { coreApi } from '@/services/api/core.api';
-import { CasesPerms, EvidencePerms, SuspectsPerms, BoardPerms, AccountsPerms } from '@/config/permissions';
 import type { DashboardStats } from '@/types/notification.types';
 
 export function OverviewPage() {
@@ -18,6 +23,7 @@ export function OverviewPage() {
   });
 
   const showSkeleton = useDelayedLoading(isLoading);
+  const { visibleModules, getStatValue } = useDashboardModules(stats);
 
   return (
     <div className="page-overview">
@@ -28,61 +34,21 @@ export function OverviewPage() {
       {error && <Alert type="error">Failed to load dashboard stats.</Alert>}
 
       {showSkeleton ? (
-        <StatsSkeleton cards={4} />
+        <StatsSkeleton cards={6} />
       ) : stats ? (
         <StatsCards stats={stats} loading={isLoading} />
       ) : null}
 
-      {/* Permission-gated module cards */}
+      {/* Module cards — rendered dynamically from the registry */}
       <div className="dashboard-modules">
-        <DashboardModule
-          permission={CasesPerms.VIEW_CASE}
-          title="Case Management"
-          value={stats?.total_cases ?? 0}
-          description="View and manage all cases"
-          to="/cases"
-          loading={isLoading}
-        />
-        <DashboardModule
-          permission={EvidencePerms.VIEW_EVIDENCE}
-          title="Evidence Vault"
-          value={stats?.total_evidence ?? 0}
-          description="Register and review evidence"
-          to="/evidence"
-          loading={isLoading}
-        />
-        <DashboardModule
-          permission={SuspectsPerms.VIEW_SUSPECT}
-          title="Suspects"
-          value={stats?.total_suspects ?? 0}
-          description="Manage suspects and interrogations"
-          to="/suspects"
-          loading={isLoading}
-        />
-        <DashboardModule
-          permission={BoardPerms.VIEW_DETECTIVEBOARD}
-          title="Detective Board"
-          value="—"
-          description="Visual crime investigation board"
-          to="/boards"
-          loading={isLoading}
-        />
-        <DashboardModule
-          permission={AccountsPerms.VIEW_ROLE}
-          title="Admin Panel"
-          value={stats?.total_employees ?? 0}
-          description="Manage roles and users"
-          to="/admin"
-          loading={isLoading}
-        />
-        <DashboardModule
-          permission={CasesPerms.CAN_FORWARD_TO_JUDICIARY}
-          title="Reports"
-          value="—"
-          description="General case reporting"
-          to="/reports"
-          loading={isLoading}
-        />
+        {visibleModules.map((mod) => (
+          <DashboardModule
+            key={mod.id}
+            module={mod}
+            value={getStatValue(mod)}
+            loading={isLoading}
+          />
+        ))}
       </div>
     </div>
   );
