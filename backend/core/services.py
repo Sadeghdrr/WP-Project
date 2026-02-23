@@ -48,6 +48,7 @@ from __future__ import annotations
 from datetime import timedelta
 from typing import Any, TYPE_CHECKING
 
+from django.apps import apps
 from django.db.models import (
     Count,
     ExpressionWrapper,
@@ -63,6 +64,7 @@ from django.db.models.functions import Cast, Coalesce, Greatest, Now
 from django.utils import timezone
 
 from core.constants import REWARD_MULTIPLIER
+from core.domain.access import apply_role_filter, get_user_role_name
 
 if TYPE_CHECKING:
     from accounts.models import User
@@ -262,14 +264,10 @@ class DashboardAggregationService:
       Complainant, Base User, etc.):
       Limited public-facing statistics only (total solved cases, total
       employees, number of active cases).
-
-    Usage in views::
-
-        service = DashboardAggregationService(request.user)
-        data = service.get_stats()
-        serializer = DashboardStatsSerializer(data)
-        return Response(serializer.data)
     """
+
+    #: Role names that see department-wide stats.
+    FULL_ACCESS_ROLES = {"captain", "police_chief", "system_admin"}
 
     #: Maximum number of top-wanted suspects to return.
     TOP_WANTED_LIMIT: int = 10
@@ -277,230 +275,205 @@ class DashboardAggregationService:
     #: Maximum number of recent activity items to return.
     RECENT_ACTIVITY_LIMIT: int = 20
 
-    def __init__(self, user: User) -> None:
-        """
-        Initialise the service with the requesting user.
+    #: Role → queryset filter mapping for dashboard case scoping.
+    _DASHBOARD_SCOPE_CONFIG = {
+        "captain": lambda qs, u: qs,
+        "police_chief": lambda qs, u: qs,
+        "system_admin": lambda qs, u: qs,
+        "detective": lambda qs, u: qs.filter(assigned_detective=u),
+        "sergeant": lambda qs, u: qs.filter(assigned_sergeant=u),
+    }
 
-        Args:
-            user: The authenticated ``User`` instance.  Used to
-                  determine role-based scoping of the returned data.
-        """
+    def __init__(self, user: User) -> None:
         self.user = user
 
     # ── Public API ──────────────────────────────────────────────────
 
     def get_stats(self) -> dict[str, Any]:
-        """
-        Return the full dashboard statistics dictionary.
+        """Return the full dashboard statistics dictionary."""
+        from cases.models import CaseStatus
 
-        Returns:
-            A dict matching the shape expected by
-            ``DashboardStatsSerializer``, containing scalar counters
-            and nested breakdowns.
+        case_qs = self._get_case_queryset()
 
-        Raises:
-            NotImplementedError: Structural draft — inner logic pending.
-
-        Implementation notes (for the developer):
-            1. Call ``_get_case_queryset()`` to obtain the role-scoped
-               base queryset.
-            2. Run aggregation queries for scalar counts.
-            3. Call ``_get_cases_by_status()`` and
-               ``_get_cases_by_crime_level()``.
-            4. Call ``_get_top_wanted_suspects()``.
-            5. Call ``_get_recent_activity()``.
-            6. Call ``_get_employee_count()``.
-            7. Assemble and return the dict.
-        """
-        raise NotImplementedError(
-            "DashboardAggregationService.get_stats() — "
-            "implementation pending."
+        # Single aggregate query for scalar counts
+        aggregates = case_qs.aggregate(
+            total_cases=Count("id"),
+            active_cases=Count(
+                "id",
+                filter=~Q(status__in=[CaseStatus.CLOSED, CaseStatus.VOIDED]),
+            ),
+            closed_cases=Count(
+                "id",
+                filter=Q(status=CaseStatus.CLOSED),
+            ),
+            voided_cases=Count(
+                "id",
+                filter=Q(status=CaseStatus.VOIDED),
+            ),
         )
+
+        Evidence = apps.get_model("evidence", "Evidence")
+        Suspect = apps.get_model("suspects", "Suspect")
+
+        # Scope suspects/evidence to the same cases the user can see
+        case_ids_qs = case_qs.values_list("id", flat=True)
+        total_suspects = Suspect.objects.filter(case_id__in=case_ids_qs).count()
+        total_evidence = Evidence.objects.filter(case_id__in=case_ids_qs).count()
+
+        return {
+            "total_cases": aggregates["total_cases"],
+            "active_cases": aggregates["active_cases"],
+            "closed_cases": aggregates["closed_cases"],
+            "voided_cases": aggregates["voided_cases"],
+            "total_suspects": total_suspects,
+            "total_evidence": total_evidence,
+            "total_employees": self._get_employee_count(),
+            "unassigned_evidence_count": self._get_unassigned_evidence_count(case_qs),
+            "cases_by_status": self._get_cases_by_status(case_qs),
+            "cases_by_crime_level": self._get_cases_by_crime_level(case_qs),
+            "top_wanted_suspects": self._get_top_wanted_suspects(),
+            "recent_activity": self._get_recent_activity(),
+        }
 
     # ── Private helpers ─────────────────────────────────────────────
 
     def _get_case_queryset(self) -> QuerySet:
-        """
-        Return a ``Case`` queryset scoped to the requesting user's role.
-
-        Cross-app import strategy:
-            Uses ``django.apps.apps.get_model("cases", "Case")``
-            inside this method to lazily resolve the ``Case`` model
-            at runtime, thereby avoiding circular imports.
-
-        Scoping logic:
-            - Captain / Police Chief / superuser → ``Case.objects.all()``
-            - Detective → ``Case.objects.filter(assigned_detective=self.user)``
-            - Sergeant  → ``Case.objects.filter(assigned_sergeant=self.user)``
-            - Others    → ``Case.objects.all()`` (counts only, no detail)
-
-        Returns:
-            A ``QuerySet[Case]`` appropriately filtered.
-
-        Raises:
-            NotImplementedError: Structural draft — inner logic pending.
-        """
-        raise NotImplementedError(
-            "DashboardAggregationService._get_case_queryset() — "
-            "implementation pending."
+        """Return a ``Case`` queryset scoped to the requesting user's role."""
+        Case = apps.get_model("cases", "Case")
+        qs = Case.objects.all()
+        return apply_role_filter(
+            qs,
+            self.user,
+            scope_config=self._DASHBOARD_SCOPE_CONFIG,
+            default="all",
         )
 
     def _get_cases_by_status(self, case_qs: QuerySet) -> list[dict[str, Any]]:
-        """
-        Group ``case_qs`` by status and return a list of dicts.
+        """Group ``case_qs`` by status and return a list of dicts."""
+        from cases.models import CaseStatus
 
-        Each dict contains ``status``, ``label``, and ``count`` keys.
-
-        Implementation hint:
-            Use ``case_qs.values('status').annotate(count=Count('id'))``
-            and map the raw status values to their human-readable labels
-            via the ``CaseStatus`` enum (imported lazily).
-
-        Args:
-            case_qs: The role-scoped Case queryset.
-
-        Returns:
-            List of dicts consumable by ``CasesByStatusSerializer``.
-
-        Raises:
-            NotImplementedError: Structural draft — inner logic pending.
-        """
-        raise NotImplementedError(
-            "DashboardAggregationService._get_cases_by_status() — "
-            "implementation pending."
+        status_label_map = dict(CaseStatus.choices)
+        rows = (
+            case_qs
+            .values("status")
+            .annotate(count=Count("id"))
+            .order_by("status")
         )
+        return [
+            {
+                "status": row["status"],
+                "label": status_label_map.get(row["status"], row["status"]),
+                "count": row["count"],
+            }
+            for row in rows
+        ]
 
     def _get_cases_by_crime_level(
         self,
         case_qs: QuerySet,
     ) -> list[dict[str, Any]]:
-        """
-        Group ``case_qs`` by crime level and return a list of dicts.
+        """Group ``case_qs`` by crime level and return a list of dicts."""
+        from cases.models import CrimeLevel
 
-        Each dict contains ``crime_level``, ``label``, and ``count``.
-
-        Implementation hint:
-            Use ``case_qs.values('crime_level').annotate(count=Count('id'))``
-            and map via the ``CrimeLevel`` enum (imported lazily).
-
-        Args:
-            case_qs: The role-scoped Case queryset.
-
-        Returns:
-            List of dicts consumable by ``CasesByCrimeLevelSerializer``.
-
-        Raises:
-            NotImplementedError: Structural draft — inner logic pending.
-        """
-        raise NotImplementedError(
-            "DashboardAggregationService._get_cases_by_crime_level() — "
-            "implementation pending."
+        level_label_map = dict(CrimeLevel.choices)
+        rows = (
+            case_qs
+            .values("crime_level")
+            .annotate(count=Count("id"))
+            .order_by("crime_level")
         )
+        return [
+            {
+                "crime_level": row["crime_level"],
+                "label": level_label_map.get(row["crime_level"], str(row["crime_level"])),
+                "count": row["count"],
+            }
+            for row in rows
+        ]
 
     def _get_top_wanted_suspects(self) -> list[dict[str, Any]]:
-        """
-        Return the top N most-wanted suspects ordered by score descending.
+        """Return the top N most-wanted suspects ordered by score descending."""
+        Suspect = apps.get_model("suspects", "Suspect")
 
-        Cross-app import strategy:
-            Uses ``apps.get_model("suspects", "Suspect")`` lazily.
-
-        Implementation notes:
-            1. Query all suspects with status='wanted' and
-               ``wanted_since`` over 30 days ago.
-            2. Compute ``most_wanted_score`` per suspect (or annotate
-               using raw SQL / subquery for performance).
-            3. Order by score descending and limit to
-               ``self.TOP_WANTED_LIMIT``.
-            4. Return list of dicts consumable by
-               ``TopWantedSuspectSerializer``.
-
-        Returns:
-            List of dicts with suspect details and scores.
-
-        Raises:
-            NotImplementedError: Structural draft — inner logic pending.
-        """
-        raise NotImplementedError(
-            "DashboardAggregationService._get_top_wanted_suspects() — "
-            "implementation pending."
+        threshold = timezone.now() - timedelta(
+            days=RewardCalculatorService.MOST_WANTED_THRESHOLD_DAYS,
         )
+        wanted_qs = (
+            Suspect.objects
+            .filter(status="wanted", wanted_since__lte=threshold)
+            .select_related("case")
+        )
+
+        # Compute score in Python (cross-case grouping via national_id
+        # requires joins that are complex to express purely in ORM).
+        scored: list[dict[str, Any]] = []
+        for suspect in wanted_qs:
+            score = suspect.most_wanted_score
+            reward = RewardCalculatorService.compute_reward(score)
+            photo_url = suspect.photo.url if suspect.photo else None
+            scored.append({
+                "id": suspect.pk,
+                "full_name": suspect.full_name,
+                "national_id": suspect.national_id,
+                "photo_url": photo_url,
+                "most_wanted_score": score,
+                "reward_amount": reward,
+                "days_wanted": suspect.days_wanted,
+                "case_id": suspect.case_id,
+                "case_title": suspect.case.title,
+            })
+
+        scored.sort(key=lambda s: s["most_wanted_score"], reverse=True)
+        return scored[: self.TOP_WANTED_LIMIT]
 
     def _get_recent_activity(self) -> list[dict[str, Any]]:
-        """
-        Return the latest activity feed items.
+        """Return the latest activity feed items."""
+        CaseStatusLog = apps.get_model("cases", "CaseStatusLog")
 
-        Cross-app import strategy:
-            Uses ``apps.get_model("cases", "CaseStatusLog")`` and
-            optionally ``apps.get_model("evidence", "Evidence")``
-            lazily.
+        role_name = get_user_role_name(self.user)
+        log_qs = CaseStatusLog.objects.select_related("changed_by", "case")
 
-        Implementation notes:
-            1. Query recent ``CaseStatusLog`` entries
-               (status transitions).
-            2. Optionally merge with recently added evidence and
-               newly identified suspects.
-            3. Sort by timestamp descending and limit to
-               ``self.RECENT_ACTIVITY_LIMIT``.
-            4. If the user is role-scoped, filter activity to their
-               relevant cases only.
+        # Scope activity to user's cases if they are detective/sergeant
+        if role_name == "detective":
+            log_qs = log_qs.filter(case__assigned_detective=self.user)
+        elif role_name == "sergeant":
+            log_qs = log_qs.filter(case__assigned_sergeant=self.user)
 
-        Returns:
-            List of dicts consumable by ``RecentActivitySerializer``.
+        logs = log_qs.order_by("-created_at")[: self.RECENT_ACTIVITY_LIMIT]
 
-        Raises:
-            NotImplementedError: Structural draft — inner logic pending.
-        """
-        raise NotImplementedError(
-            "DashboardAggregationService._get_recent_activity() — "
-            "implementation pending."
-        )
+        return [
+            {
+                "timestamp": log.created_at,
+                "type": "case_status_change",
+                "description": (
+                    f"Case #{log.case_id} moved from "
+                    f"{log.from_status} to {log.to_status}"
+                ),
+                "actor": (
+                    log.changed_by.username if log.changed_by else None
+                ),
+            }
+            for log in logs
+        ]
 
     def _get_employee_count(self) -> int:
-        """
-        Return the total number of organisation employees (staff users).
-
-        Cross-app import strategy:
-            Uses ``apps.get_model("accounts", "User")`` lazily.
-
-        Implementation hint:
-            Count users whose ``role__hierarchy_level > 0`` (i.e.
-            assigned a police-department role, excluding base users,
-            complainants, suspects, and criminals).
-
-        Returns:
-            Integer count of employees.
-
-        Raises:
-            NotImplementedError: Structural draft — inner logic pending.
-        """
-        raise NotImplementedError(
-            "DashboardAggregationService._get_employee_count() — "
-            "implementation pending."
-        )
+        """Return the total number of organisation employees (staff users)."""
+        User = apps.get_model("accounts", "User")
+        return User.objects.filter(role__hierarchy_level__gt=0).count()
 
     def _get_unassigned_evidence_count(
         self,
         case_qs: QuerySet,
     ) -> int:
-        """
-        Count evidence items whose parent case has no assigned detective.
-
-        Cross-app import strategy:
-            Uses ``apps.get_model("evidence", "Evidence")`` lazily.
-
-        Args:
-            case_qs: The role-scoped Case queryset (used to scope
-                     evidence if the user is a detective/sergeant).
-
-        Returns:
-            Integer count of unassigned evidence.
-
-        Raises:
-            NotImplementedError: Structural draft — inner logic pending.
-        """
-        raise NotImplementedError(
-            "DashboardAggregationService._get_unassigned_evidence_count() — "
-            "implementation pending."
+        """Count evidence items whose parent case has no assigned detective."""
+        Evidence = apps.get_model("evidence", "Evidence")
+        return (
+            Evidence.objects
+            .filter(
+                case__in=case_qs,
+                case__assigned_detective__isnull=True,
+            )
+            .count()
         )
 
 
@@ -513,34 +486,9 @@ class GlobalSearchService:
     Performs a unified search across Cases, Suspects, and Evidence,
     returning categorised results.
 
-    Design principles
-    -----------------
-    * **Performance**: Each category is queried independently so they
-      can be parallelised in future (e.g. via ``asyncio`` or Celery).
-      For now they execute sequentially but are individually capped
-      by ``limit`` to prevent runaway queries.
-
-    * **Scalability**: If the dataset grows beyond what ``icontains``
-      can handle efficiently, the service can be extended to delegate
-      to a full-text search backend (PostgreSQL ``SearchVector``,
-      Elasticsearch, etc.) without changing the view or serializer
-      contracts.
-
     * **Security**: Results are filtered based on the requesting user's
       permissions.  A Detective only sees cases/suspects/evidence they
       have access to; a Captain sees everything.
-
-    Usage in views::
-
-        service = GlobalSearchService(
-            query="john",
-            user=request.user,
-            category=None,  # search all
-            limit=10,
-        )
-        data = service.search()
-        serializer = GlobalSearchResponseSerializer(data)
-        return Response(serializer.data)
     """
 
     #: Default maximum results per category.
@@ -552,6 +500,17 @@ class GlobalSearchService:
     #: Minimum query length.
     MIN_QUERY_LENGTH: int = 2
 
+    #: Role → queryset filter mapping (mirrors CaseQueryService scoping).
+    _SEARCH_SCOPE_CONFIG = {
+        "captain": lambda qs, u: qs,
+        "police_chief": lambda qs, u: qs,
+        "system_admin": lambda qs, u: qs,
+        "detective": lambda qs, u: qs.filter(assigned_detective=u),
+        "sergeant": lambda qs, u: qs.filter(
+            Q(assigned_sergeant=u) | Q(assigned_detective__isnull=False),
+        ),
+    }
+
     def __init__(
         self,
         query: str,
@@ -559,16 +518,6 @@ class GlobalSearchService:
         category: str | None = None,
         limit: int = DEFAULT_LIMIT,
     ) -> None:
-        """
-        Initialise the search service.
-
-        Args:
-            query: The search term (must be >= ``MIN_QUERY_LENGTH`` chars).
-            user: The authenticated ``User`` performing the search.
-            category: Optional restriction — ``'cases'``, ``'suspects'``,
-                      or ``'evidence'``.  ``None`` searches all.
-            limit: Max results per category (clamped to ``MAX_LIMIT``).
-        """
         self.query = query.strip()
         self.user = user
         self.category = category
@@ -577,149 +526,166 @@ class GlobalSearchService:
     # ── Public API ──────────────────────────────────────────────────
 
     def search(self) -> dict[str, Any]:
-        """
-        Execute the search and return the unified result dict.
+        """Execute the search and return the unified result dict."""
+        cases: list[dict[str, Any]] = []
+        suspects: list[dict[str, Any]] = []
+        evidence: list[dict[str, Any]] = []
 
-        Returns:
-            A dict matching the shape expected by
-            ``GlobalSearchResponseSerializer``::
+        if len(self.query) < self.MIN_QUERY_LENGTH:
+            return {
+                "query": self.query,
+                "total_results": 0,
+                "cases": cases,
+                "suspects": suspects,
+                "evidence": evidence,
+            }
 
-                {
-                    "query": "...",
-                    "total_results": N,
-                    "cases": [...],
-                    "suspects": [...],
-                    "evidence": [...]
-                }
+        if self.category is None or self.category == "cases":
+            cases = self._search_cases()
+        if self.category is None or self.category == "suspects":
+            suspects = self._search_suspects()
+        if self.category is None or self.category == "evidence":
+            evidence = self._search_evidence()
 
-        Raises:
-            NotImplementedError: Structural draft — inner logic pending.
-
-        Implementation plan:
-            1. Validate ``self.query`` length.
-            2. Conditionally call ``_search_cases()``,
-               ``_search_suspects()``, ``_search_evidence()`` based on
-               ``self.category``.
-            3. Compute ``total_results``.
-            4. Assemble and return the dict.
-        """
-        raise NotImplementedError(
-            "GlobalSearchService.search() — implementation pending."
-        )
+        return {
+            "query": self.query,
+            "total_results": len(cases) + len(suspects) + len(evidence),
+            "cases": cases,
+            "suspects": suspects,
+            "evidence": evidence,
+        }
 
     # ── Private helpers ─────────────────────────────────────────────
 
     def _search_cases(self) -> list[dict[str, Any]]:
-        """
-        Search ``Case`` records by title and description using
-        ``icontains``.
+        """Search ``Case`` records by title and description."""
+        from cases.models import CrimeLevel
 
-        Cross-app import strategy:
-            Uses ``apps.get_model("cases", "Case")`` inside this method.
-
-        Fields searched:
-            - ``title__icontains``
-            - ``description__icontains``
-
-        Security:
-            Results are scoped based on user role (same logic as
-            ``DashboardAggregationService._get_case_queryset``).
-
-        Returns:
-            List of dicts consumable by ``SearchCaseResultSerializer``.
-
-        Raises:
-            NotImplementedError: Structural draft — inner logic pending.
-        """
-        raise NotImplementedError(
-            "GlobalSearchService._search_cases() — "
-            "implementation pending."
+        Case = apps.get_model("cases", "Case")
+        qs = Case.objects.all()
+        qs = apply_role_filter(
+            qs,
+            self.user,
+            scope_config=self._SEARCH_SCOPE_CONFIG,
+            default="all",
         )
+        qs = qs.filter(
+            Q(title__icontains=self.query)
+            | Q(description__icontains=self.query)
+        )
+
+        level_label_map = dict(CrimeLevel.choices)
+        results = []
+        for case in qs[: self.limit]:
+            results.append({
+                "id": case.pk,
+                "title": case.title,
+                "status": case.status,
+                "crime_level": case.crime_level,
+                "crime_level_label": level_label_map.get(
+                    case.crime_level, str(case.crime_level),
+                ),
+                "created_at": case.created_at,
+            })
+        return results
 
     def _search_suspects(self) -> list[dict[str, Any]]:
-        """
-        Search ``Suspect`` records by full name, national ID, and
-        description.
+        """Search ``Suspect`` records by full name, national ID, and description."""
+        Suspect = apps.get_model("suspects", "Suspect")
 
-        Cross-app import strategy:
-            Uses ``apps.get_model("suspects", "Suspect")`` inside this
-            method.
+        accessible_ids = self._get_accessible_case_ids()
+        qs = Suspect.objects.select_related("case")
+        if accessible_ids is not None:
+            qs = qs.filter(case_id__in=accessible_ids)
 
-        Fields searched:
-            - ``full_name__icontains``
-            - ``national_id__icontains``
-            - ``description__icontains``
-
-        Security:
-            Suspects linked to cases the user cannot access are
-            excluded (role-based filtering via case FK).
-
-        Returns:
-            List of dicts consumable by
-            ``SearchSuspectResultSerializer``.
-
-        Raises:
-            NotImplementedError: Structural draft — inner logic pending.
-        """
-        raise NotImplementedError(
-            "GlobalSearchService._search_suspects() — "
-            "implementation pending."
+        qs = qs.filter(
+            Q(full_name__icontains=self.query)
+            | Q(national_id__icontains=self.query)
+            | Q(description__icontains=self.query)
         )
+
+        results = []
+        for suspect in qs[: self.limit]:
+            results.append({
+                "id": suspect.pk,
+                "full_name": suspect.full_name,
+                "national_id": suspect.national_id,
+                "status": suspect.status,
+                "case_id": suspect.case_id,
+                "case_title": suspect.case.title,
+            })
+        return results
 
     def _search_evidence(self) -> list[dict[str, Any]]:
-        """
-        Search ``Evidence`` records by title and description.
+        """Search ``Evidence`` records by title and description."""
+        from evidence.models import EvidenceType
 
-        Cross-app import strategy:
-            Uses ``apps.get_model("evidence", "Evidence")`` inside this
-            method.
+        Evidence = apps.get_model("evidence", "Evidence")
 
-        Fields searched:
-            - ``title__icontains``
-            - ``description__icontains``
+        accessible_ids = self._get_accessible_case_ids()
+        qs = Evidence.objects.select_related("case")
+        if accessible_ids is not None:
+            qs = qs.filter(case_id__in=accessible_ids)
 
-        Security:
-            Evidence linked to cases the user cannot access are
-            excluded (role-based filtering via case FK).
-
-        Returns:
-            List of dicts consumable by
-            ``SearchEvidenceResultSerializer``.
-
-        Raises:
-            NotImplementedError: Structural draft — inner logic pending.
-        """
-        raise NotImplementedError(
-            "GlobalSearchService._search_evidence() — "
-            "implementation pending."
+        qs = qs.filter(
+            Q(title__icontains=self.query)
+            | Q(description__icontains=self.query)
         )
+
+        type_label_map = dict(EvidenceType.choices)
+        results = []
+        for ev in qs[: self.limit]:
+            results.append({
+                "id": ev.pk,
+                "title": ev.title,
+                "evidence_type": ev.evidence_type,
+                "evidence_type_label": type_label_map.get(
+                    ev.evidence_type, ev.evidence_type,
+                ),
+                "case_id": ev.case_id,
+                "case_title": ev.case.title,
+            })
+        return results
 
     def _get_accessible_case_ids(self) -> QuerySet | None:
         """
         Return a queryset of Case PKs the user is allowed to see, or
         ``None`` if the user has unrestricted access.
-
-        This helper is used by each ``_search_*`` method to filter
-        results based on the user's role.
-
-        Logic:
-            - Captain / Police Chief / superuser → ``None`` (no filter).
-            - Detective → Case PKs where ``assigned_detective=user``.
-            - Sergeant  → Case PKs where ``assigned_sergeant=user``.
-            - Others    → All open cases (public visibility).
-
-        Cross-app import strategy:
-            Uses ``apps.get_model("cases", "Case")`` lazily.
-
-        Returns:
-            A flat ``ValuesQuerySet`` of PKs, or ``None``.
-
-        Raises:
-            NotImplementedError: Structural draft — inner logic pending.
         """
-        raise NotImplementedError(
-            "GlobalSearchService._get_accessible_case_ids() — "
-            "implementation pending."
+        Case = apps.get_model("cases", "Case")
+
+        role_name = get_user_role_name(self.user)
+
+        # Unrestricted roles
+        if role_name in ("captain", "police_chief", "system_admin"):
+            return None
+
+        # Detective sees only their assigned cases
+        if role_name == "detective":
+            return (
+                Case.objects
+                .filter(assigned_detective=self.user)
+                .values_list("id", flat=True)
+            )
+
+        # Sergeant sees cases they supervise or that have a detective
+        if role_name == "sergeant":
+            return (
+                Case.objects
+                .filter(
+                    Q(assigned_sergeant=self.user)
+                    | Q(assigned_detective__isnull=False),
+                )
+                .values_list("id", flat=True)
+            )
+
+        # All other roles: see all open cases (public visibility)
+        from cases.models import CaseStatus
+
+        return (
+            Case.objects
+            .exclude(status__in=[CaseStatus.CLOSED, CaseStatus.VOIDED])
+            .values_list("id", flat=True)
         )
 
 
@@ -735,65 +701,42 @@ class SystemConstantsService:
     This service is **stateless** — it does not depend on the requesting
     user.  All constants are public information needed by the frontend
     to render dropdowns and labels.
-
-    Usage in views::
-
-        data = SystemConstantsService.get_constants()
-        serializer = SystemConstantsSerializer(data)
-        return Response(serializer.data)
     """
 
     @staticmethod
     def get_constants() -> dict[str, Any]:
-        """
-        Return all system constants as a dict matching
-        ``SystemConstantsSerializer``.
-
-        Cross-app import strategy:
-            Imports choice enumerations (``CrimeLevel``, ``CaseStatus``,
-            ``EvidenceType``, ``SuspectStatus``, etc.) **inside** this
-            method to prevent circular imports.  Also uses
-            ``apps.get_model("accounts", "Role")`` to fetch the role
-            hierarchy from the database.
-
-        Returns:
-            A dict with keys: ``crime_levels``, ``case_statuses``,
-            ``case_creation_types``, ``evidence_types``,
-            ``evidence_file_types``, ``suspect_statuses``,
-            ``verdict_choices``, ``bounty_tip_statuses``,
-            ``complainant_statuses``, ``role_hierarchy``.
-
-        Raises:
-            NotImplementedError: Structural draft — inner logic pending.
-
-        Implementation plan:
-            1. Import all TextChoices / IntegerChoices enums lazily::
-
-                   from cases.models import (
-                       CrimeLevel, CaseStatus, CaseCreationType,
-                       ComplainantStatus,
-                   )
-                   from evidence.models import EvidenceType, FileType
-                   from suspects.models import (
-                       SuspectStatus, VerdictChoice, BountyTipStatus,
-                   )
-
-            2. Convert each enum to a list of
-               ``{"value": str(choice.value), "label": choice.label}``
-               dicts.
-
-            3. Fetch roles from db::
-
-                   Role = apps.get_model("accounts", "Role")
-                   roles = Role.objects.order_by("-hierarchy_level")
-                       .values("id", "name", "hierarchy_level")
-
-            4. Assemble and return the dict.
-        """
-        raise NotImplementedError(
-            "SystemConstantsService.get_constants() — "
-            "implementation pending."
+        """Return all system constants as a dict."""
+        from cases.models import (
+            CaseCreationType,
+            CaseStatus,
+            ComplainantStatus,
+            CrimeLevel,
         )
+        from evidence.models import EvidenceType, FileType
+        from suspects.models import BountyTipStatus, SuspectStatus, VerdictChoice
+
+        Role = apps.get_model("accounts", "Role")
+
+        to_list = SystemConstantsService._choices_to_list
+
+        roles = list(
+            Role.objects
+            .order_by("-hierarchy_level")
+            .values("id", "name", "hierarchy_level")
+        )
+
+        return {
+            "crime_levels": to_list(CrimeLevel),
+            "case_statuses": to_list(CaseStatus),
+            "case_creation_types": to_list(CaseCreationType),
+            "evidence_types": to_list(EvidenceType),
+            "evidence_file_types": to_list(FileType),
+            "suspect_statuses": to_list(SuspectStatus),
+            "verdict_choices": to_list(VerdictChoice),
+            "bounty_tip_statuses": to_list(BountyTipStatus),
+            "complainant_statuses": to_list(ComplainantStatus),
+            "role_hierarchy": roles,
+        }
 
     @staticmethod
     def _choices_to_list(
@@ -802,20 +745,11 @@ class SystemConstantsService:
         """
         Convert a Django ``TextChoices`` or ``IntegerChoices`` class to
         a list of ``{"value": ..., "label": ...}`` dicts.
-
-        Args:
-            choices_class: A Django choices enumeration class.
-
-        Returns:
-            List of choice item dicts.
-
-        Raises:
-            NotImplementedError: Structural draft — inner logic pending.
         """
-        raise NotImplementedError(
-            "SystemConstantsService._choices_to_list() — "
-            "implementation pending."
-        )
+        return [
+            {"value": str(value), "label": str(label)}
+            for value, label in choices_class.choices
+        ]
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -825,57 +759,25 @@ class SystemConstantsService:
 class NotificationService:
     """
     Handles listing and marking notifications as read for a given user.
-
-    Usage in views::
-
-        service = NotificationService(user=request.user)
-        notifications = service.list_notifications()
-        service.mark_as_read(notification_id)
     """
 
     def __init__(self, user: Any) -> None:
         self.user = user
 
     def list_notifications(self) -> Any:
-        """
-        Return all notifications for ``self.user``, ordered by most
-        recent first.
+        """Return all notifications for ``self.user``, ordered most recent first."""
+        from core.models import Notification
 
-        Returns
-        -------
-        QuerySet
-            Notification queryset filtered by the authenticated user.
-
-        Raises
-        ------
-        NotImplementedError
-            Structural draft — inner logic pending.
-        """
-        raise NotImplementedError(
-            "NotificationService.list_notifications() — "
-            "implementation pending."
-        )
+        return Notification.objects.filter(recipient=self.user).order_by("-created_at")
 
     def mark_as_read(self, notification_id: int) -> Any:
-        """
-        Mark a single notification as read.
+        """Mark a single notification as read."""
+        from core.models import Notification
 
-        Parameters
-        ----------
-        notification_id : int
-            PK of the notification to mark as read.
-
-        Returns
-        -------
-        Notification
-            The updated notification instance.
-
-        Raises
-        ------
-        NotImplementedError
-            Structural draft — inner logic pending.
-        """
-        raise NotImplementedError(
-            "NotificationService.mark_as_read() — "
-            "implementation pending."
+        notification = Notification.objects.get(
+            pk=notification_id,
+            recipient=self.user,
         )
+        notification.is_read = True
+        notification.save(update_fields=["is_read"])
+        return notification
