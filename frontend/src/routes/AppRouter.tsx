@@ -1,30 +1,31 @@
 /**
  * AppRouter — centralised route definition.
  *
+ * All pages share a single PublicLayout (top-nav header, no sidebar).
+ *
  * Structure:
- *  ╭─ PublicLayout (no auth required)
+ *  ╭─ PublicLayout (app shell for every route)
  *  │   /                 → HomePage
  *  │   /most-wanted      → MostWantedPage
  *  │
- *  ╭─ AuthLayout (redirects if already logged in)
+ *  │   ╭─ ProtectedRoute (redirects to /login if unauthenticated)
+ *  │   │   /dashboard        → OverviewPage
+ *  │   │   /cases            → CasesListPage
+ *  │   │   /cases/new        → CaseCreatePage
+ *  │   │   /cases/:id        → CaseDetailsPage
+ *  │   │   /boards/:id       → KanbanBoardPage
+ *  │   │   /evidence         → EvidenceVaultPage
+ *  │   │   /evidence/new     → EvidenceCreatePage
+ *  │   │   /evidence/:id     → EvidenceDetailPage
+ *  │   │   /suspects         → SuspectsListPage
+ *  │   │   /suspects/:id     → SuspectDetailPage
+ *  │   │   /bounty           → BountyTipPage
+ *  │   │   /reports          → ReportsPage      (permission-gated)
+ *  │   │   /admin            → AdminPanelPage   (permission-gated)
+ *  │
+ *  ╭─ AuthLayout (login / register — own chrome)
  *  │   /login            → LoginPage
  *  │   /register         → RegisterPage
- *  │
- *  ╭─ ProtectedRoute → DashboardLayout
- *  │   /dashboard        → OverviewPage
- *  │   /cases            → CasesListPage
- *  │   /cases/new        → CaseCreatePage
- *  │   /cases/:id        → CaseDetailsPage
- *  │   /boards           → (future) BoardsListPage
- *  │   /boards/:id       → KanbanBoardPage
- *  │   /evidence         → EvidenceVaultPage
- *  │   /evidence/new     → EvidenceCreatePage
- *  │   /evidence/:id     → EvidenceDetailPage
- *  │   /suspects         → SuspectsListPage
- *  │   /suspects/:id     → SuspectDetailPage
- *  │   /bounty           → BountyTipPage
- *  │   /reports          → ReportsPage      (permission-gated)
- *  │   /admin            → AdminPanelPage   (permission-gated)
  *
  * Pages are lazy-loaded to keep the initial bundle small.
  * Role/permission checks are handled by ProtectedRoute (route-level)
@@ -37,7 +38,6 @@ import {
 } from 'react-router-dom';
 import { PublicLayout } from '@/components/layout/PublicLayout';
 import { AuthLayout } from '@/components/layout/AuthLayout';
-import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { ProtectedRoute } from '@/components/layout/ProtectedRoute';
 import { Loader } from '@/components/ui/Loader';
 
@@ -142,30 +142,17 @@ const PageLoader = () => <Loader fullScreen label="Loading page…" />;
 /* ── Router definition ───────────────────────────────────────────── */
 
 const router = createBrowserRouter([
-  /* ── Public routes ──────────────────────────────────────────────── */
+  /* ── Primary shell: PublicLayout wraps everything ───────────────── */
   {
     element: <PublicLayout />,
     children: [
+      /* Public (no auth needed) */
       { index: true, element: <HomePage /> },
       { path: 'most-wanted', element: <MostWantedPage /> },
-    ],
-  },
 
-  /* ── Auth routes (login / register) ─────────────────────────────── */
-  {
-    element: <AuthLayout />,
-    children: [
-      { path: 'login', element: <LoginPage /> },
-      { path: 'register', element: <RegisterPage /> },
-    ],
-  },
-
-  /* ── Protected routes (dashboard shell) ─────────────────────────── */
-  {
-    element: <ProtectedRoute />,
-    children: [
+      /* Protected (redirects to /login if unauthenticated) */
       {
-        element: <DashboardLayout />,
+        element: <ProtectedRoute />,
         children: [
           { path: 'dashboard', element: <OverviewPage /> },
 
@@ -196,6 +183,15 @@ const router = createBrowserRouter([
           { path: 'admin', element: <AdminPanelPage /> },
         ],
       },
+    ],
+  },
+
+  /* ── Auth routes — own chrome (login / register) ─────────────────── */
+  {
+    element: <AuthLayout />,
+    children: [
+      { path: 'login', element: <LoginPage /> },
+      { path: 'register', element: <RegisterPage /> },
     ],
   },
 

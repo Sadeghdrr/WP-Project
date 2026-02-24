@@ -39,8 +39,8 @@ export function ComplainantManager({ caseId }: ComplainantManagerProps) {
   });
 
   const reviewMutation = useMutation({
-    mutationFn: ({ complainantId, action }: { complainantId: number; action: 'approve' | 'reject' }) =>
-      casesApi.reviewComplainant(caseId, complainantId, { action }),
+    mutationFn: ({ complainantId, decision }: { complainantId: number; decision: 'approve' | 'reject' }) =>
+      casesApi.reviewComplainant(caseId, complainantId, { decision }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['cases', caseId, 'complainants'] });
     },
@@ -76,7 +76,7 @@ export function ComplainantManager({ caseId }: ComplainantManagerProps) {
                     size="sm"
                     variant="primary"
                     loading={reviewMutation.isPending}
-                    onClick={() => reviewMutation.mutate({ complainantId: c.id, action: 'approve' })}
+                    onClick={() => reviewMutation.mutate({ complainantId: c.id, decision: 'approve' })}
                   >
                     Approve
                   </Button>
@@ -84,7 +84,7 @@ export function ComplainantManager({ caseId }: ComplainantManagerProps) {
                     size="sm"
                     variant="danger"
                     loading={reviewMutation.isPending}
-                    onClick={() => reviewMutation.mutate({ complainantId: c.id, action: 'reject' })}
+                    onClick={() => reviewMutation.mutate({ complainantId: c.id, decision: 'reject' })}
                   >
                     Reject
                   </Button>

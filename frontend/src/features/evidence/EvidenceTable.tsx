@@ -1,18 +1,15 @@
 /**
  * EvidenceTable — tabular evidence list using generic Table component.
+ *
+ * Corrected to match backend EvidenceListSerializer:
+ * - registered_by is PK (number); display via registered_by_name
+ * - Removed phantom verification_status column (not in list serializer)
+ * - Uses evidence_type_display from backend
  */
 import { Table } from '@/components/ui/Table';
 import { Badge } from '@/components/ui/Badge';
 import type { Column } from '@/components/ui/Table';
 import type { EvidenceListItem } from '@/types/evidence.types';
-
-const TYPE_LABELS: Record<string, string> = {
-  testimony: 'Testimony',
-  biological: 'Biological',
-  vehicle: 'Vehicle',
-  identity: 'Identity',
-  other: 'Other',
-};
 
 interface EvidenceTableProps {
   items: EvidenceListItem[];
@@ -28,7 +25,7 @@ export function EvidenceTable({ items, onRowClick }: EvidenceTableProps) {
       header: 'Type',
       render: (row) => (
         <Badge variant="info" size="sm">
-          {TYPE_LABELS[row.evidence_type] ?? row.evidence_type}
+          {row.evidence_type_display}
         </Badge>
       ),
     },
@@ -36,20 +33,7 @@ export function EvidenceTable({ items, onRowClick }: EvidenceTableProps) {
     {
       key: 'registered_by',
       header: 'Registered By',
-      render: (row) =>
-        `${row.registered_by.first_name} ${row.registered_by.last_name}`,
-    },
-    {
-      key: 'verification_status',
-      header: 'Verified',
-      render: (row) => (
-        <Badge
-          variant={row.verification_status === 'verified' ? 'success' : 'warning'}
-          size="sm"
-        >
-          {row.verification_status ?? 'Pending'}
-        </Badge>
-      ),
+      render: (row) => row.registered_by_name ?? '—',
     },
     {
       key: 'created_at',

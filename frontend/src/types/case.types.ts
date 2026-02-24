@@ -14,7 +14,6 @@ export const CrimeLevel = {
 export type CrimeLevel = (typeof CrimeLevel)[keyof typeof CrimeLevel];
 
 export const CaseStatus = {
-  DRAFT: 'draft',
   COMPLAINT_REGISTERED: 'complaint_registered',
   CADET_REVIEW: 'cadet_review',
   RETURNED_TO_COMPLAINANT: 'returned_to_complainant',
@@ -103,10 +102,10 @@ export interface CaseStatusLog {
 }
 
 export interface CaseCalculations {
-  total_evidence: number;
-  total_suspects: number;
-  total_witnesses: number;
-  total_complainants: number;
+  crime_level_degree: number;
+  days_since_creation: number;
+  tracking_threshold: number;
+  reward_rials: number;
 }
 
 /* ── Request DTOs ─────────────────────────────────────────────────── */
@@ -118,6 +117,7 @@ export interface CaseCreateRequest {
   incident_date?: string;
   location?: string;
   creation_type?: CaseCreationType;
+  witnesses?: WitnessCreateRequest[];
 }
 
 export interface CaseUpdateRequest {
@@ -128,7 +128,7 @@ export interface CaseUpdateRequest {
 }
 
 export interface CaseReviewRequest {
-  action: 'approve' | 'reject' | 'return';
+  decision: 'approve' | 'reject';
   message?: string;
 }
 
@@ -144,7 +144,7 @@ export interface ComplainantCreateRequest {
 }
 
 export interface ComplainantReviewRequest {
-  action: 'approve' | 'reject';
+  decision: 'approve' | 'reject';
 }
 
 /* ── Filter params ────────────────────────────────────────────────── */

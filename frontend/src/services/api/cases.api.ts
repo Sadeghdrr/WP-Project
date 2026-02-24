@@ -42,19 +42,19 @@ export const casesApi = {
   submit: (id: number) =>
     api.post<CaseDetail>(`/cases/${id}/submit/`).then((r) => r.data),
 
-  resubmit: (id: number, data?: { description?: string }) =>
+  resubmit: (id: number, data?: { title?: string; description?: string; incident_date?: string; location?: string }) =>
     api.post<CaseDetail>(`/cases/${id}/resubmit/`, data).then((r) => r.data),
 
-  cadetReview: (id: number, data: { action: string; message?: string }) =>
+  cadetReview: (id: number, data: { decision: string; message?: string }) =>
     api.post<CaseDetail>(`/cases/${id}/cadet-review/`, data).then((r) => r.data),
 
-  officerReview: (id: number, data: { action: string; message?: string }) =>
+  officerReview: (id: number, data: { decision: string; message?: string }) =>
     api.post<CaseDetail>(`/cases/${id}/officer-review/`, data).then((r) => r.data),
 
   approveCrimeScene: (id: number) =>
     api.post<CaseDetail>(`/cases/${id}/approve-crime-scene/`).then((r) => r.data),
 
-  sergeantReview: (id: number, data: { action: string; message?: string }) =>
+  sergeantReview: (id: number, data: { decision: string; message?: string }) =>
     api.post<CaseDetail>(`/cases/${id}/sergeant-review/`, data).then((r) => r.data),
 
   declareSuspects: (id: number, data: { suspect_ids: number[] }) =>
@@ -63,7 +63,7 @@ export const casesApi = {
   forwardJudiciary: (id: number) =>
     api.post<CaseDetail>(`/cases/${id}/forward-judiciary/`).then((r) => r.data),
 
-  transition: (id: number, data: { action: string; message?: string }) =>
+  transition: (id: number, data: { target_status: string; message?: string }) =>
     api.post<CaseDetail>(`/cases/${id}/transition/`, data).then((r) => r.data),
 
   /* ── Assignments ────────────────────────────────────────────────── */

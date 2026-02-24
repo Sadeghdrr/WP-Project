@@ -18,10 +18,12 @@ import type { CaseStatus, CrimeLevel, CaseCreationType } from '@/types/case.type
 
 const STATUS_OPTIONS = [
   { value: '', label: 'All Statuses' },
-  { value: 'draft', label: 'Draft' },
   { value: 'complaint_registered', label: 'Complaint Registered' },
   { value: 'cadet_review', label: 'Cadet Review' },
+  { value: 'returned_to_complainant', label: 'Returned to Complainant' },
   { value: 'officer_review', label: 'Officer Review' },
+  { value: 'returned_to_cadet', label: 'Returned to Cadet' },
+  { value: 'pending_approval', label: 'Pending Approval' },
   { value: 'open', label: 'Open' },
   { value: 'investigation', label: 'Investigation' },
   { value: 'suspect_identified', label: 'Suspect Identified' },

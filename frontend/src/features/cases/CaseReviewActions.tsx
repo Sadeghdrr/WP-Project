@@ -51,7 +51,7 @@ export function CaseReviewActions({ caseData, onUpdate }: CaseReviewActionsProps
   const actions: { label: string; variant: 'primary' | 'danger' | 'secondary'; action: () => Promise<unknown>; visible: boolean }[] = [];
 
   // Submit for review (complainant who owns the case)
-  if (status === 'draft' || status === 'complaint_registered') {
+  if (status === 'complaint_registered') {
     actions.push({
       label: 'Submit for Review',
       variant: 'primary',
@@ -70,18 +70,28 @@ export function CaseReviewActions({ caseData, onUpdate }: CaseReviewActionsProps
     });
   }
 
+  // Cadet re-forward (when officer returned to cadet — §4.2.1)
+  if (status === 'returned_to_cadet' && hasPermission(CasesPerms.CAN_REVIEW_COMPLAINT)) {
+    actions.push({
+      label: 'Re-forward to Officer',
+      variant: 'primary',
+      action: () => casesApi.transition(caseData.id, { target_status: 'officer_review' }),
+      visible: true,
+    });
+  }
+
   // Cadet review
   if (status === 'cadet_review' && hasPermission(CasesPerms.CAN_REVIEW_COMPLAINT)) {
     actions.push({
       label: 'Approve (Cadet)',
       variant: 'primary',
-      action: () => casesApi.cadetReview(caseData.id, { action: 'approve' }),
+      action: () => casesApi.cadetReview(caseData.id, { decision: 'approve' }),
       visible: true,
     });
     actions.push({
       label: 'Return (Cadet)',
       variant: 'danger',
-      action: () => casesApi.cadetReview(caseData.id, { action: 'return', message }),
+      action: () => casesApi.cadetReview(caseData.id, { decision: 'reject', message }),
       visible: true,
     });
   }
@@ -91,13 +101,13 @@ export function CaseReviewActions({ caseData, onUpdate }: CaseReviewActionsProps
     actions.push({
       label: 'Approve (Officer)',
       variant: 'primary',
-      action: () => casesApi.officerReview(caseData.id, { action: 'approve' }),
+      action: () => casesApi.officerReview(caseData.id, { decision: 'approve' }),
       visible: true,
     });
     actions.push({
       label: 'Return (Officer)',
       variant: 'danger',
-      action: () => casesApi.officerReview(caseData.id, { action: 'return', message }),
+      action: () => casesApi.officerReview(caseData.id, { decision: 'reject', message }),
       visible: true,
     });
   }
@@ -117,21 +127,31 @@ export function CaseReviewActions({ caseData, onUpdate }: CaseReviewActionsProps
     actions.push({
       label: 'Approve (Sergeant)',
       variant: 'primary',
-      action: () => casesApi.sergeantReview(caseData.id, { action: 'approve' }),
+      action: () => casesApi.sergeantReview(caseData.id, { decision: 'approve' }),
       visible: true,
     });
     actions.push({
       label: 'Reject (Sergeant)',
       variant: 'danger',
-      action: () => casesApi.sergeantReview(caseData.id, { action: 'reject', message }),
+      action: () => casesApi.sergeantReview(caseData.id, { decision: 'reject', message }),
       visible: true,
     });
   }
 
-  // Forward to judiciary
+  // Forward to judiciary (Captain handles non-critical, Captain/Chief handle critical)
   if (status === 'captain_review' && hasPermission(CasesPerms.CAN_FORWARD_TO_JUDICIARY)) {
     actions.push({
       label: 'Forward to Judiciary',
+      variant: 'primary',
+      action: () => casesApi.forwardJudiciary(caseData.id),
+      visible: true,
+    });
+  }
+
+  // Chief review (critical cases only — §4.2 / §4.4)
+  if (status === 'chief_review' && hasPermission(CasesPerms.CAN_APPROVE_CRITICAL_CASE)) {
+    actions.push({
+      label: 'Approve & Forward to Judiciary',
       variant: 'primary',
       action: () => casesApi.forwardJudiciary(caseData.id),
       visible: true,

@@ -1,5 +1,8 @@
 /**
  * CoronerVerificationForm — lets coroners verify biological evidence.
+ *
+ * Backend VerifyBiologicalEvidenceSerializer expects:
+ *   { decision: "approve" | "reject", forensic_result: string, notes: string }
  */
 import { useState, type FormEvent } from 'react';
 import { Textarea } from '@/components/ui/Input';
@@ -17,23 +20,29 @@ interface CoronerVerificationFormProps {
 export function CoronerVerificationForm({ evidenceId, onVerified }: CoronerVerificationFormProps) {
   const toast = useToast();
   const [forensicResult, setForensicResult] = useState('');
+  const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const handleVerify = async (isVerified: boolean, e: FormEvent) => {
+  const handleDecision = async (decision: 'approve' | 'reject', e: FormEvent) => {
     e.preventDefault();
     if (!forensicResult.trim()) {
       setError('Forensic result is required.');
+      return;
+    }
+    if (decision === 'reject' && !notes.trim()) {
+      setError('Notes are required when rejecting evidence.');
       return;
     }
     setError('');
     setLoading(true);
     try {
       await evidenceApi.verify(evidenceId, {
+        decision,
         forensic_result: forensicResult.trim(),
-        is_verified: isVerified,
+        notes: notes.trim() || undefined,
       });
-      toast.success(isVerified ? 'Evidence verified' : 'Evidence marked unverified');
+      toast.success(decision === 'approve' ? 'Evidence approved' : 'Evidence rejected');
       onVerified();
     } catch (err) {
       setError(extractErrorMessage(err));
@@ -57,11 +66,19 @@ export function CoronerVerificationForm({ evidenceId, onVerified }: CoronerVerif
         placeholder="Enter forensic analysis findings…"
       />
 
+      <Textarea
+        label="Notes"
+        value={notes}
+        onChange={(e) => setNotes(e.target.value)}
+        rows={3}
+        placeholder="Optional notes (required for rejection)…"
+      />
+
       <div className="coroner-form__actions">
-        <Button variant="primary" loading={loading} onClick={(e) => handleVerify(true, e)}>
-          Verify
+        <Button variant="primary" loading={loading} onClick={(e) => handleDecision('approve', e)}>
+          Approve
         </Button>
-        <Button variant="danger" loading={loading} onClick={(e) => handleVerify(false, e)}>
+        <Button variant="danger" loading={loading} onClick={(e) => handleDecision('reject', e)}>
           Reject
         </Button>
       </div>

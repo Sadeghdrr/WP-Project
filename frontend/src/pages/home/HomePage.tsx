@@ -6,7 +6,13 @@
  *  - Total employees
  *  - Active cases
  *
- * Fetches aggregated stats from GET /api/core/dashboard/.
+ * Stats are only fetched when the user is authenticated (the dashboard
+ * endpoint requires auth). Unauthenticated visitors see static promo
+ * cards instead of live stats, avoiding 401 errors.
+ *
+ * Corrected per §5.1:
+ * - Authenticated: show live stats + "Go to Dashboard" CTA
+ * - Unauthenticated: show Sign In + Most Wanted CTAs; no API call
  */
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
@@ -15,8 +21,11 @@ import { StatsCards } from '@/features/dashboard/StatsCards';
 import { Alert } from '@/components/ui/Alert';
 import { Button } from '@/components/ui/Button';
 import { extractErrorMessage } from '@/utils/errors';
+import { useAuth } from '@/hooks/useAuth';
 
 export const HomePage: React.FC = () => {
+  const { isAuthenticated } = useAuth();
+
   const {
     data: stats,
     isLoading,
@@ -24,6 +33,7 @@ export const HomePage: React.FC = () => {
   } = useQuery({
     queryKey: ['dashboard-stats-public'],
     queryFn: () => coreApi.dashboardStats(),
+    enabled: isAuthenticated,
     retry: 1,
   });
 
@@ -38,9 +48,15 @@ export const HomePage: React.FC = () => {
           through final verdict.
         </p>
         <div className="home-page__actions">
-          <Link to="/login">
-            <Button variant="primary" size="lg">Sign In</Button>
-          </Link>
+          {isAuthenticated ? (
+            <Link to="/dashboard">
+              <Button variant="primary" size="lg">Go to Dashboard</Button>
+            </Link>
+          ) : (
+            <Link to="/login">
+              <Button variant="primary" size="lg">Sign In</Button>
+            </Link>
+          )}
           <Link to="/most-wanted">
             <Button variant="outline" size="lg">Most Wanted</Button>
           </Link>
@@ -49,10 +65,14 @@ export const HomePage: React.FC = () => {
 
       <section className="home-page__stats">
         <h2 className="home-page__section-title">Department Statistics</h2>
-        {error ? (
-          <Alert type="error">{extractErrorMessage(error)}</Alert>
+        {isAuthenticated ? (
+          error ? (
+            <Alert type="error">{extractErrorMessage(error)}</Alert>
+          ) : (
+            <StatsCards stats={stats ?? null} loading={isLoading} />
+          )
         ) : (
-          <StatsCards stats={stats ?? null} loading={isLoading} />
+          <p className="home-page__stats-hint">Sign in to view live department statistics.</p>
         )}
       </section>
 

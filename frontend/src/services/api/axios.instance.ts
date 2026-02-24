@@ -68,7 +68,7 @@ api.interceptors.response.use(
       } catch {
         // Refresh failed → force logout
         tokenStorage.clearTokens();
-        window.location.href = '/login';
+        window.location.href = '/';
         return Promise.reject(error);
       }
     }

@@ -3,6 +3,7 @@
  * logout action, and mobile sidebar toggle.
  */
 import { useAuth } from '@/hooks/useAuth';
+import { useNavigate } from 'react-router-dom';
 
 interface TopbarProps {
   onToggleSidebar?: () => void;
@@ -10,6 +11,12 @@ interface TopbarProps {
 
 export const Topbar = ({ onToggleSidebar }: TopbarProps) => {
   const { user, logout } = useAuth();
+  const navigate = useNavigate();
+
+  const handleLogout = () => {
+    logout();
+    navigate('/');
+  };
 
   return (
     <header className="topbar">
@@ -35,7 +42,7 @@ export const Topbar = ({ onToggleSidebar }: TopbarProps) => {
         </span>
       )}
 
-      <button className="topbar__logout" onClick={logout}>
+      <button className="topbar__logout" onClick={handleLogout}>
         Logout
       </button>
     </header>

@@ -12,6 +12,7 @@ import { useDelayedLoading } from '@/hooks/useDelayedLoading';
 import { CaseTimeline } from '@/features/cases/CaseTimeline';
 import { CaseReviewActions } from '@/features/cases/CaseReviewActions';
 import { ComplainantManager } from '@/features/cases/ComplainantManager';
+import { WitnessManager } from '@/features/cases/WitnessManager';
 
 import { casesApi } from '@/services/api/cases.api';
 
@@ -109,12 +110,12 @@ export function CaseDetailsPage() {
       {/* Calculations */}
       {caseData.calculations && (
         <Card>
-          <h3>Statistics</h3>
+          <h3>Case Metrics</h3>
           <div className="case-info-grid">
-            <div><strong>Evidence</strong><p>{caseData.calculations.total_evidence}</p></div>
-            <div><strong>Suspects</strong><p>{caseData.calculations.total_suspects}</p></div>
-            <div><strong>Witnesses</strong><p>{caseData.calculations.total_witnesses}</p></div>
-            <div><strong>Complainants</strong><p>{caseData.calculations.total_complainants}</p></div>
+            <div><strong>Crime Degree</strong><p>{caseData.calculations.crime_level_degree}</p></div>
+            <div><strong>Days Since Creation</strong><p>{caseData.calculations.days_since_creation}</p></div>
+            <div><strong>Tracking Threshold</strong><p>{caseData.calculations.tracking_threshold}</p></div>
+            <div><strong>Reward (Rials)</strong><p>{caseData.calculations.reward_rials.toLocaleString()}</p></div>
           </div>
         </Card>
       )}
@@ -125,20 +126,24 @@ export function CaseDetailsPage() {
       {/* Complainants */}
       <ComplainantManager caseId={caseId} />
 
-      {/* Witnesses */}
-      {caseData.witnesses.length > 0 && (
-        <Card>
-          <h3>Witnesses</h3>
-          <ul className="witness-list">
-            {caseData.witnesses.map((w) => (
-              <li key={w.id} className="witness-list__item">
-                <span>{w.full_name}</span>
-                <span>{w.national_id}</span>
-                <span>{w.phone_number}</span>
-              </li>
-            ))}
-          </ul>
-        </Card>
+      {/* Witnesses (editable for active cases, read-only for closed/voided) */}
+      <WitnessManager
+        caseId={caseId}
+        readOnly={caseData.status === 'closed' || caseData.status === 'voided'}
+      />
+
+      {/* Rejection warning (§4.2.1 — 3 rejections → voided) */}
+      {caseData.rejection_count > 0 && caseData.status !== 'voided' && (
+        <Alert type="warning">
+          This case has been returned {caseData.rejection_count} time(s).
+          {caseData.rejection_count >= 2 && ' One more rejection will void the case.'}
+        </Alert>
+      )}
+
+      {caseData.status === 'voided' && (
+        <Alert type="error">
+          This case has been voided after {caseData.rejection_count} rejection(s).
+        </Alert>
       )}
 
       {/* Status Timeline */}
