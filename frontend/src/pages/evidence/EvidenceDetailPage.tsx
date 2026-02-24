@@ -107,8 +107,8 @@ export function EvidenceDetailPage() {
 
       <EvidenceCard evidence={data} custodyLog={custodyLog} />
 
-      {/* File upload section */}
-      <PermissionGate permissions={[EvidencePerms.CAN_REGISTER_FORENSIC_RESULT]}>
+      {/* File upload section — any evidence registrar can upload files */}
+      <PermissionGate permissions={[EvidencePerms.ADD_EVIDENCE]}>
         <form className="evidence-upload" onSubmit={handleUpload}>
           <h3>Upload File</h3>
           {uploadError && <Alert type="error" onClose={() => setUploadError('')}>{uploadError}</Alert>}

@@ -1,5 +1,8 @@
 /**
  * UserManager — list users, assign roles, activate/deactivate.
+ *
+ * After role assignment, if the target user is the currently logged-in user,
+ * the auth context is refreshed so dashboard modules update immediately.
  */
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -14,6 +17,7 @@ import { Modal } from '@/components/ui/Modal';
 import { usersApi, rolesApi } from '@/services/api/admin.api';
 import { extractErrorMessage } from '@/utils/errors';
 import { useToast } from '@/context/ToastContext';
+import { useAuth } from '@/hooks/useAuth';
 import type { Column } from '@/components/ui/Table';
 import type { UserListItem, RoleListItem } from '@/types/user.types';
 
@@ -22,6 +26,7 @@ const PAGE_SIZE = 20;
 export function UserManager() {
   const queryClient = useQueryClient();
   const toast = useToast();
+  const { user: currentUser, refreshUser } = useAuth();
   const [page, setPage] = useState(1);
   const [selectedUser, setSelectedUser] = useState<UserListItem | null>(null);
   const [selectedRoleId, setSelectedRoleId] = useState('');
@@ -39,8 +44,13 @@ export function UserManager() {
 
   const assignRoleMutation = useMutation({
     mutationFn: () => usersApi.assignRole(selectedUser!.id, { role_id: Number(selectedRoleId) }),
-    onSuccess: () => {
+    onSuccess: async () => {
       queryClient.invalidateQueries({ queryKey: ['admin-users'] });
+      // If the assigned user is the currently logged-in user, refresh auth
+      // so dashboard modules and permissions update immediately.
+      if (selectedUser?.id === currentUser?.id) {
+        await refreshUser();
+      }
       toast.success('Role assigned');
       setSelectedUser(null);
     },

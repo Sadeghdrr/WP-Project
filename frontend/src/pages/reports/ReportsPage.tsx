@@ -1,5 +1,8 @@
 /**
  * ReportsPage — list cases, click to view full report.
+ * Primarily for Judge, Captain, and Police Chief (§5.7).
+ * Route-level guard enforces can_forward_to_judiciary.
+ * Page-level PermissionGate provides defense-in-depth.
  */
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -9,6 +12,8 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { Button } from '@/components/ui/Button';
 import { CaseReport } from '@/features/reports/CaseReport';
 import { CaseTable } from '@/features/cases/CaseTable';
+import { PermissionGate } from '@/components/guards/PermissionGate';
+import { CasesPerms } from '@/config/permissions';
 import { casesApi } from '@/services/api/cases.api';
 import type { CaseListItem } from '@/types/case.types';
 
@@ -25,17 +30,38 @@ export function ReportsPage() {
 
   if (selectedCase) {
     return (
-      <div className="page-reports">
-        <div className="page-header">
-          <h1 className="page-header__title">Report: Case #{selectedCase.id}</h1>
-          <Button variant="secondary" onClick={() => setSelectedCase(null)}>Back to List</Button>
+      <PermissionGate
+        permissions={[CasesPerms.CAN_FORWARD_TO_JUDICIARY]}
+        fallback={
+          <div style={{ padding: '3rem', maxWidth: '480px', margin: '4rem auto' }}>
+            <Alert type="error" title="403 — Forbidden">
+              You do not have permission to view reports.
+            </Alert>
+          </div>
+        }
+      >
+        <div className="page-reports">
+          <div className="page-header">
+            <h1 className="page-header__title">Report: Case #{selectedCase.id}</h1>
+            <Button variant="secondary" onClick={() => setSelectedCase(null)}>Back to List</Button>
+          </div>
+          <CaseReport caseId={selectedCase.id} />
         </div>
-        <CaseReport caseId={selectedCase.id} />
-      </div>
+      </PermissionGate>
     );
   }
 
   return (
+    <PermissionGate
+      permissions={[CasesPerms.CAN_FORWARD_TO_JUDICIARY]}
+      fallback={
+        <div style={{ padding: '3rem', maxWidth: '480px', margin: '4rem auto' }}>
+          <Alert type="error" title="403 — Forbidden">
+            You do not have permission to view reports.
+          </Alert>
+        </div>
+      }
+    >
     <div className="page-reports">
       <div className="page-header">
         <h1 className="page-header__title">General Reports</h1>
@@ -55,5 +81,6 @@ export function ReportsPage() {
         </>
       ) : null}
     </div>
+    </PermissionGate>
   );
 }

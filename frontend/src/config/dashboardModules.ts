@@ -61,6 +61,16 @@ export const DASHBOARD_MODULES: readonly DashboardModuleDefinition[] = [
     sidebarOrder: 10,
   },
   {
+    id: 'complaint-review',
+    title: 'Complaint Review',
+    description: 'Review and filter incoming complaints',
+    route: '/cases',
+    permissions: ['can_review_complaint'],
+    icon: '📝',
+    sidebarOrder: 15,
+    showInSidebar: false, // Cases link already in sidebar; this is a dashboard-only module
+  },
+  {
     id: 'evidence',
     title: 'Evidence Vault',
     description: 'Register and review evidence',
@@ -69,6 +79,16 @@ export const DASHBOARD_MODULES: readonly DashboardModuleDefinition[] = [
     statAccessor: (s) => s.total_evidence,
     icon: '🔍',
     sidebarOrder: 20,
+  },
+  {
+    id: 'forensic-review',
+    title: 'Forensic Review',
+    description: 'Verify biological and medical evidence',
+    route: '/evidence',
+    permissions: ['can_verify_evidence'],
+    icon: '🔬',
+    sidebarOrder: 25,
+    showInSidebar: false, // Evidence link already in sidebar; this is a dashboard-only module
   },
   {
     id: 'suspects',

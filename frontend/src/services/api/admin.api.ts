@@ -1,5 +1,8 @@
 /**
  * Admin API service — roles & user management.
+ *
+ * Raw backend responses are normalised so the rest of the app always
+ * receives `role` as a `RoleListItem | null` object (not a bare integer FK).
  */
 import api from './axios.instance';
 import type { PaginatedResponse, ListParams } from '@/types/api.types';
@@ -13,7 +16,10 @@ import type {
   User,
   AssignRoleRequest,
   Permission,
+  RawUserListItem,
+  RawUserDetail,
 } from '@/types/user.types';
+import { normalizeUserListItem, normalizeUser } from '@/types/user.types';
 
 /* ── Roles ───────────────────────────────────────────────────────── */
 
@@ -44,22 +50,31 @@ export const rolesApi = {
 export const usersApi = {
   list: (params?: ListParams) =>
     api
-      .get<PaginatedResponse<UserListItem>>('/accounts/users/', { params })
-      .then((r) => r.data),
+      .get<PaginatedResponse<RawUserListItem>>('/accounts/users/', { params })
+      .then((r) => ({
+        ...r.data,
+        results: r.data.results.map(normalizeUserListItem),
+      })),
 
   detail: (id: number) =>
-    api.get<User>(`/accounts/users/${id}/`).then((r) => r.data),
+    api
+      .get<RawUserDetail>(`/accounts/users/${id}/`)
+      .then((r) => normalizeUser(r.data)),
 
   assignRole: (id: number, data: AssignRoleRequest) =>
     api
-      .patch<User>(`/accounts/users/${id}/assign-role/`, data)
-      .then((r) => r.data),
+      .patch<RawUserDetail>(`/accounts/users/${id}/assign-role/`, data)
+      .then((r) => normalizeUser(r.data)),
 
   activate: (id: number) =>
-    api.patch<User>(`/accounts/users/${id}/activate/`).then((r) => r.data),
+    api
+      .patch<RawUserDetail>(`/accounts/users/${id}/activate/`)
+      .then((r) => normalizeUser(r.data)),
 
   deactivate: (id: number) =>
-    api.patch<User>(`/accounts/users/${id}/deactivate/`).then((r) => r.data),
+    api
+      .patch<RawUserDetail>(`/accounts/users/${id}/deactivate/`)
+      .then((r) => normalizeUser(r.data)),
 };
 
 /* ── Permissions ─────────────────────────────────────────────────── */

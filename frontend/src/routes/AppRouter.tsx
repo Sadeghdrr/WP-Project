@@ -40,6 +40,7 @@ import { PublicLayout } from '@/components/layout/PublicLayout';
 import { AuthLayout } from '@/components/layout/AuthLayout';
 import { ProtectedRoute } from '@/components/layout/ProtectedRoute';
 import { Loader } from '@/components/ui/Loader';
+import { AccountsPerms, CasesPerms, EvidencePerms, BoardPerms } from '@/config/permissions';
 
 /* ── Lazy page imports ───────────────────────────────────────────── */
 
@@ -156,31 +157,68 @@ const router = createBrowserRouter([
         children: [
           { path: 'dashboard', element: <OverviewPage /> },
 
-          /* Cases */
-          { path: 'cases', element: <CasesListPage /> },
-          { path: 'cases/new', element: <CaseCreatePage /> },
-          { path: 'cases/:id', element: <CaseDetailsPage /> },
+          /* Cases — view requires view_case */
+          {
+            element: <ProtectedRoute requiredPermissions={[CasesPerms.VIEW_CASE]} />,
+            children: [
+              { path: 'cases', element: <CasesListPage /> },
+              { path: 'cases/:id', element: <CaseDetailsPage /> },
+            ],
+          },
+          /* Case creation requires add_case */
+          {
+            element: <ProtectedRoute requiredPermissions={[CasesPerms.ADD_CASE]} />,
+            children: [
+              { path: 'cases/new', element: <CaseCreatePage /> },
+            ],
+          },
 
-          /* Detective board */
-          { path: 'boards/:id', element: <KanbanBoardPage /> },
+          /* Detective board — requires view_detectiveboard */
+          {
+            element: <ProtectedRoute requiredPermissions={[BoardPerms.VIEW_DETECTIVEBOARD]} />,
+            children: [
+              { path: 'boards/:id', element: <KanbanBoardPage /> },
+            ],
+          },
 
-          /* Evidence */
-          { path: 'evidence', element: <EvidenceVaultPage /> },
-          { path: 'evidence/new', element: <EvidenceCreatePage /> },
-          { path: 'evidence/:id', element: <EvidenceDetailPage /> },
+          /* Evidence — view requires view_evidence */
+          {
+            element: <ProtectedRoute requiredPermissions={[EvidencePerms.VIEW_EVIDENCE]} />,
+            children: [
+              { path: 'evidence', element: <EvidenceVaultPage /> },
+              { path: 'evidence/:id', element: <EvidenceDetailPage /> },
+            ],
+          },
+          /* Evidence creation requires add_evidence */
+          {
+            element: <ProtectedRoute requiredPermissions={[EvidencePerms.ADD_EVIDENCE]} />,
+            children: [
+              { path: 'evidence/new', element: <EvidenceCreatePage /> },
+            ],
+          },
 
-          /* Suspects */
+          /* Suspects — view accessible to users with view_suspect */
           { path: 'suspects', element: <SuspectsListPage /> },
           { path: 'suspects/:id', element: <SuspectDetailPage /> },
 
-          /* Bounty tips */
+          /* Bounty tips — accessible to all authenticated users */
           { path: 'bounty', element: <BountyTipPage /> },
 
-          /* Reports (permission-gated at component-level) */
-          { path: 'reports', element: <ReportsPage /> },
+          /* Reports — requires can_forward_to_judiciary (Captain, Police Chief) */
+          {
+            element: <ProtectedRoute requiredPermissions={[CasesPerms.CAN_FORWARD_TO_JUDICIARY]} />,
+            children: [
+              { path: 'reports', element: <ReportsPage /> },
+            ],
+          },
 
-          /* Admin (permission-gated at component-level) */
-          { path: 'admin', element: <AdminPanelPage /> },
+          /* Admin — requires role management permissions */
+          {
+            element: <ProtectedRoute requiredPermissions={[AccountsPerms.ADD_ROLE, AccountsPerms.CHANGE_ROLE]} />,
+            children: [
+              { path: 'admin', element: <AdminPanelPage /> },
+            ],
+          },
         ],
       },
     ],
