@@ -598,18 +598,10 @@ class CaseWorkflowService:
         10. _dispatch_notifications(case, target_status, requesting_user)
         11. Return case.
         """
-        # 1. Lock the row for concurrency safety and pre-load FKs
-        #    used by _dispatch_notifications.
-        case = (
-            Case.objects
-            .select_for_update()
-            .select_related(
-                "created_by", "assigned_detective",
-                "assigned_sergeant", "assigned_captain",
-                "assigned_judge",
-            )
-            .get(pk=case.pk)
-        )
+        # 1. Lock only the Case row for concurrency safety.
+        # PostgreSQL does not allow FOR UPDATE on the nullable side of outer
+        # joins, so avoid select_related(...) in this locking query.
+        case = Case.objects.select_for_update().get(pk=case.pk)
 
         # 2. Validate transition exists
         key = (case.status, target_status)
