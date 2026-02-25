@@ -1410,8 +1410,8 @@ class MostWantedSerializer(serializers.ModelSerializer):
 
     The queryset feeding this serializer is annotated by
     ``SuspectProfileService.get_most_wanted_list()`` with:
-    - ``computed_days_wanted`` — days the suspect has been wanted.
-    - ``computed_score`` — ranking score (days × crime degree).
+    - ``computed_days_wanted`` — max days wanted in open cases for the person.
+    - ``computed_score`` — ranking score (max_days × max_crime_degree).
     - ``computed_reward`` — bounty in Rials.
 
     Used in ``GET /api/suspects/most-wanted/``.

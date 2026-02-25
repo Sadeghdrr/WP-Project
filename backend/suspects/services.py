@@ -44,8 +44,10 @@ from django.db.models import (
     F,
     IntegerField,
     Max,
+    OuterRef,
     Q,
     QuerySet,
+    Subquery,
     Value,
 )
 from django.db.models.functions import Coalesce, ExtractDay, Now
@@ -397,7 +399,7 @@ class SuspectProfileService:
         return suspect
 
     @staticmethod
-    def get_most_wanted_list() -> QuerySet[Suspect]:
+    def get_most_wanted_list() -> list[Suspect]:
         """
         Return suspects qualifying for the Most Wanted page.
 
@@ -415,16 +417,17 @@ class SuspectProfileService:
             \\text{score} = \\max(\\text{days\\_wanted in open cases})
                            \\times \\max(\\text{crime\\_degree across all cases})
 
-        The queryset is annotated with ``computed_days_wanted``,
-        ``max_crime_degree``, ``computed_score``, and
-        ``computed_reward`` at the DB level via Django ORM
-        ``annotate()`` / ``ExpressionWrapper`` / ``Max()``
-        to avoid N+1 queries.
+        For non-empty ``national_id`` values, results are aggregated
+        per person (one row per national ID). Computed annotations:
+        - ``computed_days_wanted`` = max days wanted in open cases
+        - ``crime_degree`` = max crime_level across all linked cases
+        - ``computed_score`` = computed_days_wanted * crime_degree
+        - ``computed_reward`` = computed_score * REWARD_MULTIPLIER
 
         Returns
         -------
-        QuerySet[Suspect]
-            Annotated queryset ordered by ``computed_score`` descending.
+        list[Suspect]
+            Annotated suspect rows ordered by ``computed_score`` descending.
         """
         from cases.models import CaseStatus
 
@@ -435,50 +438,82 @@ class SuspectProfileService:
         # Closed / voided statuses to exclude from "open case" check
         closed_statuses = [CaseStatus.CLOSED, CaseStatus.VOIDED]
 
-        # ── Build annotated queryset ────────────────────────────────
-        qs = (
+        eligible_open_rows = (
             Suspect.objects.filter(
                 status=SuspectStatus.WANTED,
-                # Strictly "over 30 days" per project-doc §4.7.
                 wanted_since__lt=cutoff,
             )
-            # Must be linked to at least one open case
             .exclude(case__status__in=closed_statuses)
             .select_related("case")
         )
 
-        # Annotate: days_wanted for *this* suspect row
-        # (days between wanted_since and now)
-        qs = qs.annotate(
-            computed_days_wanted=ExpressionWrapper(
-                ExtractDay(Now() - F("wanted_since")),
-                output_field=IntegerField(),
-            ),
+        max_days_subquery = (
+            Suspect.objects.filter(
+                national_id=OuterRef("national_id"),
+                status=SuspectStatus.WANTED,
+                wanted_since__lt=cutoff,
+            )
+            .exclude(case__status__in=closed_statuses)
+            .annotate(days_wanted=ExtractDay(Now() - F("wanted_since")))
+            .values("national_id")
+            .annotate(max_days=Max("days_wanted"))
+            .values("max_days")[:1]
+        )
+        max_crime_subquery = (
+            Suspect.objects.filter(national_id=OuterRef("national_id"))
+            .values("national_id")
+            .annotate(max_crime=Max("case__crime_level"))
+            .values("max_crime")[:1]
         )
 
-        # For cross-national_id aggregation we need a subquery
-        # approach.  However, since each Suspect row is per-case,
-        # we annotate per-row and then do application-level
-        # grouping for the "max across all cases for same person".
-        #
-        # Per-row annotation:
-        #   computed_days_wanted = days this row has been wanted
-        #   crime_degree         = this case's crime_level
-        #   computed_score       = days_wanted × crime_degree
-        #   computed_reward      = score × REWARD_MULTIPLIER
-        qs = qs.annotate(
-            crime_degree=F("case__crime_level"),
+        grouped_by_national_id = eligible_open_rows.exclude(national_id="").annotate(
+            computed_days_wanted=Coalesce(
+                Subquery(max_days_subquery, output_field=IntegerField()),
+                Value(0),
+            ),
+            crime_degree=Coalesce(
+                Subquery(max_crime_subquery, output_field=IntegerField()),
+                F("case__crime_level"),
+            ),
+        ).annotate(
             computed_score=ExpressionWrapper(
-                F("computed_days_wanted") * F("case__crime_level"),
+                F("computed_days_wanted") * F("crime_degree"),
                 output_field=IntegerField(),
             ),
             computed_reward=ExpressionWrapper(
-                F("computed_days_wanted") * F("case__crime_level") * Value(REWARD_MULTIPLIER),
+                F("computed_days_wanted")
+                * F("crime_degree")
+                * Value(REWARD_MULTIPLIER),
                 output_field=IntegerField(),
             ),
         )
 
-        return qs.order_by("-computed_score")
+        # Distinct-on picks one representative row per national_id.
+        grouped_by_national_id = grouped_by_national_id.order_by(
+            "national_id",
+            "-computed_score",
+            "id",
+        ).distinct("national_id")
+
+        # Backward compatibility: keep per-row behavior for missing national_id.
+        no_national_id_rows = eligible_open_rows.filter(national_id="").annotate(
+            computed_days_wanted=ExtractDay(Now() - F("wanted_since")),
+            crime_degree=F("case__crime_level"),
+            computed_score=ExpressionWrapper(
+                F("computed_days_wanted") * F("crime_degree"),
+                output_field=IntegerField(),
+            ),
+            computed_reward=ExpressionWrapper(
+                F("computed_days_wanted")
+                * F("crime_degree")
+                * Value(REWARD_MULTIPLIER),
+                output_field=IntegerField(),
+            ),
+        ).order_by("-computed_score", "id")
+
+        combined = list(grouped_by_national_id) + list(no_national_id_rows)
+        combined.sort(key=lambda suspect: (-suspect.computed_score, suspect.id))
+        return combined
 
 
 # ═══════════════════════════════════════════════════════════════════

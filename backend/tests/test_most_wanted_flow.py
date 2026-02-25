@@ -220,3 +220,95 @@ class TestMostWantedFlow(TestCase):
         self.assertEqual(target["reward_amount"], expected_reward)
         if "calculated_reward" in target:
             self.assertEqual(target["calculated_reward"], expected_reward)
+
+    def test_most_wanted_aggregates_same_national_id_by_max_days_and_max_crime_level(self):
+        """
+        Scenario 9.2:
+        project-doc §4.7 requires person-level aggregation by national_id:
+        score = max(days_wanted across open Lj) * max(crime_level across Di)
+        """
+        token = self.login(self.detective_user)
+        self.auth(token)
+
+        shared_national_id = "5555555555"
+        low_level = 1
+        high_level = 3
+        long_days = 60
+        short_days = 35
+
+        case_low = self.create_case(
+            title="Aggregation Low Crime Case",
+            status_value=CaseStatus.OPEN,
+            crime_level=low_level,
+        )
+        case_high = self.create_case(
+            title="Aggregation High Crime Case",
+            status_value=CaseStatus.OPEN,
+            crime_level=high_level,
+        )
+
+        self.create_suspect(
+            case=case_low,
+            full_name="Aggregation Suspect Low",
+            national_id=shared_national_id,
+            wanted_days=long_days,
+            status_value=SuspectStatus.WANTED,
+        )
+        self.create_suspect(
+            case=case_high,
+            full_name="Aggregation Suspect High",
+            national_id=shared_national_id,
+            wanted_days=short_days,
+            status_value=SuspectStatus.WANTED,
+        )
+
+        response = self.client.get(reverse("suspect-most-wanted"), format="json")
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+            msg=f"Most Wanted request failed: {response.data}",
+        )
+        items = self._extract_items(response.data)
+        same_person_entries = [
+            item for item in items if item.get("national_id") == shared_national_id
+        ]
+
+        expected_max_days = max(long_days, short_days)
+        expected_max_crime = max(low_level, high_level)
+        expected_score = expected_max_days * expected_max_crime
+        expected_reward = expected_score * 20_000_000
+
+        if len(same_person_entries) != 1:
+            returned_scores = {
+                item.get("most_wanted_score", item.get("computed_score"))
+                for item in same_person_entries
+            }
+            if returned_scores == {long_days * low_level, short_days * high_level}:
+                self.fail(
+                    "API appears to compute per-row score (days_wanted*crime_level) "
+                    "instead of aggregated max-days * max-crime-level."
+                )
+            self.fail(
+                "API returned multiple Most Wanted entries for the same national_id; "
+                "project-doc.md requires aggregation by national_id using "
+                "score=max(days_wanted)*max(crime_level)."
+            )
+
+        entry = same_person_entries[0]
+        score = entry.get("most_wanted_score", entry.get("computed_score"))
+        reward = entry.get("reward_amount", entry.get("reward"))
+        if reward is None:
+            reward = entry.get("calculated_reward")
+
+        self.assertIsNotNone(
+            score,
+            msg=f"Most Wanted entry must expose score field: {entry}",
+        )
+        self.assertEqual(score, expected_score)
+
+        if reward is not None:
+            self.assertEqual(reward, expected_reward)
+
+        if "days_wanted" in entry:
+            # days_wanted should represent the aggregated max-days term.
+            self.assertGreaterEqual(int(entry["days_wanted"]), expected_max_days)

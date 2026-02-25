@@ -20,13 +20,13 @@ Where:
 
 | Symbol | Meaning                                                                                     | Source                                                                     |
 | ------ | ------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| $L_j$  | Days the suspect has been wanted in each _open_ case                                        | `(now - Suspect.wanted_since).days` for each Suspect row with an open case |
-| $D_i$  | Crime degree (integer 1–4) of the highest-severity case the suspect has ever been linked to | `Case.crime_level` (1 = Level 3/Minor … 4 = Critical)                      |
+| $L_j$  | Days the suspect has been wanted in each _open_ case                                        | `(now - Suspect.wanted_since).days` for each eligible open Suspect row |
+| $D_i$  | Crime degree (integer 1–4) of the highest-severity case the suspect has ever been linked to | `Case.crime_level` (1 = Level 3/Minor … 4 = Critical)                   |
 
-In the current per-row annotation (each `Suspect` row maps to exactly one case):
+The API now aggregates **one Most-Wanted row per `national_id`** (for non-empty national IDs):
 
 $$
-\text{computed\_score} = \text{days\_wanted} \times \text{case.crime\_level}
+\text{computed\_score} = \max(L_j) \times \max(D_i)
 $$
 
 ### 1.3 Bounty Reward
@@ -98,42 +98,58 @@ This ensures that if the multiplier or threshold changes, it is updated in **one
 
 ### 3.1 ORM Aggregation Strategy
 
-`SuspectProfileService.get_most_wanted_list()` performs **all filtering and scoring at the database level** using Django ORM annotations:
+`SuspectProfileService.get_most_wanted_list()` now computes aggregation by `national_id` using ORM subqueries:
 
 ```python
-qs = Suspect.objects.filter(
+eligible = Suspect.objects.filter(
     status="wanted",
-    wanted_since__lt=cutoff,        # strictly > 30 days ago
+    wanted_since__lt=cutoff,  # strictly > 30 days ago
 ).exclude(
     case__status__in=["closed", "voided"],  # must have open case
 ).select_related("case")
 
-qs = qs.annotate(
-    computed_days_wanted=ExpressionWrapper(
-        ExtractDay(Now() - F("wanted_since")),
-        output_field=IntegerField(),
+max_days_subquery = (
+    Suspect.objects.filter(national_id=OuterRef("national_id"), ...)
+    .annotate(days_wanted=ExtractDay(Now() - F("wanted_since")))
+    .values("national_id")
+    .annotate(max_days=Max("days_wanted"))
+    .values("max_days")[:1]
+)
+max_crime_subquery = (
+    Suspect.objects.filter(national_id=OuterRef("national_id"))
+    .values("national_id")
+    .annotate(max_crime=Max("case__crime_level"))
+    .values("max_crime")[:1]
+)
+
+grouped = eligible.exclude(national_id="").annotate(
+    computed_days_wanted=Coalesce(
+        Subquery(max_days_subquery, output_field=IntegerField()), Value(0)
     ),
-    crime_degree=F("case__crime_level"),
+    crime_degree=Coalesce(
+        Subquery(max_crime_subquery, output_field=IntegerField()),
+        F("case__crime_level"),
+    ),
     computed_score=ExpressionWrapper(
-        F("computed_days_wanted") * F("case__crime_level"),
+        F("computed_days_wanted") * F("crime_degree"),
         output_field=IntegerField(),
     ),
     computed_reward=ExpressionWrapper(
-        F("computed_days_wanted") * F("case__crime_level") * Value(REWARD_MULTIPLIER),
+        F("computed_days_wanted") * F("crime_degree") * Value(REWARD_MULTIPLIER),
         output_field=IntegerField(),
     ),
-).order_by("-computed_score")
+).order_by("national_id", "-computed_score", "id").distinct("national_id")
 ```
 
 ### 3.2 N+1 Avoidance
 
-- **`select_related("case")`** ensures the `Case` table is joined in the same SQL query — no additional queries to fetch case data during serialization.
-- **All computed fields** (`computed_days_wanted`, `computed_score`, `computed_reward`) are calculated as SQL expressions inside a single `SELECT` statement — no Python-side loops or per-row queries.
+- **`select_related("case")`** keeps case joins efficient for display fields.
+- **Aggregation primitives** (`max_days`, `max_crime`) are resolved via SQL subqueries per `national_id` rather than Python loops.
 - The `MostWantedSerializer` reads annotated attributes via `getattr(obj, "computed_*", ...)` with fallback to model properties for backward compatibility.
 
 ### 3.3 Query Count
 
-The entire Most Wanted endpoint executes **exactly 1 SQL query** (the annotated, filtered, ordered SELECT with JOIN).
+The endpoint runs the grouped query plus a fallback query for rows with blank `national_id` (if any), then merges and sorts in memory.
 
 ---
 
@@ -143,6 +159,6 @@ The entire Most Wanted endpoint executes **exactly 1 SQL query** (the annotated,
 | ------------------------- | --------------------------------------------------------------------------------------------------------- |
 | `core/services.py`        | Added `RewardCalculatorService` class with all formula primitives                                         |
 | `cases/services.py`       | Updated `CaseCalculationService` to delegate to `RewardCalculatorService`                                 |
-| `suspects/services.py`    | Rewrote `get_most_wanted_list()` with DB-level annotations, open-case filtering, and score-based ordering |
+| `suspects/services.py`    | Rewrote `get_most_wanted_list()` to aggregate by `national_id` (`max_days × max_crime_level`) and keep open-case filtering |
 | `suspects/serializers.py` | Updated `MostWantedSerializer` to use annotated fields + `calculated_reward` alias                        |
 | `suspects/models.py`      | Updated `Suspect.reward_amount` property to delegate to `RewardCalculatorService`; fixed stale docstring  |
