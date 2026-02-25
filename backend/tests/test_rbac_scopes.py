@@ -266,6 +266,27 @@ class TestRBACScopes(TestCase):
             case_id=cls.case_c3.id,
             title="Evidence C3",
         )
+        cls.evidence_c4_id = cls._create_other_evidence_for_setup(
+            setup_client,
+            actor=cls.chief_user,
+            actor_password=cls.passwords["chief"],
+            case_id=cls.case_c4.id,
+            title="Evidence C4 - Voided Case",
+        )
+        cls.evidence_c5_id = cls._create_other_evidence_for_setup(
+            setup_client,
+            actor=cls.chief_user,
+            actor_password=cls.passwords["chief"],
+            case_id=cls.case_c5.id,
+            title="Evidence C5 - Judge Case",
+        )
+        cls.evidence_c7_id = cls._create_other_evidence_for_setup(
+            setup_client,
+            actor=cls.chief_user,
+            actor_password=cls.passwords["chief"],
+            case_id=cls.case_c7.id,
+            title="Evidence C7 - Other Judge Case",
+        )
 
         # Board fixture via real API endpoint.
         cls.board_c2_id = cls._create_board_for_setup(
@@ -396,6 +417,41 @@ class TestRBACScopes(TestCase):
         )
 
     # ---------------------------------------------------------------------
+    # Evidence list helpers
+    # ---------------------------------------------------------------------
+
+    def get_evidence_ids_for_current_user(self, *, case_id: int | None = None) -> set[int]:
+        """
+        Resolve evidence IDs from `GET /api/evidence/` for current auth user.
+
+        Supports both paginated and plain-list responses.
+        """
+        next_url = reverse("evidence-list")
+        if case_id is not None:
+            next_url = f"{next_url}?case={case_id}"
+
+        evidence_ids: set[int] = set()
+        while next_url:
+            response = self.client.get(next_url, format="json")
+            self.assertEqual(
+                response.status_code,
+                status.HTTP_200_OK,
+                msg=f"Evidence list request failed: {response.status_code} {response.data}",
+            )
+            payload = response.data
+
+            if isinstance(payload, dict) and "results" in payload:
+                evidence_ids.update(item["id"] for item in payload["results"])
+                next_url = payload.get("next")
+                if isinstance(next_url, str) and next_url:
+                    next_url = self._to_relative_url(next_url)
+            else:
+                evidence_ids.update(item["id"] for item in payload)
+                next_url = None
+
+        return evidence_ids
+
+    # ---------------------------------------------------------------------
     # Case scope tests
     # ---------------------------------------------------------------------
 
@@ -462,29 +518,63 @@ class TestRBACScopes(TestCase):
     # Evidence scope tests
     # ---------------------------------------------------------------------
 
-    def test_evidence_list_scoped_to_detective_case_access(self):
-        self.login_as(self.detective_a)
-        det_a_response = self.client.get(reverse("evidence-list"), format="json")
-        self.assertEqual(det_a_response.status_code, status.HTTP_200_OK)
-        self.assertSetEqual(self._extract_ids(det_a_response.data), {self.evidence_c2_id})
-
-        self.login_as(self.detective_b)
-        det_b_response = self.client.get(reverse("evidence-list"), format="json")
-        self.assertEqual(det_b_response.status_code, status.HTTP_200_OK)
-        self.assertSetEqual(self._extract_ids(det_b_response.data), {self.evidence_c3_id})
-
-    def test_evidence_list_requires_permission_and_case_visibility(self):
-        # Complainant role lacks evidence.view_evidence permission.
+    def test_evidence_list_denied_for_role_without_view_permission(self):
+        # Per RBAC docs, Complainant does not hold evidence.view_evidence.
         self.login_as(self.complainant_a)
-        complainant_response = self.client.get(reverse("evidence-list"), format="json")
-        self.assertEqual(complainant_response.status_code, status.HTTP_403_FORBIDDEN)
+        response = self.client.get(reverse("evidence-list"), format="json")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-        # Judge has evidence view permission but should only see evidence from
-        # cases they can access (C5/C6 in this fixture have no evidence).
+    def test_evidence_list_scope_for_detective_with_case_filter(self):
+        self.login_as(self.detective_a)
+        c2_ids = self.get_evidence_ids_for_current_user(case_id=self.case_c2.id)
+        self.assertIn(self.evidence_c2_id, c2_ids)
+        self.assertNotIn(self.evidence_c3_id, c2_ids)
+        self.assertSetEqual(c2_ids, {self.evidence_c2_id})
+
+        c3_ids = self.get_evidence_ids_for_current_user(case_id=self.case_c3.id)
+        self.assertSetEqual(c3_ids, set())
+
+        all_ids = self.get_evidence_ids_for_current_user()
+        self.assertIn(self.evidence_c2_id, all_ids)
+        self.assertNotIn(self.evidence_c3_id, all_ids)
+        self.assertNotIn(self.evidence_c4_id, all_ids)
+        self.assertNotIn(self.evidence_c5_id, all_ids)
+        self.assertNotIn(self.evidence_c7_id, all_ids)
+        self.assertSetEqual(all_ids, {self.evidence_c2_id})
+
+    def test_evidence_list_scope_for_officer_excludes_voided_case(self):
+        self.login_as(self.officer_user)
+        c2_ids = self.get_evidence_ids_for_current_user(case_id=self.case_c2.id)
+        self.assertIn(self.evidence_c2_id, c2_ids)
+
+        c4_ids = self.get_evidence_ids_for_current_user(case_id=self.case_c4.id)
+        self.assertSetEqual(c4_ids, set())
+
+        all_ids = self.get_evidence_ids_for_current_user()
+        self.assertIn(self.evidence_c2_id, all_ids)
+        self.assertIn(self.evidence_c3_id, all_ids)
+        self.assertIn(self.evidence_c5_id, all_ids)
+        self.assertIn(self.evidence_c7_id, all_ids)
+        self.assertNotIn(self.evidence_c4_id, all_ids)
+
+    def test_evidence_list_scope_for_judge_assigned_cases_only(self):
         self.login_as(self.judge_user)
-        judge_response = self.client.get(reverse("evidence-list"), format="json")
-        self.assertEqual(judge_response.status_code, status.HTTP_200_OK)
-        self.assertSetEqual(self._extract_ids(judge_response.data), set())
+        c5_ids = self.get_evidence_ids_for_current_user(case_id=self.case_c5.id)
+        self.assertIn(self.evidence_c5_id, c5_ids)
+
+        c7_ids = self.get_evidence_ids_for_current_user(case_id=self.case_c7.id)
+        self.assertSetEqual(c7_ids, set())
+
+        c2_ids = self.get_evidence_ids_for_current_user(case_id=self.case_c2.id)
+        self.assertSetEqual(c2_ids, set())
+
+        all_ids = self.get_evidence_ids_for_current_user()
+        self.assertIn(self.evidence_c5_id, all_ids)
+        self.assertNotIn(self.evidence_c2_id, all_ids)
+        self.assertNotIn(self.evidence_c3_id, all_ids)
+        self.assertNotIn(self.evidence_c4_id, all_ids)
+        self.assertNotIn(self.evidence_c7_id, all_ids)
+        self.assertSetEqual(all_ids, {self.evidence_c5_id})
 
     # ---------------------------------------------------------------------
     # Board scope tests
