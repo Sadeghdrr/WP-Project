@@ -1,0 +1,127 @@
+/* Submit Tip page styles */
+
+.container {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 1.5rem;
+}
+
+.backLink {
+  font-size: 0.85rem;
+  color: var(--accent, #c8a96e);
+  text-decoration: none;
+  display: inline-block;
+  margin-bottom: 1rem;
+}
+
+.backLink:hover {
+  text-decoration: underline;
+}
+
+.header h1 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--text-primary, #1a1a2e);
+  margin: 0 0 0.25rem;
+}
+
+.subtitle {
+  color: var(--text-secondary, #666);
+  font-size: 0.9rem;
+  margin: 0 0 1.5rem;
+}
+
+/* ── Form ───────────────────────────────────────────────────── */
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.field label {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-primary, #1a1a2e);
+}
+
+.field input,
+.field textarea {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border, #e2e2e2);
+  border-radius: 8px;
+  font-size: 0.9rem;
+  background: var(--bg-surface, #fff);
+  color: var(--text-primary, #1a1a2e);
+  font-family: inherit;
+}
+
+.field textarea {
+  min-height: 120px;
+  resize: vertical;
+}
+
+.hint {
+  font-size: 0.75rem;
+  color: var(--text-muted, #999);
+}
+
+.errorText {
+  font-size: 0.8rem;
+  color: #dc3545;
+}
+
+/* ── Buttons ────────────────────────────────────────────────── */
+
+.btnRow {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.submitBtn {
+  padding: 0.55rem 1.25rem;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent, #c8a96e);
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.submitBtn:hover {
+  opacity: 0.9;
+}
+
+.submitBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Success ────────────────────────────────────────────────── */
+
+.successCard {
+  background: #d4edda;
+  border: 1px solid #c3e6cb;
+  border-radius: 12px;
+  padding: 1.5rem;
+  text-align: center;
+}
+
+.successCard h2 {
+  color: #155724;
+  margin: 0 0 0.5rem;
+}
+
+.successCard p {
+  color: #155724;
+  margin: 0 0 1rem;
+}

@@ -88,6 +88,7 @@ export type {
   Trial,
   TrialCreateRequest,
   BountyTip,
+  BountyTipListItem,
   BountyTipCreateRequest,
   BountyTipReviewRequest,
   BountyTipVerifyRequest,

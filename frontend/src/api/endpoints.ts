@@ -63,6 +63,10 @@ export const API = {
   INTERROGATIONS: "/suspects/interrogations/",
   TRIALS: "/suspects/trials/",
   BOUNTY_TIPS: "/suspects/bounty-tips/",
+  bountyTip: (id: number) => `/suspects/bounty-tips/${id}/`,
+  bountyTipReview: (id: number) => `/suspects/bounty-tips/${id}/review/`,
+  bountyTipVerify: (id: number) => `/suspects/bounty-tips/${id}/verify/`,
+  BOUNTY_REWARD_LOOKUP: "/suspects/bounty-tips/lookup-reward/",
   BAIL: "/suspects/bail/",
   MOST_WANTED: "/suspects/most-wanted/",
 

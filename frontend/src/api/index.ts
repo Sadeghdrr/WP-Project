@@ -23,3 +23,5 @@ export * as casesApi from "./cases";
 export type { CaseFilters } from "./cases";
 export * as evidenceApi from "./evidence";
 export type { EvidenceFilters } from "./evidence";
+export * as suspectsApi from "./suspects";
+export type { BountyTipFilters } from "./suspects";

@@ -62,18 +62,23 @@ export interface Suspect extends TimeStamped {
   reward_amount: number; // in Rials
 }
 
-/** Most-wanted list item (may be a subset of Suspect fields) */
+/** Most-wanted list item — maps to backend MostWantedSerializer */
 export interface MostWantedEntry {
   id: number;
   full_name: string;
   national_id: string;
   photo: string | null;
+  description: string;
+  address: string;
   status: SuspectStatus;
+  status_display: string;
+  case: number;
+  case_title: string | null;
   wanted_since: ISODateTime;
   days_wanted: number;
   most_wanted_score: number;
   reward_amount: number;
-  case: number;
+  calculated_reward: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -139,15 +144,33 @@ export interface TrialCreateRequest {
 // BountyTip
 // ---------------------------------------------------------------------------
 
+/** Compact bounty-tip item — maps to BountyTipListSerializer */
+export interface BountyTipListItem {
+  id: number;
+  suspect: number | null;
+  case: number | null;
+  informant: number;
+  informant_name: string | null;
+  status: BountyTipStatus;
+  status_display: string;
+  is_claimed: boolean;
+  created_at: ISODateTime;
+}
+
+/** Full bounty-tip detail — maps to BountyTipDetailSerializer */
 export interface BountyTip extends TimeStamped {
   id: number;
   suspect: number | null;
   case: number | null;
-  informant: UserRef;
+  informant: number;
+  informant_name: string | null;
   information: string;
   status: BountyTipStatus;
-  reviewed_by: UserRef | null;
-  verified_by: UserRef | null;
+  status_display: string;
+  reviewed_by: number | null;
+  reviewed_by_name: string | null;
+  verified_by: number | null;
+  verified_by_name: string | null;
   unique_code: string | null;
   reward_amount: number | null; // Rials
   is_claimed: boolean;
@@ -160,11 +183,13 @@ export interface BountyTipCreateRequest {
 }
 
 export interface BountyTipReviewRequest {
-  status: "officer_reviewed" | "rejected";
+  decision: "accept" | "reject";
+  review_notes?: string;
 }
 
 export interface BountyTipVerifyRequest {
-  status: "verified" | "rejected";
+  decision: "verify" | "reject";
+  verification_notes?: string;
 }
 
 export interface BountyVerifyLookupRequest {
@@ -173,9 +198,13 @@ export interface BountyVerifyLookupRequest {
 }
 
 export interface BountyVerifyLookupResponse {
+  tip_id: number;
+  informant_name: string;
+  informant_national_id: string;
   reward_amount: number;
-  informant: UserRef;
-  tip: BountyTip;
+  is_claimed: boolean;
+  suspect_name: string | null;
+  case_id: number | null;
 }
 
 // ---------------------------------------------------------------------------

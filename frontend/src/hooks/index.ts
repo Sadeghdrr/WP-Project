@@ -17,3 +17,12 @@ export {
   evidenceFilesKey,
   evidenceCustodyKey,
 } from "./useEvidence";
+export {
+  useMostWanted,
+  useBountyTips,
+  useBountyTipDetail,
+  useBountyTipActions,
+  MOST_WANTED_KEY,
+  BOUNTY_TIPS_KEY,
+  bountyTipDetailKey,
+} from "./useSuspects";
