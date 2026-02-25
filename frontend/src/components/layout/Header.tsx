@@ -58,7 +58,7 @@ export default function Header({ onMenuToggle }: HeaderProps) {
           Most Wanted
         </NavLink>
 
-        {user && (
+        {user ? (
           <>
             <span className={styles.navLink} style={{ opacity: 0.7, cursor: "default" }}>
               {user.username}
@@ -70,6 +70,25 @@ export default function Header({ onMenuToggle }: HeaderProps) {
             >
               Logout
             </button>
+          </>
+        ) : (
+          <>
+            <NavLink
+              to="/login"
+              className={({ isActive }) =>
+                `${styles.navLink} ${isActive ? styles.navLinkActive : ""}`
+              }
+            >
+              Login
+            </NavLink>
+            <NavLink
+              to="/register"
+              className={({ isActive }) =>
+                `${styles.navLink} ${isActive ? styles.navLinkActive : ""}`
+              }
+            >
+              Register
+            </NavLink>
           </>
         )}
       </nav>

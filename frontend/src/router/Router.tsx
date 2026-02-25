@@ -102,41 +102,38 @@ function s(Component: React.LazyExoticComponent<React.ComponentType>) {
  *   - ProtectedRoute: all dashboard/feature routes → redirects to /login if not
  *
  * Structure:
- *   / (public)            → HomePage
- *   (guest only)
+ *   (guest only — no shell)
  *     /login              → LoginPage
  *     /register           → RegisterPage
- *   /forbidden            → ForbiddenPage
- *   (protected + app shell layout)
- *     /dashboard          → DashboardPage
- *     /profile            → ProfilePage
- *     /notifications      → NotificationsPage
- *     /most-wanted        → MostWantedPage
- *     /cases              → CaseListPage
- *       new/complaint     → FileComplaintPage
- *       new/crime-scene   → CrimeScenePage
- *       :caseId           → CaseDetailPage
- *         evidence        → EvidenceListPage
- *         evidence/new    → AddEvidencePage
- *         suspects        → SuspectsPage
- *         suspects/:id    → SuspectDetailPage
- *         interrogations  → InterrogationsPage
- *         trial           → TrialPage
- *     /detective-board/:caseId → DetectiveBoardPage
- *     /reports            → ReportingPage
- *     /bounty-tips        → BountyTipsPage
- *       new               → SubmitTipPage
- *       verify            → VerifyRewardPage
- *     /admin              → AdminPage
- *       users             → UserManagementPage
- *       roles             → RoleManagementPage
+ *   (app shell layout — Header + Sidebar + Outlet)
+ *     / (public)          → HomePage
+ *     /forbidden (public) → ForbiddenPage
+ *     (protected — requires auth)
+ *       /dashboard        → DashboardPage
+ *       /profile          → ProfilePage
+ *       /notifications    → NotificationsPage
+ *       /most-wanted      → MostWantedPage
+ *       /cases            → CaseListPage
+ *         new/complaint   → FileComplaintPage
+ *         new/crime-scene → CrimeScenePage
+ *         :caseId         → CaseDetailPage
+ *           evidence      → EvidenceListPage
+ *           evidence/new  → AddEvidencePage
+ *           suspects      → SuspectsPage
+ *           suspects/:id  → SuspectDetailPage
+ *           interrogations→ InterrogationsPage
+ *           trial         → TrialPage
+ *       /detective-board/:caseId → DetectiveBoardPage
+ *       /reports          → ReportingPage
+ *       /bounty-tips      → BountyTipsPage
+ *         new             → SubmitTipPage
+ *         verify          → VerifyRewardPage
+ *       /admin            → AdminPage
+ *         users           → UserManagementPage
+ *         roles           → RoleManagementPage
  *   *                     → NotFoundPage
  */
 const router = createBrowserRouter([
-  // ── Public routes (no auth required, no shell) ─────────────────────
-  { path: "/", element: s(HomePage) },
-  { path: "/forbidden", element: s(ForbiddenPage) },
-
   // ── Guest-only routes (redirect to dashboard if already logged in) ─
   {
     element: <GuestRoute />,
@@ -146,12 +143,17 @@ const router = createBrowserRouter([
     ],
   },
 
-  // ── Protected routes (redirect to login if not authenticated) ──────
+  // ── App shell (shared layout: Header + Sidebar + Outlet) ───────────
   {
-    element: <ProtectedRoute />,
+    element: <AppLayout />,
     children: [
+      // Public pages (no auth required, but inside app shell)
+      { path: "/", element: s(HomePage) },
+      { path: "/forbidden", element: s(ForbiddenPage) },
+
+      // Protected routes (redirect to login if not authenticated)
       {
-        element: <AppLayout />,
+        element: <ProtectedRoute />,
         children: [
           { path: "/dashboard", element: s(DashboardPage) },
           { path: "/profile", element: s(ProfilePage) },
