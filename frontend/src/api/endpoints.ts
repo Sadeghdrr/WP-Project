@@ -19,38 +19,38 @@ export const API = {
   role: (id: number) => `/accounts/roles/${id}/`,
   PERMISSIONS: "/accounts/permissions/",
 
-  // Cases
-  CASES: "/cases/cases/",
-  case: (id: number) => `/cases/cases/${id}/`,
-  CASE_STATUS_LOG: (caseId: number) => `/cases/cases/${caseId}/status-log/`,
-  CASE_CALCULATIONS: (caseId: number) => `/cases/cases/${caseId}/calculations/`,
-  CASE_REPORT: (caseId: number) => `/cases/cases/${caseId}/report/`,
-  COMPLAINANTS: (caseId: number) => `/cases/cases/${caseId}/complainants/`,
+  // Cases — backend mounts at api/ + router prefix "cases" → /api/cases/
+  CASES: "/cases/",
+  case: (id: number) => `/cases/${id}/`,
+  CASE_STATUS_LOG: (caseId: number) => `/cases/${caseId}/status-log/`,
+  CASE_CALCULATIONS: (caseId: number) => `/cases/${caseId}/calculations/`,
+  CASE_REPORT: (caseId: number) => `/cases/${caseId}/report/`,
+  COMPLAINANTS: (caseId: number) => `/cases/${caseId}/complainants/`,
   COMPLAINANT_REVIEW: (caseId: number, complainantId: number) =>
-    `/cases/cases/${caseId}/complainants/${complainantId}/review/`,
-  WITNESSES: (caseId: number) => `/cases/cases/${caseId}/witnesses/`,
+    `/cases/${caseId}/complainants/${complainantId}/review/`,
+  WITNESSES: (caseId: number) => `/cases/${caseId}/witnesses/`,
 
   // Case workflow actions
-  CASE_SUBMIT: (caseId: number) => `/cases/cases/${caseId}/submit/`,
-  CASE_RESUBMIT: (caseId: number) => `/cases/cases/${caseId}/resubmit/`,
-  CASE_CADET_REVIEW: (caseId: number) => `/cases/cases/${caseId}/cadet-review/`,
-  CASE_OFFICER_REVIEW: (caseId: number) => `/cases/cases/${caseId}/officer-review/`,
-  CASE_APPROVE_CRIME_SCENE: (caseId: number) => `/cases/cases/${caseId}/approve-crime-scene/`,
-  CASE_DECLARE_SUSPECTS: (caseId: number) => `/cases/cases/${caseId}/declare-suspects/`,
-  CASE_SERGEANT_REVIEW: (caseId: number) => `/cases/cases/${caseId}/sergeant-review/`,
-  CASE_FORWARD_JUDICIARY: (caseId: number) => `/cases/cases/${caseId}/forward-judiciary/`,
-  CASE_TRANSITION: (caseId: number) => `/cases/cases/${caseId}/transition/`,
+  CASE_SUBMIT: (caseId: number) => `/cases/${caseId}/submit/`,
+  CASE_RESUBMIT: (caseId: number) => `/cases/${caseId}/resubmit/`,
+  CASE_CADET_REVIEW: (caseId: number) => `/cases/${caseId}/cadet-review/`,
+  CASE_OFFICER_REVIEW: (caseId: number) => `/cases/${caseId}/officer-review/`,
+  CASE_APPROVE_CRIME_SCENE: (caseId: number) => `/cases/${caseId}/approve-crime-scene/`,
+  CASE_DECLARE_SUSPECTS: (caseId: number) => `/cases/${caseId}/declare-suspects/`,
+  CASE_SERGEANT_REVIEW: (caseId: number) => `/cases/${caseId}/sergeant-review/`,
+  CASE_FORWARD_JUDICIARY: (caseId: number) => `/cases/${caseId}/forward-judiciary/`,
+  CASE_TRANSITION: (caseId: number) => `/cases/${caseId}/transition/`,
 
   // Case assignment
-  CASE_ASSIGN_DETECTIVE: (caseId: number) => `/cases/cases/${caseId}/assign-detective/`,
-  CASE_UNASSIGN_DETECTIVE: (caseId: number) => `/cases/cases/${caseId}/unassign-detective/`,
-  CASE_ASSIGN_SERGEANT: (caseId: number) => `/cases/cases/${caseId}/assign-sergeant/`,
-  CASE_ASSIGN_CAPTAIN: (caseId: number) => `/cases/cases/${caseId}/assign-captain/`,
-  CASE_ASSIGN_JUDGE: (caseId: number) => `/cases/cases/${caseId}/assign-judge/`,
+  CASE_ASSIGN_DETECTIVE: (caseId: number) => `/cases/${caseId}/assign-detective/`,
+  CASE_UNASSIGN_DETECTIVE: (caseId: number) => `/cases/${caseId}/unassign-detective/`,
+  CASE_ASSIGN_SERGEANT: (caseId: number) => `/cases/${caseId}/assign-sergeant/`,
+  CASE_ASSIGN_CAPTAIN: (caseId: number) => `/cases/${caseId}/assign-captain/`,
+  CASE_ASSIGN_JUDGE: (caseId: number) => `/cases/${caseId}/assign-judge/`,
 
-  // Evidence
-  EVIDENCE: "/evidence/evidence/",
-  evidence: (id: number) => `/evidence/evidence/${id}/`,
+  // Evidence — backend mounts at api/ + router prefix "evidence" → /api/evidence/
+  EVIDENCE: "/evidence/",
+  evidence: (id: number) => `/evidence/${id}/`,
 
   // Suspects (note: double-prefix bug in backend URL config)
   SUSPECTS: "/suspects/suspects/",
