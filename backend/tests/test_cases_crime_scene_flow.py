@@ -1011,3 +1011,126 @@ class TestCrimeSceneCaseFlow(TestCase):
                 f"return 400 or 409, got {approve_response.status_code}: {approve_response.data}"
             ),
         )
+
+    # ────────────────────────────────────────────────────────────────
+    #  Scenario 4.4 — Cadet attempts crime-scene creation → 403
+    # ────────────────────────────────────────────────────────────────
+    #
+    #  Business rule (project-doc.md §4.2.2 / cases/services.py L92):
+    #    _CRIME_SCENE_FORBIDDEN_ROLES = {"cadet", "base_user", "complainant"}
+    #
+    #  When the service detects that the requesting user's role name maps to
+    #  one of those forbidden roles it raises core.domain.exceptions.PermissionDenied
+    #  (not Django's built-in one).  The custom exception handler registered in
+    #  settings.py converts that to HTTP 403 with body {"detail": "<message>"}.
+    #
+    #  Note: CaseViewSet.permission_classes = [IsAuthenticated] only — Django
+    #  model-level permissions are NOT checked on the view layer for this
+    #  endpoint.  The gatekeeping is entirely service-layer role-name logic,
+    #  so the Cadet authenticates successfully but the service rejects the
+    #  request before any Case row can be written.
+    # ────────────────────────────────────────────────────────────────
+
+    # Unique title sentinel used across 4.4 tests so we can query the DB
+    # without relying on auto-generated IDs.
+    _CADET_CASE_TITLE = "Cadet forbidden crime scene attempt"
+
+    def _cadet_payload(self) -> dict:
+        """Return a valid crime-scene payload whose title is the 4.4 sentinel."""
+        base = dict(self._VALID_PAYLOAD)
+        base["title"] = self._CADET_CASE_TITLE
+        return base
+
+    def test_cadet_cannot_create_crime_scene_case_returns_403(self) -> None:
+        """
+        Scenario 4.4: A Cadet-role user posting a crime-scene case must receive
+        HTTP 403 Forbidden.
+
+        Reference:
+          - project-doc.md §4.2.2: only Officer / Captain / Chief may open a
+            crime-scene case
+          - cases/services.py _CRIME_SCENE_FORBIDDEN_ROLES contains "cadet"
+          - core.domain.exception_handler → PermissionDenied → 403
+        """
+        self._login_as(self.cadet_user.username, self.cadet_password)
+        response = self._create_crime_scene_case(self._cadet_payload())
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+            msg=(
+                "A Cadet creating a crime-scene case must be rejected with 403, "
+                f"got {response.status_code}: {response.data}"
+            ),
+        )
+
+    def test_cadet_crime_scene_case_not_saved_to_db(self) -> None:
+        """
+        Scenario 4.4: After the 403 rejection no Case record must exist in the
+        database — the service must raise before any INSERT is committed.
+
+        Reference:
+          - cases/services.py create_crime_scene_case: role-name check runs
+            before Case.objects.create(), so a rollback is not even needed.
+        """
+        from cases.models import Case as CaseModel  # local import avoids circular at module level
+
+        before = CaseModel.objects.filter(title=self._CADET_CASE_TITLE).count()
+        self.assertEqual(before, 0, "Pre-condition: sentinel title must not exist yet")
+
+        self._login_as(self.cadet_user.username, self.cadet_password)
+        self._create_crime_scene_case(self._cadet_payload())
+
+        after = CaseModel.objects.filter(title=self._CADET_CASE_TITLE).count()
+        self.assertEqual(
+            after,
+            0,
+            msg="No Case row should be created when a Cadet attempts crime-scene creation",
+        )
+
+    def test_cadet_forbidden_response_contains_detail_key(self) -> None:
+        """
+        Scenario 4.4: The 403 response body must contain a top-level "detail"
+        key, consistent with the project's domain_exception_handler convention.
+
+        Reference:
+          - core/domain/exception_handler.py: all domain exceptions are
+            serialised as {"detail": str(exc)}
+        """
+        self._login_as(self.cadet_user.username, self.cadet_password)
+        response = self._create_crime_scene_case(self._cadet_payload())
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn(
+            "detail",
+            response.data,
+            msg=(
+                "403 response for Cadet must carry a 'detail' key; "
+                f"got keys: {list(response.data.keys())}"
+            ),
+        )
+
+    def test_cadet_forbidden_response_detail_message(self) -> None:
+        """
+        Scenario 4.4: The "detail" value in the 403 response must match the
+        exact error message raised by the service layer.
+
+        Reference:
+          - cases/services.py L464:
+              raise PermissionDenied(
+                  "Your role is not permitted to create a crime-scene case."
+              )
+        """
+        self._login_as(self.cadet_user.username, self.cadet_password)
+        response = self._create_crime_scene_case(self._cadet_payload())
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        detail = str(response.data.get("detail", ""))
+        self.assertIn(
+            "not permitted",
+            detail.lower(),
+            msg=(
+                "The 403 detail message should indicate the role is not permitted; "
+                f"got: {detail!r}"
+            ),
+        )
