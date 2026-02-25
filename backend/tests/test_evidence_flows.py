@@ -18,7 +18,8 @@ Test map
   5.2  Biological evidence + file upload + chain-of-custody + Coroner verify (approve/reject)
   5.3  Vehicle evidence XOR constraint (license_plate ⊕ serial_number)
   5.4  Identity document evidence + document_details key-value metadata
-  5.5 – 5.6  (appended by subsequent prompts)
+  5.5  "Other" evidence — minimal fields + unknown-field behaviour
+  5.6  (appended by subsequent prompts)
 """
 
 from __future__ import annotations
@@ -1650,4 +1651,293 @@ class TestEvidenceFlows(TestCase):
                 "Error must be keyed to 'document_details'. "
                 f"Got keys: {list(response.data.keys())}"
             ),
+        )
+
+    # ════════════════════════════════════════════════════════════════════════
+    #  Scenario 5.5 — "Other" Evidence Type (minimal fields, no child table)
+    # ════════════════════════════════════════════════════════════════════════
+
+    # ── Payload helper ───────────────────────────────────────────────────
+
+    def _other_payload(self, **overrides) -> dict:
+        """
+        Return a valid "other" evidence creation payload.
+
+        Fields come from OtherEvidenceCreateSerializer:
+            evidence/serializers.py  OtherEvidenceCreateSerializer
+            → required: evidence_type (discriminator), case, title
+            → optional: description
+            NOTE: "other" uses the base Evidence model — no child table.
+            Type-specific fields (statement_text, vehicle_model, etc.) are
+            NOT in the serializer's fields list and are silently ignored by
+            DRF (not validated, not stored, not returned).
+
+        Reference:
+            project-doc.md §4.3.5
+            evidence/serializers.py  OtherEvidenceCreateSerializer
+            evidence/serializers.py  OtherEvidenceDetailSerializer
+        """
+        base = {
+            "evidence_type": "other",
+            "case": self.case.pk,
+            "title": "Miscellaneous Item — Downtown Homicide",
+            "description": "Unidentified object found at the scene.",
+        }
+        base.update(overrides)
+        return base
+
+    # ── Test A: create "other" evidence with minimal required fields → 201 ─
+
+    def test_create_other_evidence_returns_201(self) -> None:
+        """
+        Scenario 5.5 — Test A: Detective creates "other" evidence with
+        the minimum required fields (case + title).
+
+        "Other" evidence uses the base Evidence model directly — there is
+        no child table.  The response must contain the standard base fields
+        and not include any type-specific extras.
+
+        Asserts:
+        - HTTP 201
+        - evidence_type == "other"
+        - case PK matches
+        - title and description echoed
+        - registered_by == detective PK
+        - Type-specific fields absent: statement_text, forensic_result,
+          vehicle_model, serial_number, owner_full_name, document_details
+        - DB row (base Evidence) exists with evidence_type="other"
+
+        Reference:
+            evidence/serializers.py  OtherEvidenceDetailSerializer (response)
+            project-doc.md §4.3.5
+        """
+        self._login_as(self.detective_user.username, self.detective_password)
+
+        payload = self._other_payload()
+        url = reverse("evidence-list")
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_201_CREATED,
+            msg=f"Expected 201 for 'other' evidence, got {response.status_code}: {response.data}",
+        )
+
+        data = response.data
+
+        # Core fields must be present
+        for field in ("id", "evidence_type", "case", "title", "description",
+                      "registered_by", "created_at", "updated_at"):
+            self.assertIn(field, data, msg=f"Field '{field}' missing from 'other' response")
+
+        self.assertEqual(data["evidence_type"], EvidenceType.OTHER)
+        self.assertEqual(data["case"], self.case.pk)
+        self.assertEqual(data["title"], "Miscellaneous Item — Downtown Homicide")
+        self.assertEqual(data["description"], "Unidentified object found at the scene.")
+        self.assertEqual(data["registered_by"], self.detective_user.pk)
+
+        # No type-specific fields from any child serializer
+        for absent_field in ("statement_text", "forensic_result", "is_verified",
+                             "vehicle_model", "serial_number", "license_plate",
+                             "owner_full_name", "document_details"):
+            self.assertNotIn(
+                absent_field,
+                data,
+                msg=f"Type-specific field '{absent_field}' must not appear in 'other' evidence response",
+            )
+
+        # DB: base Evidence row must have evidence_type="other"
+        from evidence.models import Evidence as EvidenceModel
+        db_obj = EvidenceModel.objects.get(pk=data["id"])
+        self.assertEqual(db_obj.evidence_type, EvidenceType.OTHER)
+        self.assertEqual(db_obj.title, payload["title"])
+        self.assertEqual(db_obj.registered_by_id, self.detective_user.pk)
+
+    # ── Test A2: create "other" evidence with title only (no description) → 201
+
+    def test_create_other_evidence_without_description_returns_201(self) -> None:
+        """
+        Scenario 5.5 — Test A2: Detective creates "other" evidence with
+        just case and title — description is optional.
+
+        Asserts:
+        - HTTP 201
+        - description is "" or null in response (not required by serializer)
+
+        Reference:
+            evidence/serializers.py  OtherEvidenceCreateSerializer
+                → description has no required=True constraint
+        """
+        self._login_as(self.detective_user.username, self.detective_password)
+
+        payload = {
+            "evidence_type": "other",
+            "case": self.case.pk,
+            "title": "Other Evidence — Title Only",
+            # description intentionally omitted
+        }
+
+        url = reverse("evidence-list")
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_201_CREATED,
+            msg=(
+                f"Expected 201 for 'other' evidence with no description, "
+                f"got {response.status_code}: {response.data}"
+            ),
+        )
+        self.assertEqual(response.data["evidence_type"], EvidenceType.OTHER)
+        self.assertEqual(response.data["title"], "Other Evidence — Title Only")
+
+    # ── Test B: missing required field `title` → 400 ─────────────────────
+
+    def test_create_other_evidence_missing_title_returns_400(self) -> None:
+        """
+        Scenario 5.5 — Test B1: Omitting the required `title` field must
+        return HTTP 400 with a validation error referencing "title".
+
+        OtherEvidenceCreateSerializer marks title as required:
+            extra_kwargs = {"title": {"required": True}}
+        DRF raises a serializers.ValidationError → HTTP 400:
+            {"title": ["This field is required."]}
+
+        Asserts:
+        - HTTP 400
+        - Error keyed to "title"
+
+        Reference:
+            evidence/serializers.py  OtherEvidenceCreateSerializer
+        """
+        self._login_as(self.detective_user.username, self.detective_password)
+
+        payload = {
+            "evidence_type": "other",
+            "case": self.case.pk,
+            # title intentionally omitted
+            "description": "Missing title test.",
+        }
+
+        url = reverse("evidence-list")
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+            msg=(
+                f"Expected 400 when title is missing, "
+                f"got {response.status_code}: {response.data}"
+            ),
+        )
+        self.assertIn(
+            "title",
+            response.data,
+            msg=f"Error must reference 'title'. Got: {response.data}",
+        )
+
+    # ── Test B2: missing required field `case` → 400 ─────────────────────
+
+    def test_create_other_evidence_missing_case_returns_400(self) -> None:
+        """
+        Scenario 5.5 — Test B2: Omitting the required `case` field must
+        return HTTP 400 with a validation error referencing "case".
+
+        OtherEvidenceCreateSerializer marks case as required:
+            extra_kwargs = {"case": {"required": True}}
+
+        Asserts:
+        - HTTP 400
+        - Error keyed to "case"
+
+        Reference:
+            evidence/serializers.py  OtherEvidenceCreateSerializer
+        """
+        self._login_as(self.detective_user.username, self.detective_password)
+
+        payload = {
+            "evidence_type": "other",
+            # case intentionally omitted
+            "title": "Other Evidence — Missing Case",
+            "description": "Missing case test.",
+        }
+
+        url = reverse("evidence-list")
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+            msg=(
+                f"Expected 400 when case is missing, "
+                f"got {response.status_code}: {response.data}"
+            ),
+        )
+        self.assertIn(
+            "case",
+            response.data,
+            msg=f"Error must reference 'case'. Got: {response.data}",
+        )
+
+    # ── Test C: extra type-specific field is silently ignored ─────────────
+
+    def test_create_other_evidence_ignores_unknown_fields(self) -> None:
+        """
+        Scenario 5.5 — Test C: Sending a testimony-specific field
+        (statement_text) alongside "other" evidence type must NOT cause a
+        400 error — DRF silently drops fields not listed in the serializer's
+        `fields`.
+
+        OtherEvidenceCreateSerializer only has:
+            fields = ["case", "title", "description"]
+        Any additional field (e.g. statement_text, vehicle_model) is simply
+        not passed to the validated_data and is never stored.
+
+        Asserts:
+        - HTTP 201 (not 400 — extra fields are ignored, not rejected)
+        - Response does NOT contain statement_text (ignored, not stored)
+        - DB Evidence row has no statement_text (base model has no such field)
+
+        Reference:
+            evidence/serializers.py  OtherEvidenceCreateSerializer
+                → fields = ["case", "title", "description"]
+                   (statement_text is NOT in fields → silently discarded)
+        """
+        self._login_as(self.detective_user.username, self.detective_password)
+
+        payload = self._other_payload(
+            title="Other Evidence — Extra Field Ignored",
+            # testimony-only field: not in OtherEvidenceCreateSerializer.fields
+            statement_text=(
+                "This transcript should be ignored for 'other' evidence type."
+            ),
+            # vehicle-only field: also not in fields
+            vehicle_model="Phantom Ford",
+        )
+
+        url = reverse("evidence-list")
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_201_CREATED,
+            msg=(
+                "Extra unknown fields must be silently ignored by DRF, not cause a 400. "
+                f"Got {response.status_code}: {response.data}"
+            ),
+        )
+
+        data = response.data
+        self.assertEqual(data["evidence_type"], EvidenceType.OTHER)
+
+        # Unknown fields must not appear in the response
+        self.assertNotIn(
+            "statement_text",
+            data,
+            msg="statement_text must not appear in 'other' evidence response (not stored)",
+        )
+        self.assertNotIn(
+            "vehicle_model",
+            data,
+            msg="vehicle_model must not appear in 'other' evidence response (not stored)",
         )
