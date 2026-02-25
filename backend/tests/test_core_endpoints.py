@@ -12,6 +12,8 @@ from rest_framework.test import APIClient
 
 from accounts.models import Role, User
 from cases.models import Case, CaseCreationType, CaseStatus, CrimeLevel
+from evidence.models import Evidence, EvidenceType
+from suspects.models import Suspect
 
 
 class TestCoreEndpoints(TestCase):
@@ -137,6 +139,7 @@ class TestCoreEndpoints(TestCase):
         self.login_url = reverse("accounts:login")
         self.constants_url = reverse("core:system-constants")
         self.dashboard_url = reverse("core:dashboard-stats")
+        self.search_url = reverse("core:global-search")
 
     def login(self, user: User) -> str:
         response = self.client.post(
@@ -174,6 +177,25 @@ class TestCoreEndpoints(TestCase):
             item["status"]: item["count"]
             for item in payload["cases_by_status"]
         }
+
+    def _create_case_for_search(
+        self,
+        *,
+        title: str,
+        description: str,
+        assigned_detective: User | None,
+        status_value: str = CaseStatus.OPEN,
+    ) -> Case:
+        return Case.objects.create(
+            title=title,
+            description=description,
+            crime_level=CrimeLevel.LEVEL_2,
+            status=status_value,
+            creation_type=CaseCreationType.CRIME_SCENE,
+            created_by=self.captain_user,
+            assigned_detective=assigned_detective,
+            assigned_captain=self.captain_user,
+        )
 
     def test_get_constants_success_returns_required_enums_and_maps(self):
         response = self.client.get(self.constants_url)
@@ -304,4 +326,121 @@ class TestCoreEndpoints(TestCase):
 
     def test_dashboard_requires_authentication(self):
         response = self.client.get(self.dashboard_url)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_search_returns_relevant_case_suspect_and_evidence_hits(self):
+        alpha_case = self._create_case_for_search(
+            title="Case ALPHA Search",
+            description="Contains ALPHA keyword for search.",
+            assigned_detective=self.detective_a,
+        )
+        alpha_suspect = Suspect.objects.create(
+            case=alpha_case,
+            full_name="ALPHA Suspect Person",
+            description="Suspect linked to ALPHA case.",
+            identified_by=self.detective_a,
+        )
+        alpha_evidence = Evidence.objects.create(
+            case=alpha_case,
+            evidence_type=EvidenceType.OTHER,
+            title="ALPHA Evidence Item",
+            description="Evidence text for ALPHA.",
+            registered_by=self.detective_a,
+        )
+
+        token = self.login(self.captain_user)
+        self.auth(token)
+        response = self.client.get(
+            self.search_url,
+            {"q": "ALPHA", "limit": 5},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, msg=response.data)
+
+        data = response.data
+        self.assertIn("query", data)
+        self.assertIn("total_results", data)
+        self.assertIn("cases", data)
+        self.assertIn("suspects", data)
+        self.assertIn("evidence", data)
+
+        case_ids = {item["id"] for item in data["cases"]}
+        suspect_ids = {item["id"] for item in data["suspects"]}
+        evidence_ids = {item["id"] for item in data["evidence"]}
+
+        self.assertIn(alpha_case.id, case_ids)
+        self.assertIn(alpha_suspect.id, suspect_ids)
+        self.assertIn(alpha_evidence.id, evidence_ids)
+
+    def test_search_limit_is_respected_for_cases(self):
+        for idx in range(7):
+            self._create_case_for_search(
+                title=f"ALPHA-LIMIT Case {idx}",
+                description="Limit behavior fixture.",
+                assigned_detective=self.detective_a,
+            )
+
+        token = self.login(self.captain_user)
+        self.auth(token)
+        response = self.client.get(
+            self.search_url,
+            {"q": "ALPHA-LIMIT", "category": "cases", "limit": 5},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, msg=response.data)
+
+        data = response.data
+        self.assertLessEqual(len(data["cases"]), 5)
+        self.assertEqual(len(data["cases"]), 5)
+        self.assertEqual(data["total_results"], len(data["cases"]))
+        self.assertEqual(len(data["suspects"]), 0)
+        self.assertEqual(len(data["evidence"]), 0)
+        self.assertTrue(all("ALPHA-LIMIT" in item["title"] for item in data["cases"]))
+
+    def test_search_detective_scope_hides_other_detective_objects(self):
+        hidden_case = self._create_case_for_search(
+            title="Case2_BETA Hidden",
+            description="Only detective B should see this BETA case.",
+            assigned_detective=self.detective_b,
+        )
+        hidden_suspect = Suspect.objects.create(
+            case=hidden_case,
+            full_name="BETA Hidden Suspect",
+            description="Hidden BETA suspect.",
+            identified_by=self.detective_b,
+        )
+        hidden_evidence = Evidence.objects.create(
+            case=hidden_case,
+            evidence_type=EvidenceType.OTHER,
+            title="BETA Hidden Evidence",
+            description="Hidden BETA evidence.",
+            registered_by=self.detective_b,
+        )
+
+        token = self.login(self.detective_a)
+        self.auth(token)
+        response = self.client.get(
+            self.search_url,
+            {"q": "BETA", "limit": 5},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, msg=response.data)
+        data = response.data
+
+        case_ids = {item["id"] for item in data["cases"]}
+        suspect_ids = {item["id"] for item in data["suspects"]}
+        evidence_ids = {item["id"] for item in data["evidence"]}
+
+        self.assertNotIn(hidden_case.id, case_ids)
+        self.assertNotIn(hidden_suspect.id, suspect_ids)
+        self.assertNotIn(hidden_evidence.id, evidence_ids)
+        self.assertEqual(data["total_results"], 0)
+
+    def test_search_missing_q_returns_400(self):
+        token = self.login(self.captain_user)
+        self.auth(token)
+
+        response = self.client.get(self.search_url)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("detail", response.data)
+
+    def test_search_requires_authentication(self):
+        response = self.client.get(self.search_url, {"q": "ALPHA", "limit": 5})
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
