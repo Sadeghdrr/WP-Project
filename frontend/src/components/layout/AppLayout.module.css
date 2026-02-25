@@ -1,0 +1,25 @@
+.layout {
+  display: flex;
+  min-height: 100vh;
+  flex-direction: column;
+}
+
+.body {
+  display: flex;
+  flex: 1;
+  padding-top: 0;
+}
+
+.main {
+  flex: 1;
+  margin-left: var(--sidebar-width);
+  padding: var(--space-lg);
+  min-width: 0; /* prevent flex overflow */
+}
+
+@media (max-width: 640px) {
+  .main {
+    margin-left: 0;
+    padding: var(--space-md);
+  }
+}
