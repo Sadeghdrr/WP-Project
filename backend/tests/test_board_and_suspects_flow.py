@@ -21,6 +21,12 @@ Test map
          D  Unauthenticated POST → 401 Unauthorized
          E  Duplicate board for same case → 400 Bad Request
          F  Cadet (non-detective role) attempts to create board → 403 Forbidden
+
+  6.2  Get full board state
+         A  Empty board → 200 with id/case/detective/items/connections/notes keys; all lists are []
+         B  After adding a note the items and notes lists are non-empty and conform to schema
+         C  After adding a connection the connections list is non-empty and conforms to schema
+         D  Unrelated user (not assigned to the case) → 403 Forbidden
 """
 
 from __future__ import annotations
@@ -474,6 +480,289 @@ class TestBoardAndSuspectsFlow(TestCase):
             status.HTTP_403_FORBIDDEN,
             msg=(
                 f"Expected 403 Forbidden when a Cadet attempts to create a board, "
+                f"but got {response.status_code}: {response.data}"
+            ),
+        )
+
+    # ─────────────────────────────────────────────────────────────────
+    #  Scenario 6.2 helpers
+    # ─────────────────────────────────────────────────────────────────
+
+    def _get_full_state(self, board_id: int) -> "rest_framework.response.Response":  # type: ignore[name-defined]
+        """
+        GET /api/boards/{id}/full/ — full board graph.
+
+        Returns: FullBoardStateSerializer payload:
+            { id, case, detective, items[], connections[], notes[],
+              created_at, updated_at }
+
+        Reference: swagger_documentation_report.md §3.5
+                   DetectiveBoardViewSet.full_state → GET /api/boards/{id}/full/
+        """
+        return self.client.get(
+            reverse("detective-board-full-state", kwargs={"pk": board_id}),
+            format="json",
+        )
+
+    def _add_note(self, board_id: int, title: str = "Test Note", content: str = "Body") -> "rest_framework.response.Response":  # type: ignore[name-defined]
+        """
+        POST /api/boards/{board_pk}/notes/ — create a sticky note.
+
+        Side-effect: BoardNoteService.create_note also auto-pins the new
+        note as a BoardItem (content_type=board.boardnote, object_id=note.pk)
+        so the board's items list grows by 1 simultaneously.
+
+        Reference: swagger_documentation_report.md §3.5 — BoardNoteViewSet.create
+                   board/services.py — BoardNoteService.create_note
+        """
+        return self.client.post(
+            reverse("board-note-list", kwargs={"board_pk": board_id}),
+            {"title": title, "content": content},
+            format="json",
+        )
+
+    def _add_connection(self, board_id: int, from_item_id: int, to_item_id: int, label: str = "related") -> "rest_framework.response.Response":  # type: ignore[name-defined]
+        """
+        POST /api/boards/{board_pk}/connections/ — draw a red-line connection.
+
+        Reference: swagger_documentation_report.md §3.5
+                   BoardConnectionViewSet.create
+        """
+        return self.client.post(
+            reverse("board-connection-list", kwargs={"board_pk": board_id}),
+            {"from_item": from_item_id, "to_item": to_item_id, "label": label},
+            format="json",
+        )
+
+    # ─────────────────────────────────────────────────────────────────
+    #  Scenario 6.2 — Get full board state
+    # ─────────────────────────────────────────────────────────────────
+
+    # ── 6.2-A: empty board returns correct top-level shape ───────────
+
+    def test_6_2_a_empty_board_full_state_returns_200_with_correct_keys(self) -> None:
+        """
+        Scenario 6.2-A: GET /api/boards/{id}/full/ on a freshly created board
+        → HTTP 200 with all required top-level keys; all sub-lists are empty.
+
+        FullBoardStateSerializer fields (board/serializers.py):
+            id, case, detective, items [], connections [], notes [],
+            created_at, updated_at
+
+        Reference:
+          - swagger_documentation_report.md §3.5
+            DetectiveBoardViewSet.full_state → 200, FullBoardStateSerializer
+          - project-doc.md §4.4 — board must expose items, connections, notes
+        """
+        self._login_as(self.detective_user.username, self.detective_password)
+        board_id = self._create_board().data["id"]
+
+        response = self._get_full_state(board_id)
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+            msg=f"Expected 200 from full-state endpoint, got {response.status_code}: {response.data}",
+        )
+
+        # Metadata keys
+        for key in ("id", "case", "detective", "created_at", "updated_at"):
+            self.assertIn(key, response.data, msg=f"Top-level key '{key}' missing from full-state response.")
+
+        # Sub-lists must be present
+        for key in ("items", "connections", "notes"):
+            self.assertIn(key, response.data, msg=f"'{key}' list missing from full-state response.")
+            self.assertIsInstance(response.data[key], list, msg=f"'{key}' must be a list.")
+
+        # Empty board → all lists are []
+        self.assertEqual(response.data["items"], [], msg="Fresh board must have no items.")
+        self.assertEqual(response.data["connections"], [], msg="Fresh board must have no connections.")
+        self.assertEqual(response.data["notes"], [], msg="Fresh board must have no notes.")
+
+    def test_6_2_a_full_state_metadata_matches_board(self) -> None:
+        """
+        Scenario 6.2-A (metadata check): id, case, and detective in the
+        full-state response must match the values returned at creation time.
+        """
+        self._login_as(self.detective_user.username, self.detective_password)
+        create_resp = self._create_board()
+        board_id = create_resp.data["id"]
+
+        full_resp = self._get_full_state(board_id)
+        self.assertEqual(full_resp.status_code, status.HTTP_200_OK)
+
+        self.assertEqual(full_resp.data["id"], board_id)
+        self.assertEqual(full_resp.data["case"], self.case.pk)
+        self.assertEqual(full_resp.data["detective"], self.detective_user.pk)
+
+    # ── 6.2-B: note in list; item auto-pinned ────────────────────────
+
+    def test_6_2_b_added_note_appears_in_notes_list(self) -> None:
+        """
+        Scenario 6.2-B: After POST /api/boards/{id}/notes/, the full-state
+        'notes' list contains the new note with the correct schema.
+
+        BoardNoteInlineSerializer fields:
+            id, title, content, created_by, created_at, updated_at
+
+        Reference:
+          - board/serializers.py — BoardNoteInlineSerializer
+          - board/services.py    — BoardNoteService.create_note
+        """
+        self._login_as(self.detective_user.username, self.detective_password)
+        board_id = self._create_board().data["id"]
+
+        note_resp = self._add_note(board_id, title="Witness Statement", content="Saw a blue car.")
+        self.assertEqual(note_resp.status_code, status.HTTP_201_CREATED,
+                         msg=f"Note creation failed: {note_resp.data}")
+
+        full_resp = self._get_full_state(board_id)
+        self.assertEqual(full_resp.status_code, status.HTTP_200_OK)
+
+        notes = full_resp.data["notes"]
+        self.assertEqual(len(notes), 1, msg=f"Expected 1 note, got {len(notes)}.")
+
+        note = notes[0]
+        for field in ("id", "title", "content", "created_by", "created_at", "updated_at"):
+            self.assertIn(field, note, msg=f"Note field '{field}' missing from full-state notes list.")
+
+        self.assertEqual(note["title"], "Witness Statement")
+        self.assertEqual(note["content"], "Saw a blue car.")
+        self.assertEqual(note["created_by"], self.detective_user.pk)
+
+    def test_6_2_b_note_creation_auto_pins_item_on_board(self) -> None:
+        """
+        Scenario 6.2-B (auto-pin): BoardNoteService.create_note creates a
+        corresponding BoardItem for the note, so 'items' list has 1 entry
+        after a single note is created.
+
+        BoardItemInlineSerializer fields:
+            id, content_type, object_id, content_object_summary,
+            position_x, position_y, created_at, updated_at
+
+        Reference:
+          - board/services.py — BoardNoteService.create_note → auto pins
+            the note as a BoardItem via ContentType for board.BoardNote
+        """
+        self._login_as(self.detective_user.username, self.detective_password)
+        board_id = self._create_board().data["id"]
+        self._add_note(board_id, title="Auto-pin note")
+
+        full_resp = self._get_full_state(board_id)
+        self.assertEqual(full_resp.status_code, status.HTTP_200_OK)
+
+        items = full_resp.data["items"]
+        self.assertEqual(len(items), 1, msg="One note should produce exactly one auto-pinned item.")
+
+        item = items[0]
+        for field in ("id", "content_type", "object_id", "position_x", "position_y",
+                      "created_at", "updated_at"):
+            self.assertIn(field, item, msg=f"Item field '{field}' missing.")
+
+        # content_object_summary is populated by GenericObjectRelatedField
+        self.assertIn("content_object_summary", item,
+                      msg="'content_object_summary' must be present in item.")
+
+    # ── 6.2-C: connection appears in connections list ────────────────
+
+    def test_6_2_c_added_connection_appears_in_connections_list(self) -> None:
+        """
+        Scenario 6.2-C: After creating two notes (→ two auto-pinned items)
+        and a connection between them, the full-state 'connections' list
+        contains the connection with the correct schema.
+
+        BoardConnectionInlineSerializer fields:
+            id, from_item, to_item, label, created_at, updated_at
+
+        Reference:
+          - swagger_documentation_report.md §3.5
+            BoardConnectionViewSet.create → POST /api/boards/{id}/connections/
+          - board/serializers.py — BoardConnectionInlineSerializer
+        """
+        self._login_as(self.detective_user.username, self.detective_password)
+        board_id = self._create_board().data["id"]
+
+        # Create two notes — each auto-pins one item
+        self._add_note(board_id, title="Note A")
+        self._add_note(board_id, title="Note B")
+
+        # Get the auto-pinned item IDs from items list
+        full_resp = self._get_full_state(board_id)
+        items = full_resp.data["items"]
+        self.assertEqual(len(items), 2, msg="Expected 2 auto-pinned items after two notes.")
+        item_a_id = items[0]["id"]
+        item_b_id = items[1]["id"]
+
+        # Create a connection between the two items
+        conn_resp = self._add_connection(board_id, item_a_id, item_b_id, label="connected clue")
+        self.assertEqual(conn_resp.status_code, status.HTTP_201_CREATED,
+                         msg=f"Connection creation failed: {conn_resp.data}")
+
+        # Re-fetch full state and check connections
+        full_resp2 = self._get_full_state(board_id)
+        self.assertEqual(full_resp2.status_code, status.HTTP_200_OK)
+
+        connections = full_resp2.data["connections"]
+        self.assertEqual(len(connections), 1, msg=f"Expected 1 connection, got {len(connections)}.")
+
+        conn = connections[0]
+        for field in ("id", "from_item", "to_item", "label", "created_at", "updated_at"):
+            self.assertIn(field, conn, msg=f"Connection field '{field}' missing.")
+
+        self.assertEqual(conn["from_item"], item_a_id)
+        self.assertEqual(conn["to_item"], item_b_id)
+        self.assertEqual(conn["label"], "connected clue")
+
+    def test_6_2_c_full_state_reflects_all_three_lists_simultaneously(self) -> None:
+        """
+        Scenario 6.2-C (combined): After adding two notes and a connection,
+        a single GET /api/boards/{id}/full/ returns all three lists populated.
+        """
+        self._login_as(self.detective_user.username, self.detective_password)
+        board_id = self._create_board().data["id"]
+
+        self._add_note(board_id, title="Hair sample analysis")
+        self._add_note(board_id, title="Speakeasy matchbook")
+
+        items = self._get_full_state(board_id).data["items"]
+        self._add_connection(board_id, items[0]["id"], items[1]["id"], label="crime scene link")
+
+        full_resp = self._get_full_state(board_id)
+        self.assertEqual(full_resp.status_code, status.HTTP_200_OK)
+
+        self.assertEqual(len(full_resp.data["items"]), 2)
+        self.assertEqual(len(full_resp.data["notes"]), 2)
+        self.assertEqual(len(full_resp.data["connections"]), 1)
+
+    # ── 6.2-D: unrelated user cannot access full state ───────────────
+
+    def test_6_2_d_unrelated_user_cannot_access_full_state_returns_403(self) -> None:
+        """
+        Scenario 6.2-D: A user who is not the board's detective, not a
+        supervisor assigned to the case, and not an admin gets HTTP 403
+        when requesting GET /api/boards/{id}/full/.
+
+        Access check: board/services.py — _can_view_board()
+          → grants access only to the board's detective, assigned supervisors,
+            or admins.  Cadet is none of those.
+
+        Reference:
+          - board/services.py    — BoardWorkspaceService.get_board_snapshot
+          - board_services_report.md §1 Read Access table
+        """
+        # Detective creates the board
+        self._login_as(self.detective_user.username, self.detective_password)
+        board_id = self._create_board().data["id"]
+
+        # Cadet (unrelated, not assigned to the case) tries to read full state
+        self._login_as(self.cadet_user.username, self.cadet_password)
+        response = self._get_full_state(board_id)
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+            msg=(
+                f"Expected 403 Forbidden when an unrelated user accesses full board state, "
                 f"but got {response.status_code}: {response.data}"
             ),
         )
