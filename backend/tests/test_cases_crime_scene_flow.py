@@ -784,3 +784,230 @@ class TestCrimeSceneCaseFlow(TestCase):
                 f"got {second.status_code}: {second.data}"
             ),
         )
+
+    # ────────────────────────────────────────────────────────────────
+    #  Scenario 4.3 — Police Chief creates crime-scene case (auto-open)
+    # ────────────────────────────────────────────────────────────────
+    #
+    # Business rule (project-doc.md §4.2.2):
+    #   "if the Police Chief registers it, no one's approval is needed."
+    #
+    # Implementation (cases/services.py CaseCreationService.create_crime_scene_case):
+    #   _CHIEF_ROLE = "police_chief"
+    #   get_user_role_name → role.name.lower().replace(" ", "_")
+    #   "Police Chief" → "police_chief" == _CHIEF_ROLE  → True
+    #   is_chief = True
+    #   initial_status = CaseStatus.OPEN          (skips PENDING_APPROVAL)
+    #   validated_data["approved_by"] = requesting_user  (Chief set as approver)
+    #
+    # Expected: 201 Created, status="open", approved_by=chief.pk
+    # No call to approve-crime-scene/ is required or needed.
+    #
+    # Ref: swagger_documentation_report.md §3.2 — CaseViewSet.create → 201
+    # Ref: cases_services_crime_scene_flow_report.md §4.2 Chief Path
+
+    def test_chief_creates_crime_scene_case_returns_201(self) -> None:
+        """
+        Scenario 4.3 (step A): POST /api/cases/ as Police Chief returns HTTP 201.
+
+        Reference: swagger_documentation_report.md §3.2 — CaseViewSet.create
+        """
+        self._login_as(self.chief_user.username, self.chief_password)
+        response = self._create_crime_scene_case()
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_201_CREATED,
+            msg=f"Chief case creation must return 201, got {response.status_code}: {response.data}",
+        )
+
+    def test_chief_creates_crime_scene_case_status_is_open(self) -> None:
+        """
+        Scenario 4.3 (core assertion): Case created by Police Chief must have
+        status="open" immediately — no pending_approval step.
+
+        Key logic in cases/services.py:
+          is_chief = (get_user_role_name(user) == "police_chief")
+          initial_status = CaseStatus.OPEN if is_chief else CaseStatus.PENDING_APPROVAL
+
+        Reference:
+          - project-doc.md §4.2.2 — "if the Police Chief registers it,
+            no one's approval is needed"
+          - cases/models.py CaseStatus.OPEN = "open"
+        """
+        self._login_as(self.chief_user.username, self.chief_password)
+        response = self._create_crime_scene_case()
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(
+            response.data.get("status"),
+            CaseStatus.OPEN,    # "open" — NOT "pending_approval"
+            msg=(
+                f"Chief-created crime-scene case must have status='open', "
+                f"got '{response.data.get('status')}'. "
+                "Chief cases are auto-approved per project-doc.md §4.2.2."
+            ),
+        )
+
+    def test_chief_creates_crime_scene_case_not_pending_approval(self) -> None:
+        """
+        Scenario 4.3 (explicit negative): The returned status must NOT be
+        "pending_approval" when the creator is Police Chief.
+
+        This assertion documents the contrast with Officer-created cases.
+        """
+        self._login_as(self.chief_user.username, self.chief_password)
+        response = self._create_crime_scene_case()
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertNotEqual(
+            response.data.get("status"),
+            CaseStatus.PENDING_APPROVAL,
+            msg="Chief-created case must never be in 'pending_approval' status.",
+        )
+
+    def test_chief_creates_crime_scene_case_approved_by_is_chief(self) -> None:
+        """
+        Scenario 4.3 (auto-approved_by): approved_by in the creation response
+        must be set to the Chief's PK.
+
+        Logic in cases/services.py:
+          if is_chief:
+              validated_data["approved_by"] = requesting_user
+          case = Case.objects.create(**validated_data)
+
+        This means the Chief also serves as the approver of their own case,
+        satisfying the approval requirement via auto-approval.
+
+        Reference:
+          - cases_services_crime_scene_flow_report.md §1 Approval Rules Table:
+            "Police Chief → OPEN, Auto approved_by = Set to creator"
+        """
+        self._login_as(self.chief_user.username, self.chief_password)
+        response = self._create_crime_scene_case()
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(
+            response.data.get("approved_by"),
+            self.chief_user.pk,
+            msg=(
+                f"approved_by must be set to Chief's PK ({self.chief_user.pk}) "
+                f"on auto-approved creation, got '{response.data.get('approved_by')}'."
+            ),
+        )
+
+    def test_chief_creates_crime_scene_case_detail_persisted(self) -> None:
+        """
+        Scenario 4.3 (persistence check): GET /api/cases/{id}/ confirms that
+        status="open" and approved_by=chief are stored in the database.
+
+        Reference: swagger_documentation_report.md §3.2 — CaseViewSet.retrieve
+        """
+        self._login_as(self.chief_user.username, self.chief_password)
+        create_response = self._create_crime_scene_case()
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+
+        case_id = create_response.data["id"]
+        detail = self.client.get(reverse("case-detail", kwargs={"pk": case_id}))
+
+        self.assertEqual(
+            detail.status_code,
+            status.HTTP_200_OK,
+            msg=f"GET /api/cases/{case_id}/ failed: {detail.data}",
+        )
+        self.assertEqual(
+            detail.data["status"],
+            CaseStatus.OPEN,
+            msg="Persisted status must be 'open' for Chief-created case.",
+        )
+        self.assertEqual(
+            detail.data["approved_by"],
+            self.chief_user.pk,
+            msg="Persisted approved_by must be Chief's PK.",
+        )
+        self.assertEqual(
+            detail.data["creation_type"],
+            "crime_scene",
+            msg="creation_type must be 'crime_scene'.",
+        )
+
+    def test_chief_creates_crime_scene_case_status_log_shows_open(self) -> None:
+        """
+        Scenario 4.3 (audit trail): GET /api/cases/{id}/status-log/ must show
+        a direct creation log entry with to_status="open" (no pending_approval entry).
+
+        Reference:
+          - cases/services.py create_crime_scene_case:
+              log_message = "Crime-scene case created and auto-approved (Police Chief)."
+              CaseStatusLog.objects.create(from_status="", to_status=OPEN, ...)
+        """
+        self._login_as(self.chief_user.username, self.chief_password)
+        create_response = self._create_crime_scene_case()
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+
+        case_id = create_response.data["id"]
+        log_url = reverse("case-status-log", kwargs={"pk": case_id})
+        log_response = self.client.get(log_url)
+
+        self.assertEqual(log_response.status_code, status.HTTP_200_OK)
+
+        logs = log_response.data
+        self.assertGreaterEqual(len(logs), 1, msg="At least one log entry must exist.")
+
+        # The creation log must go directly to OPEN
+        creation_log = logs[0]
+        self.assertEqual(
+            creation_log["to_status"],
+            CaseStatus.OPEN,
+            msg=(
+                "Chief-created case log must show to_status='open' directly. "
+                f"Got: {creation_log}"
+            ),
+        )
+
+        # No entry must exist with to_status=PENDING_APPROVAL
+        pending_entries = [
+            e for e in logs if e.get("to_status") == CaseStatus.PENDING_APPROVAL
+        ]
+        self.assertEqual(
+            len(pending_entries),
+            0,
+            msg=(
+                "Chief-created case must have zero 'pending_approval' log entries. "
+                f"Found: {pending_entries}"
+            ),
+        )
+
+    def test_chief_case_approve_endpoint_returns_error(self) -> None:
+        """
+        Scenario 4.3 (no approval needed): Calling approve-crime-scene/ on a
+        Chief-created case (already OPEN) must return a non-2xx error because
+        the case is not in PENDING_APPROVAL status.
+
+        This documents that the approval step is entirely skipped for Chief cases.
+
+        Reference:
+          - cases/services.py approve_crime_scene_case:
+              if case.status != PENDING_APPROVAL → raise InvalidTransition → 409
+          - project-doc.md §4.2.2: "if the Police Chief registers it,
+            no one's approval is needed"
+        """
+        self._login_as(self.chief_user.username, self.chief_password)
+        create_response = self._create_crime_scene_case()
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(create_response.data["status"], CaseStatus.OPEN)
+
+        case_id = create_response.data["id"]
+
+        # Attempt to approve an already-open Chief case (Captain is the approver role)
+        self._login_as(self.captain_user.username, self.captain_password)
+        approve_response = self.client.post(self._approve_url(case_id))
+
+        self.assertIn(
+            approve_response.status_code,
+            [status.HTTP_400_BAD_REQUEST, status.HTTP_409_CONFLICT],
+            msg=(
+                "Calling approve-crime-scene/ on an already-open Chief case must "
+                f"return 400 or 409, got {approve_response.status_code}: {approve_response.data}"
+            ),
+        )
