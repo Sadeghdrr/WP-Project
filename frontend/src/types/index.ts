@@ -15,6 +15,7 @@ export type { ISODateTime, PaginatedResponse, TimeStamped, ApiError, EntityId } 
 export type {
   Permission,
   Role,
+  RoleDetail,
   RoleRef,
   User,
   UserRef,

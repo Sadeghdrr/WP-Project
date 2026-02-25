@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ErrorBoundary } from "./components/ui";
+import { AuthProvider } from "./auth";
 import AppRouter from "./router/Router";
 
 /**
@@ -26,17 +27,18 @@ const queryClient = new QueryClient({
  *
  * Provider ordering (outer → inner):
  *   1. QueryClientProvider – data-fetching cache
- *   2. ErrorBoundary       – catches unhandled render errors
- *   3. AppRouter           – RouterProvider with all route definitions
- *
- * Auth context will be inserted between 1 and 2 in a later step.
+ *   2. AuthProvider        – auth state, login/logout, token management
+ *   3. ErrorBoundary       – catches unhandled render errors
+ *   4. AppRouter           – RouterProvider with all route definitions
  */
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <ErrorBoundary>
-        <AppRouter />
-      </ErrorBoundary>
+      <AuthProvider>
+        <ErrorBoundary>
+          <AppRouter />
+        </ErrorBoundary>
+      </AuthProvider>
     </QueryClientProvider>
   );
 }

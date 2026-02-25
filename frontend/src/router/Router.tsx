@@ -1,6 +1,7 @@
 import { lazy, Suspense } from "react";
 import { createBrowserRouter, RouterProvider } from "react-router-dom";
 import { AppLayout } from "../components/layout";
+import { ProtectedRoute, GuestRoute } from "../components/auth";
 
 // ---------------------------------------------------------------------------
 // Lazy-loaded pages
@@ -96,15 +97,17 @@ function s(Component: React.LazyExoticComponent<React.ComponentType>) {
 /**
  * Route tree mirrors routes.ts declarations.
  *
- * Auth guards are NOT enforced here — they will be added as route wrappers
- * once the auth context is wired in later steps.
+ * Auth guards:
+ *   - GuestRoute: /login, /register → redirects to /dashboard if authenticated
+ *   - ProtectedRoute: all dashboard/feature routes → redirects to /login if not
  *
  * Structure:
  *   / (public)            → HomePage
- *   /login                → LoginPage
- *   /register             → RegisterPage
+ *   (guest only)
+ *     /login              → LoginPage
+ *     /register           → RegisterPage
  *   /forbidden            → ForbiddenPage
- *   (app shell layout)
+ *   (protected + app shell layout)
  *     /dashboard          → DashboardPage
  *     /profile            → ProfilePage
  *     /notifications      → NotificationsPage
@@ -130,66 +133,78 @@ function s(Component: React.LazyExoticComponent<React.ComponentType>) {
  *   *                     → NotFoundPage
  */
 const router = createBrowserRouter([
-  // ── Public routes (no app shell chrome) ────────────────────────────
+  // ── Public routes (no auth required, no shell) ─────────────────────
   { path: "/", element: s(HomePage) },
-  { path: "/login", element: s(LoginPage) },
-  { path: "/register", element: s(RegisterPage) },
   { path: "/forbidden", element: s(ForbiddenPage) },
 
-  // ── Authenticated routes (inside AppLayout shell) ──────────────────
+  // ── Guest-only routes (redirect to dashboard if already logged in) ─
   {
-    element: <AppLayout />,
+    element: <GuestRoute />,
     children: [
-      { path: "/dashboard", element: s(DashboardPage) },
-      { path: "/profile", element: s(ProfilePage) },
-      { path: "/notifications", element: s(NotificationsPage) },
-      { path: "/most-wanted", element: s(MostWantedPage) },
+      { path: "/login", element: s(LoginPage) },
+      { path: "/register", element: s(RegisterPage) },
+    ],
+  },
 
-      // Cases
+  // ── Protected routes (redirect to login if not authenticated) ──────
+  {
+    element: <ProtectedRoute />,
+    children: [
       {
-        path: "/cases",
+        element: <AppLayout />,
         children: [
-          { index: true, element: s(CaseListPage) },
-          { path: "new/complaint", element: s(FileComplaintPage) },
-          { path: "new/crime-scene", element: s(CrimeScenePage) },
+          { path: "/dashboard", element: s(DashboardPage) },
+          { path: "/profile", element: s(ProfilePage) },
+          { path: "/notifications", element: s(NotificationsPage) },
+          { path: "/most-wanted", element: s(MostWantedPage) },
+
+          // Cases
           {
-            path: ":caseId",
+            path: "/cases",
             children: [
-              { index: true, element: s(CaseDetailPage) },
-              { path: "evidence", element: s(EvidenceListPage) },
-              { path: "evidence/new", element: s(AddEvidencePage) },
-              { path: "suspects", element: s(SuspectsPage) },
-              { path: "suspects/:suspectId", element: s(SuspectDetailPage) },
-              { path: "interrogations", element: s(InterrogationsPage) },
-              { path: "trial", element: s(TrialPage) },
+              { index: true, element: s(CaseListPage) },
+              { path: "new/complaint", element: s(FileComplaintPage) },
+              { path: "new/crime-scene", element: s(CrimeScenePage) },
+              {
+                path: ":caseId",
+                children: [
+                  { index: true, element: s(CaseDetailPage) },
+                  { path: "evidence", element: s(EvidenceListPage) },
+                  { path: "evidence/new", element: s(AddEvidencePage) },
+                  { path: "suspects", element: s(SuspectsPage) },
+                  { path: "suspects/:suspectId", element: s(SuspectDetailPage) },
+                  { path: "interrogations", element: s(InterrogationsPage) },
+                  { path: "trial", element: s(TrialPage) },
+                ],
+              },
             ],
           },
-        ],
-      },
 
-      // Detective Board
-      { path: "/detective-board/:caseId", element: s(DetectiveBoardPage) },
+          // Detective Board
+          { path: "/detective-board/:caseId", element: s(DetectiveBoardPage) },
 
-      // Reporting
-      { path: "/reports", element: s(ReportingPage) },
+          // Reporting
+          { path: "/reports", element: s(ReportingPage) },
 
-      // Bounty Tips
-      {
-        path: "/bounty-tips",
-        children: [
-          { index: true, element: s(BountyTipsPage) },
-          { path: "new", element: s(SubmitTipPage) },
-          { path: "verify", element: s(VerifyRewardPage) },
-        ],
-      },
+          // Bounty Tips
+          {
+            path: "/bounty-tips",
+            children: [
+              { index: true, element: s(BountyTipsPage) },
+              { path: "new", element: s(SubmitTipPage) },
+              { path: "verify", element: s(VerifyRewardPage) },
+            ],
+          },
 
-      // Admin Panel
-      {
-        path: "/admin",
-        children: [
-          { index: true, element: s(AdminPage) },
-          { path: "users", element: s(UserManagementPage) },
-          { path: "roles", element: s(RoleManagementPage) },
+          // Admin Panel
+          {
+            path: "/admin",
+            children: [
+              { index: true, element: s(AdminPage) },
+              { path: "users", element: s(UserManagementPage) },
+              { path: "roles", element: s(RoleManagementPage) },
+            ],
+          },
         ],
       },
     ],

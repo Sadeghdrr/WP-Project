@@ -1,4 +1,5 @@
-import { Link, NavLink } from "react-router-dom";
+import { Link, NavLink, useNavigate } from "react-router-dom";
+import { useAuth } from "../../auth/useAuth";
 import styles from "./Header.module.css";
 
 interface HeaderProps {
@@ -6,6 +7,14 @@ interface HeaderProps {
 }
 
 export default function Header({ onMenuToggle }: HeaderProps) {
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
+
+  function handleLogout() {
+    logout();
+    navigate("/login", { replace: true });
+  }
+
   return (
     <header className={styles.header}>
       <Link to="/" className={styles.brand}>
@@ -21,15 +30,6 @@ export default function Header({ onMenuToggle }: HeaderProps) {
       </button>
 
       <nav className={styles.nav}>
-        <NavLink
-          to="/"
-          className={({ isActive }) =>
-            `${styles.navLink} ${isActive ? styles.navLinkActive : ""}`
-          }
-          end
-        >
-          Home
-        </NavLink>
         <NavLink
           to="/dashboard"
           className={({ isActive }) =>
@@ -54,6 +54,21 @@ export default function Header({ onMenuToggle }: HeaderProps) {
         >
           Most Wanted
         </NavLink>
+
+        {user && (
+          <>
+            <span className={styles.navLink} style={{ opacity: 0.7, cursor: "default" }}>
+              {user.username}
+            </span>
+            <button
+              className={styles.navLink}
+              onClick={handleLogout}
+              style={{ cursor: "pointer" }}
+            >
+              Logout
+            </button>
+          </>
+        )}
       </nav>
     </header>
   );

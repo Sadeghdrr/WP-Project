@@ -6,9 +6,7 @@
  *   - Inject Authorization header when access token exists
  *   - JSON serialisation / deserialisation
  *   - Normalise error responses into a consistent shape
- *
- * Token refresh logic is stubbed for now — will be completed
- * when AuthContext is fully implemented.
+ *   - Notify auth layer on 401 (session expired)
  */
 
 // ---------------------------------------------------------------------------
@@ -36,6 +34,18 @@ export function setAccessToken(token: string | null): void {
 
 export function getAccessToken(): string | null {
   return accessToken;
+}
+
+// ---------------------------------------------------------------------------
+// 401 handler callback
+// ---------------------------------------------------------------------------
+
+/** Callback invoked when a 401 response is received (session expired). */
+let onUnauthorized: (() => void) | null = null;
+
+/** Register a callback for 401 responses (called by AuthContext). */
+export function setOnUnauthorized(cb: (() => void) | null): void {
+  onUnauthorized = cb;
 }
 
 // ---------------------------------------------------------------------------
@@ -77,6 +87,11 @@ export async function apiFetch<T>(
 
     if (res.ok) {
       return { ok: true, data: body as T, status: res.status };
+    }
+
+    // 401 → session expired, notify auth layer
+    if (res.status === 401 && onUnauthorized) {
+      onUnauthorized();
     }
 
     // Normalise error shape

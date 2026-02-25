@@ -7,9 +7,9 @@
 
 export const API = {
   // Auth
-  LOGIN: "/accounts/token/",
-  TOKEN_REFRESH: "/accounts/token/refresh/",
-  REGISTER: "/accounts/register/",
+  LOGIN: "/accounts/auth/login/",
+  TOKEN_REFRESH: "/accounts/auth/token/refresh/",
+  REGISTER: "/accounts/auth/register/",
   ME: "/accounts/me/",
 
   // Users & Roles (admin)

@@ -28,6 +28,14 @@ export interface Role extends Pick<TimeStamped, "created_at" | "updated_at"> {
   permissions: Permission[];
 }
 
+/** Lightweight role detail (nested inside User via role_detail) */
+export interface RoleDetail {
+  id: number;
+  name: string;
+  description: string;
+  hierarchy_level: number;
+}
+
 /** Lightweight role reference (used when nested inside User) */
 export interface RoleRef {
   id: number;
@@ -39,6 +47,13 @@ export interface RoleRef {
 // User
 // ---------------------------------------------------------------------------
 
+/**
+ * User shape returned by backend UserDetailSerializer.
+ *
+ * - `role` is a string (role name) from StringRelatedField
+ * - `role_detail` is the nested RoleDetail object (nullable)
+ * - `permissions` is a flat list of "app_label.codename" strings
+ */
 export interface User {
   id: number;
   username: string;
@@ -47,11 +62,11 @@ export interface User {
   last_name: string;
   national_id: string;
   phone_number: string;
-  role: RoleRef | null;
+  role: string | null;
+  role_detail: RoleDetail | null;
+  permissions: string[];
   is_active: boolean;
-  is_staff: boolean;
   date_joined: ISODateTime;
-  last_login: ISODateTime | null;
 }
 
 /** Minimal user reference (for FK fields in other entities) */
@@ -80,8 +95,12 @@ export interface TokenPair {
   refresh: string;
 }
 
+/**
+ * Backend login returns flat {access, refresh, user} — NOT nested tokens.
+ */
 export interface LoginResponse {
-  tokens: TokenPair;
+  access: string;
+  refresh: string;
   user: User;
 }
 
@@ -96,10 +115,11 @@ export interface RegisterRequest {
   password_confirm: string;
 }
 
-export interface RegisterResponse {
-  user: User;
-  tokens: TokenPair;
-}
+/**
+ * Backend registration returns UserDetailSerializer only — no tokens.
+ * Frontend must follow up with a login call.
+ */
+export type RegisterResponse = User;
 
 export interface TokenRefreshRequest {
   refresh: string;
