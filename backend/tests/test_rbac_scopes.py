@@ -9,6 +9,8 @@ Scope covered in this shared module:
 
 from __future__ import annotations
 
+from urllib.parse import urlsplit
+
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.test import TestCase
@@ -58,9 +60,10 @@ class TestRBACScopes(TestCase):
             "detective_a": "DetA!Pass9105",
             "detective_b": "DetB!Pass9106",
             "judge": "Judge!Pass9107",
-            "sergeant": "Sgt!Pass9108",
-            "captain": "Captain!Pass9109",
-            "chief": "Chief!Pass9110",
+            "judge_other": "JudgeOther!Pass9108",
+            "sergeant": "Sgt!Pass9109",
+            "captain": "Captain!Pass9110",
+            "chief": "Chief!Pass9111",
         }
 
         cls.complainant_a = cls._create_user(
@@ -133,6 +136,16 @@ class TestRBACScopes(TestCase):
             cls.roles["Judge"],
             cls.passwords["judge"],
         )
+        cls.judge_other = cls._create_user(
+            "rbac_scope_judge_other",
+            "9100000011",
+            "09150000011",
+            "judge.other@scope.test",
+            "Jules",
+            "Judge",
+            cls.roles["Judge"],
+            cls.passwords["judge_other"],
+        )
         cls.sergeant_user = cls._create_user(
             "rbac_scope_sergeant",
             "9100000008",
@@ -195,6 +208,11 @@ class TestRBACScopes(TestCase):
             title="Case C6 - Judiciary Control Unassigned",
             status=CaseStatus.CLOSED,
         )
+        cls.case_c7 = cls._create_case_as_complainant_db(
+            owner=cls.complainant_b,
+            title="Case C7 - Closed Assigned Other Judge",
+            status=CaseStatus.CLOSED,
+        )
 
         # Supervisory assignments for board-access checks.
         cls.case_c2.assigned_sergeant = cls.sergeant_user
@@ -222,6 +240,13 @@ class TestRBACScopes(TestCase):
             setup_client,
             case_id=cls.case_c5.id,
             judge_user=cls.judge_user,
+            actor=cls.chief_user,
+            actor_password=cls.passwords["chief"],
+        )
+        cls._assign_judge_for_setup(
+            setup_client,
+            case_id=cls.case_c7.id,
+            judge_user=cls.judge_other,
             actor=cls.chief_user,
             actor_password=cls.passwords["chief"],
         )
@@ -278,6 +303,36 @@ class TestRBACScopes(TestCase):
 
     def login_as(self, user: User) -> None:
         self.auth(self.login(user))
+
+    def get_case_ids_for_current_user(self) -> set[int]:
+        """
+        Resolve case IDs from the case-list endpoint for the current auth user.
+
+        Supports both paginated (`{"results": [...], "next": ...}`) and plain
+        list responses.
+        """
+        next_url = reverse("case-list")
+        case_ids: set[int] = set()
+
+        while next_url:
+            response = self.client.get(next_url, format="json")
+            self.assertEqual(
+                response.status_code,
+                status.HTTP_200_OK,
+                msg=f"Case list request failed: {response.status_code} {response.data}",
+            )
+            payload = response.data
+
+            if isinstance(payload, dict) and "results" in payload:
+                case_ids.update(item["id"] for item in payload["results"])
+                next_url = payload.get("next")
+                if isinstance(next_url, str) and next_url:
+                    next_url = self._to_relative_url(next_url)
+            else:
+                case_ids.update(item["id"] for item in payload)
+                next_url = None
+
+        return case_ids
 
     def create_case_as_complainant(
         self,
@@ -344,54 +399,64 @@ class TestRBACScopes(TestCase):
     # Case scope tests
     # ---------------------------------------------------------------------
 
-    def test_case_list_scope_for_complainants(self):
-        self.login_as(self.complainant_a)
+    def test_case_list_requires_authentication(self):
         response = self.client.get(reverse("case-list"), format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-        case_ids = self._extract_ids(response.data)
+    def test_case_list_scope_for_complainant(self):
+        self.login_as(self.complainant_a)
+        case_ids = self.get_case_ids_for_current_user()
+        self.assertIn(self.case_c1.id, case_ids)
+        self.assertIn(self.case_c2.id, case_ids)
+        self.assertIn(self.case_c4.id, case_ids)
+        self.assertNotIn(self.case_c3.id, case_ids)
+        self.assertNotIn(self.case_c5.id, case_ids)
+        self.assertNotIn(self.case_c6.id, case_ids)
+        self.assertNotIn(self.case_c7.id, case_ids)
         self.assertSetEqual(
             case_ids,
             {self.case_c1.id, self.case_c2.id, self.case_c4.id},
         )
-        self.assertNotIn(self.case_c3.id, case_ids)
-        self.assertNotIn(self.case_c5.id, case_ids)
 
-    def test_case_list_scope_for_cadet_and_officer(self):
+    def test_case_list_scope_for_cadet(self):
         self.login_as(self.cadet_user)
-        cadet_response = self.client.get(reverse("case-list"), format="json")
-        self.assertEqual(cadet_response.status_code, status.HTTP_200_OK)
-        cadet_ids = self._extract_ids(cadet_response.data)
+        cadet_ids = self.get_case_ids_for_current_user()
+        self.assertIn(self.case_c1.id, cadet_ids)
+        self.assertNotIn(self.case_c2.id, cadet_ids)
+        self.assertNotIn(self.case_c3.id, cadet_ids)
+        self.assertNotIn(self.case_c4.id, cadet_ids)
+        self.assertNotIn(self.case_c5.id, cadet_ids)
         self.assertSetEqual(cadet_ids, {self.case_c1.id})
 
+    def test_case_list_scope_for_officer(self):
         self.login_as(self.officer_user)
-        officer_response = self.client.get(reverse("case-list"), format="json")
-        self.assertEqual(officer_response.status_code, status.HTTP_200_OK)
-        officer_ids = self._extract_ids(officer_response.data)
-
+        officer_ids = self.get_case_ids_for_current_user()
         self.assertIn(self.case_c2.id, officer_ids)
         self.assertIn(self.case_c3.id, officer_ids)
         self.assertIn(self.case_c5.id, officer_ids)
         self.assertIn(self.case_c6.id, officer_ids)
+        self.assertIn(self.case_c7.id, officer_ids)
         self.assertNotIn(self.case_c1.id, officer_ids)
         self.assertNotIn(self.case_c4.id, officer_ids)
 
-    def test_case_list_scope_for_detectives_and_judge(self):
+    def test_case_list_scope_for_detective(self):
         self.login_as(self.detective_a)
-        det_a_response = self.client.get(reverse("case-list"), format="json")
-        self.assertEqual(det_a_response.status_code, status.HTTP_200_OK)
-        self.assertSetEqual(self._extract_ids(det_a_response.data), {self.case_c2.id})
+        detective_ids = self.get_case_ids_for_current_user()
+        self.assertIn(self.case_c2.id, detective_ids)
+        self.assertNotIn(self.case_c3.id, detective_ids)
+        self.assertSetEqual(detective_ids, {self.case_c2.id})
 
-        self.login_as(self.detective_b)
-        det_b_response = self.client.get(reverse("case-list"), format="json")
-        self.assertEqual(det_b_response.status_code, status.HTTP_200_OK)
-        self.assertSetEqual(self._extract_ids(det_b_response.data), {self.case_c3.id})
-
+    def test_case_list_scope_for_judge(self):
         self.login_as(self.judge_user)
-        judge_response = self.client.get(reverse("case-list"), format="json")
-        self.assertEqual(judge_response.status_code, status.HTTP_200_OK)
-        self.assertSetEqual(self._extract_ids(judge_response.data), {self.case_c5.id})
-        self.assertNotIn(self.case_c6.id, self._extract_ids(judge_response.data))
+        judge_ids = self.get_case_ids_for_current_user()
+        self.assertIn(self.case_c5.id, judge_ids)
+        self.assertNotIn(self.case_c1.id, judge_ids)
+        self.assertNotIn(self.case_c2.id, judge_ids)
+        self.assertNotIn(self.case_c3.id, judge_ids)
+        self.assertNotIn(self.case_c4.id, judge_ids)
+        self.assertNotIn(self.case_c6.id, judge_ids)
+        self.assertNotIn(self.case_c7.id, judge_ids)
+        self.assertSetEqual(judge_ids, {self.case_c5.id})
 
     # ---------------------------------------------------------------------
     # Evidence scope tests
@@ -540,11 +605,19 @@ class TestRBACScopes(TestCase):
             self.detective_a.username: self.passwords["detective_a"],
             self.detective_b.username: self.passwords["detective_b"],
             self.judge_user.username: self.passwords["judge"],
+            self.judge_other.username: self.passwords["judge_other"],
             self.sergeant_user.username: self.passwords["sergeant"],
             self.captain_user.username: self.passwords["captain"],
             self.chief_user.username: self.passwords["chief"],
         }
         return lookup[user.username]
+
+    @staticmethod
+    def _to_relative_url(url: str) -> str:
+        parsed = urlsplit(url)
+        if parsed.query:
+            return f"{parsed.path}?{parsed.query}"
+        return parsed.path
 
     @staticmethod
     def _extract_ids(payload) -> set[int]:
