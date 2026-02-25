@@ -346,6 +346,11 @@ class CaseQueryService:
             return qs.get(pk=case_id)
         except Case.DoesNotExist:
             raise NotFound(f"Case #{case_id} not found or not accessible.")
+        except (ValueError, TypeError):
+            # Raised when case_id is non-integer (e.g. pk='cases').
+            # Converts an ORM-level ValueError into a clean 404 rather than
+            # propagating as an unhandled exception → HTTP 500.
+            raise NotFound(f"Case '{case_id}' not found: invalid identifier.")
 
 
 # ═══════════════════════════════════════════════════════════════════

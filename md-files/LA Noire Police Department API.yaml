@@ -1,0 +1,6916 @@
+openapi: 3.0.3
+info:
+  title: LA Noire Police Department API
+  version: 1.0.0
+  description: Backend API for the LA Noire police department management system.
+paths:
+  /api/accounts/auth/login/:
+    post:
+      operationId: accounts_auth_login_create
+      description: Public endpoint. Authenticates a user using any unique identifier
+        (username, national ID, phone number, or email) plus password. Returns JWT
+        access/refresh tokens and user profile.
+      summary: Login and obtain JWT tokens
+      tags:
+      - Auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+          description: Authentication successful. Returns JWT tokens and user info.
+        '400':
+          description: Invalid credentials or disabled account.
+  /api/accounts/auth/register/:
+    post:
+      operationId: accounts_auth_register_create
+      description: |-
+        POST /api/accounts/auth/register/
+
+        Public endpoint.  Creates a new user with the default "Base User"
+        role.
+
+        Request body  → ``RegisterRequestSerializer``
+        Response body → ``UserDetailSerializer`` (201 Created)
+
+        Flow:
+            1. Validate input via ``RegisterRequestSerializer``.
+            2. Delegate to ``UserRegistrationService.register_user()``.
+            3. Return the new user serialized with ``UserDetailSerializer``.
+      tags:
+      - accounts
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegisterRequest'
+          description: ''
+  /api/accounts/auth/token/refresh/:
+    post:
+      operationId: accounts_auth_token_refresh_create
+      description: |-
+        Takes a refresh type JSON web token and returns an access type JSON web
+        token if the refresh token is valid.
+      tags:
+      - accounts
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenRefresh'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TokenRefresh'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TokenRefresh'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenRefresh'
+          description: ''
+  /api/accounts/me/:
+    get:
+      operationId: accounts_me_retrieve
+      description: Returns the authenticated user's full profile including role details
+        and a flat permissions list. Requires authentication.
+      summary: Get current user profile
+      tags:
+      - Auth
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserDetail'
+          description: Current user profile.
+        '401':
+          description: Authentication credentials not provided.
+    patch:
+      operationId: accounts_me_partial_update
+      description: Partially update the authenticated user's own profile fields (email,
+        phone_number, first_name, last_name). Requires authentication.
+      summary: Update current user profile
+      tags:
+      - Auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedMeUpdate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedMeUpdate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedMeUpdate'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserDetail'
+          description: Profile updated successfully.
+        '400':
+          description: Validation error (duplicate email/phone, invalid format).
+        '401':
+          description: Authentication credentials not provided.
+  /api/accounts/permissions/:
+    get:
+      operationId: accounts_permissions_list
+      description: Lists all available Django permissions (PK, name, codename). Used
+        by the admin UI for building role permission pickers. Requires authentication.
+      summary: List all permissions
+      tags:
+      - Roles
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Permission'
+          description: List of permissions.
+  /api/accounts/roles/:
+    get:
+      operationId: accounts_roles_list
+      description: List all roles ordered by hierarchy level. Requires authentication.
+        Typically restricted to System Admin.
+      summary: List all roles
+      tags:
+      - Roles
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RoleList'
+          description: List of roles.
+        '401':
+          description: Authentication credentials not provided.
+    post:
+      operationId: accounts_roles_create
+      description: Create a new dynamic role with a name, description, and hierarchy
+        level. Requires System Admin role.
+      summary: Create a new role
+      tags:
+      - Roles
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoleDetail'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/RoleDetail'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/RoleDetail'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoleDetail'
+          description: Role created.
+        '400':
+          description: Validation error.
+        '403':
+          description: Permission denied. Requires System Admin.
+  /api/accounts/roles/{id}/:
+    get:
+      operationId: accounts_roles_retrieve
+      description: Get a single role with full permission details. Requires authentication.
+      summary: Retrieve role details
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - Roles
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoleDetail'
+          description: Role detail with permissions.
+        '404':
+          description: Role not found.
+    put:
+      operationId: accounts_roles_update
+      description: Replace all fields of an existing role. Requires System Admin role.
+      summary: Full update of a role
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - Roles
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoleDetail'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/RoleDetail'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/RoleDetail'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoleDetail'
+          description: Role updated.
+        '400':
+          description: Validation error.
+        '403':
+          description: Permission denied.
+        '404':
+          description: Role not found.
+    patch:
+      operationId: accounts_roles_partial_update
+      description: Update selected fields of an existing role. Requires System Admin
+        role.
+      summary: Partial update of a role
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - Roles
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedRoleDetail'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedRoleDetail'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedRoleDetail'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoleDetail'
+          description: Role partially updated.
+        '400':
+          description: Validation error.
+        '404':
+          description: Role not found.
+    delete:
+      operationId: accounts_roles_destroy
+      description: Delete a role if no users are assigned to it. Requires System Admin
+        role.
+      summary: Delete a role
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - Roles
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: Role deleted.
+        '400':
+          description: 'Cannot delete: users are still assigned to this role.'
+        '404':
+          description: Role not found.
+  /api/accounts/roles/{id}/assign-permissions/:
+    post:
+      operationId: accounts_roles_assign_permissions_create
+      description: |-
+        POST /api/accounts/roles/{id}/assign-permissions/
+
+        Replace the role's permissions set with the given Permission IDs.
+
+        Request body → ``RoleAssignPermissionsSerializer``
+        Response     → ``RoleDetailSerializer`` (200 OK)
+
+        Implementation Contract
+        -----------------------
+        1. Validate with ``RoleAssignPermissionsSerializer``.
+        2. Call ``RoleManagementService.assign_permissions_to_role(
+               role_id=int(pk),
+               permission_ids=data['permission_ids'],
+           )``.
+        3. Re-serialize the updated role and return 200.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - accounts
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/accounts/users/:
+    get:
+      operationId: accounts_users_list
+      description: List all users with optional query-param filters. Requires authentication.
+        Typically used by System Admin or high-ranking officers.
+      summary: List all users
+      parameters:
+      - in: query
+        name: hierarchy_level
+        schema:
+          type: integer
+        description: Filter by hierarchy level.
+      - in: query
+        name: is_active
+        schema:
+          type: boolean
+        description: Filter by active status.
+      - in: query
+        name: role
+        schema:
+          type: integer
+        description: Filter by Role PK.
+      - in: query
+        name: search
+        schema:
+          type: string
+        description: Partial match on name, email, username, national ID.
+      tags:
+      - Users
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/UserList'
+          description: List of users.
+        '401':
+          description: Authentication credentials not provided.
+  /api/accounts/users/{id}/:
+    get:
+      operationId: accounts_users_retrieve
+      description: Get a single user's full details by ID. Requires authentication.
+      summary: Retrieve user details
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - Users
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserDetail'
+          description: User detail.
+        '401':
+          description: Authentication credentials not provided.
+        '404':
+          description: User not found.
+  /api/accounts/users/{id}/activate/:
+    patch:
+      operationId: accounts_users_activate_partial_update
+      description: |-
+        PATCH /api/accounts/users/{id}/activate/
+
+        Activate a deactivated user.
+
+        Response → ``UserDetailSerializer`` (200 OK)
+
+        Implementation Contract
+        -----------------------
+        1. Call ``UserManagementService.activate_user(
+               int(pk), performed_by=request.user
+           )``.
+        2. Serialize and return 200.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - accounts
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/accounts/users/{id}/assign-role/:
+    patch:
+      operationId: accounts_users_assign_role_partial_update
+      description: |-
+        PATCH /api/accounts/users/{id}/assign-role/
+
+        Assign a role to a user.
+
+        Request body → ``AssignRoleSerializer``
+        Response     → ``UserDetailSerializer`` (200 OK)
+
+        Implementation Contract
+        -----------------------
+        1. Validate ``request.data`` with ``AssignRoleSerializer``.
+        2. Call ``UserManagementService.assign_role(
+               user_id=int(pk),
+               role_id=data['role_id'],
+               performed_by=request.user,
+           )``.
+        3. Serialize the updated user and return 200.
+        4. On ``PermissionDenied`` → 403.
+        5. On ``DoesNotExist`` → 404.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - accounts
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/accounts/users/{id}/deactivate/:
+    patch:
+      operationId: accounts_users_deactivate_partial_update
+      description: |-
+        PATCH /api/accounts/users/{id}/deactivate/
+
+        Deactivate an active user.
+
+        Response → ``UserDetailSerializer`` (200 OK)
+
+        Implementation Contract
+        -----------------------
+        1. Call ``UserManagementService.deactivate_user(
+               int(pk), performed_by=request.user
+           )``.
+        2. Serialize and return 200.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - accounts
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/boards/:
+    get:
+      operationId: boards_list
+      description: ViewSet for ``DetectiveBoard`` CRUD and the full-graph read endpoint.
+      tags:
+      - boards
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DetectiveBoardList'
+          description: ''
+    post:
+      operationId: boards_create
+      description: Create a new detective board for an existing case.
+      summary: Create a detective board
+      tags:
+      - Detective Board
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DetectiveBoardCreateUpdate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/DetectiveBoardCreateUpdate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/DetectiveBoardCreateUpdate'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetectiveBoardList'
+          description: Board created.
+        '400':
+          description: Validation error.
+  /api/boards/{board_pk}/connections/:
+    post:
+      operationId: boards_connections_create
+      description: Draw a red-line connection between two board items.
+      summary: Create a board connection
+      parameters:
+      - in: path
+        name: board_pk
+        schema:
+          type: string
+        required: true
+      tags:
+      - Detective Board – Connections
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BoardConnectionCreate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/BoardConnectionCreate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/BoardConnectionCreate'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BoardConnectionResponse'
+          description: Connection created.
+        '400':
+          description: Validation error.
+  /api/boards/{board_pk}/connections/{id}/:
+    delete:
+      operationId: boards_connections_destroy
+      description: Remove a red-line connection from the board.
+      summary: Delete a board connection
+      parameters:
+      - in: path
+        name: board_pk
+        schema:
+          type: string
+        required: true
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - Detective Board – Connections
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: Connection removed.
+  /api/boards/{board_pk}/items/:
+    post:
+      operationId: boards_items_create
+      description: Pin a content object (evidence, suspect, etc.) onto the detective
+        board.
+      summary: Add a pin to the board
+      parameters:
+      - in: path
+        name: board_pk
+        schema:
+          type: string
+        required: true
+      tags:
+      - Detective Board – Items
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BoardItemCreate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/BoardItemCreate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/BoardItemCreate'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BoardItemResponse'
+          description: Pin created.
+        '400':
+          description: Validation error.
+  /api/boards/{board_pk}/items/{id}/:
+    delete:
+      operationId: boards_items_destroy
+      description: Remove a board item (pin) by ID.
+      summary: Remove a pin from the board
+      parameters:
+      - in: path
+        name: board_pk
+        schema:
+          type: string
+        required: true
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - Detective Board – Items
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: Pin removed.
+  /api/boards/{board_pk}/items/batch-coordinates/:
+    patch:
+      operationId: boards_items_batch_coordinates_partial_update
+      description: ViewSet for managing pins (``BoardItem``s) on a detective board.
+      parameters:
+      - in: path
+        name: board_pk
+        schema:
+          type: string
+        required: true
+      tags:
+      - boards
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/boards/{board_pk}/notes/:
+    post:
+      operationId: boards_notes_create
+      description: Add a new sticky note to the detective board.
+      summary: Create a sticky note
+      parameters:
+      - in: path
+        name: board_pk
+        schema:
+          type: string
+        required: true
+      tags:
+      - Detective Board – Notes
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BoardNoteCreateUpdate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/BoardNoteCreateUpdate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/BoardNoteCreateUpdate'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BoardNoteResponse'
+          description: Note created.
+        '400':
+          description: Validation error.
+  /api/boards/{board_pk}/notes/{id}/:
+    get:
+      operationId: boards_notes_retrieve
+      description: Fetch a single board note by ID.
+      summary: Retrieve a sticky note
+      parameters:
+      - in: path
+        name: board_pk
+        schema:
+          type: string
+        required: true
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - Detective Board – Notes
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BoardNoteResponse'
+          description: Note detail.
+    patch:
+      operationId: boards_notes_partial_update
+      description: Partially update a sticky note’s title and/or content.
+      summary: Update a sticky note
+      parameters:
+      - in: path
+        name: board_pk
+        schema:
+          type: string
+        required: true
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - Detective Board – Notes
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedBoardNoteCreateUpdate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedBoardNoteCreateUpdate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedBoardNoteCreateUpdate'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BoardNoteResponse'
+          description: Note updated.
+        '400':
+          description: Validation error.
+    delete:
+      operationId: boards_notes_destroy
+      description: Remove a sticky note from the detective board.
+      summary: Delete a sticky note
+      parameters:
+      - in: path
+        name: board_pk
+        schema:
+          type: string
+        required: true
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - Detective Board – Notes
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: Note deleted.
+  /api/boards/{id}/:
+    get:
+      operationId: boards_retrieve
+      description: ViewSet for ``DetectiveBoard`` CRUD and the full-graph read endpoint.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - boards
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetectiveBoardList'
+          description: ''
+    put:
+      operationId: boards_update
+      description: ViewSet for ``DetectiveBoard`` CRUD and the full-graph read endpoint.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - boards
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DetectiveBoardCreateUpdate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/DetectiveBoardCreateUpdate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/DetectiveBoardCreateUpdate'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetectiveBoardCreateUpdate'
+          description: ''
+    patch:
+      operationId: boards_partial_update
+      description: Update title or other metadata fields of a detective board.
+      summary: Partial update board metadata
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - Detective Board
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedDetectiveBoardCreateUpdate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedDetectiveBoardCreateUpdate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedDetectiveBoardCreateUpdate'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetectiveBoardList'
+          description: Board updated.
+        '400':
+          description: Validation error.
+    delete:
+      operationId: boards_destroy
+      description: Delete a detective board and all its nested items.
+      summary: Delete a detective board
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - Detective Board
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: Deleted.
+  /api/boards/{id}/full/:
+    get:
+      operationId: boards_full_retrieve
+      description: ViewSet for ``DetectiveBoard`` CRUD and the full-graph read endpoint.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - boards
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FullBoardState'
+          description: ''
+  /api/cases/:
+    get:
+      operationId: cases_list
+      description: List cases visible to the authenticated user with optional filtering.
+        Requires authentication.
+      summary: List cases
+      parameters:
+      - in: query
+        name: created_after
+        schema:
+          type: string
+        description: ISO 8601 date. Cases created on or after.
+      - in: query
+        name: created_before
+        schema:
+          type: string
+        description: ISO 8601 date. Cases created on or before.
+      - in: query
+        name: creation_type
+        schema:
+          type: string
+        description: 'Filter by creation type: ''complaint'' or ''crime_scene''.'
+      - in: query
+        name: crime_level
+        schema:
+          type: integer
+        description: Filter by crime level (1–4).
+      - in: query
+        name: detective
+        schema:
+          type: integer
+        description: Filter by assigned detective PK.
+      - in: query
+        name: search
+        schema:
+          type: string
+        description: Free-text search on title/description.
+      - in: query
+        name: status
+        schema:
+          type: string
+        description: Filter by case status.
+      tags:
+      - Cases
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CaseList'
+          description: Filtered list of cases.
+    post:
+      operationId: cases_create
+      description: Create a new case via complaint or crime-scene path. Set creation_type
+        to 'complaint' (Civilian/Complainant) or 'crime_scene' (Police Officer+).
+        Requires authentication.
+      summary: Create a new case
+      tags:
+      - Cases
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ComplaintCaseCreate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ComplaintCaseCreate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ComplaintCaseCreate'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CaseDetail'
+          description: Case created successfully.
+        '400':
+          description: Validation error or invalid creation_type.
+        '403':
+          description: Permission denied.
+  /api/cases/{id}/:
+    get:
+      operationId: cases_retrieve
+      description: Return the full case detail with nested complainants, witnesses,
+        status logs, and computed formula fields. Requires authentication.
+      summary: Retrieve case details
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - Cases
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CaseDetail'
+          description: Full case detail.
+        '404':
+          description: Case not found.
+    patch:
+      operationId: cases_partial_update
+      description: Partially update mutable case metadata (title, description, incident_date,
+        location). Requires authentication.
+      summary: Partially update case
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - Cases
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedCaseUpdate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedCaseUpdate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedCaseUpdate'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CaseDetail'
+          description: Case updated.
+        '400':
+          description: Validation error.
+        '404':
+          description: Case not found.
+    delete:
+      operationId: cases_destroy
+      description: Hard-delete a case. Restricted to System Admin only.
+      summary: Delete a case
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - Cases
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: Case deleted.
+        '403':
+          description: Permission denied. Requires Admin.
+        '404':
+          description: Case not found.
+  /api/cases/{id}/approve-crime-scene/:
+    post:
+      operationId: cases_approve_crime_scene_create
+      description: |-
+        POST /api/cases/{id}/approve-crime-scene/
+
+        Superior approves a crime-scene case (PENDING_APPROVAL → OPEN).
+
+        Steps
+        -----
+        1. ``case = self._get_case(pk)``.
+        2. Delegate to ``CaseWorkflowService.approve_crime_scene_case(case, request.user)``.
+        3. Return HTTP 200 with ``CaseDetailSerializer``.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - cases
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/cases/{id}/assign-captain/:
+    post:
+      operationId: cases_assign_captain_create
+      description: |-
+        POST /api/cases/{id}/assign-captain/
+
+        Steps
+        -----
+        Same pattern as ``assign_sergeant`` with ``assign_captain`` service call.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - cases
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/cases/{id}/assign-detective/:
+    post:
+      operationId: cases_assign_detective_create
+      description: |-
+        POST /api/cases/{id}/assign-detective/
+
+        Assign a detective to an open case and move it to INVESTIGATION.
+
+        Steps
+        -----
+        1. ``case = self._get_case(pk)``.
+        2. Validate ``request.data`` with ``AssignPersonnelSerializer``.
+        3. Fetch ``detective = get_object_or_404(User, pk=validated_data["user_id"])``.
+        4. Delegate to ``CaseAssignmentService.assign_detective(case, detective, request.user)``.
+        5. Return HTTP 200 with ``CaseDetailSerializer``.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - cases
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/cases/{id}/assign-judge/:
+    post:
+      operationId: cases_assign_judge_create
+      description: |-
+        POST /api/cases/{id}/assign-judge/
+
+        Steps
+        -----
+        Same pattern as ``assign_sergeant`` with ``assign_judge`` service call.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - cases
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/cases/{id}/assign-sergeant/:
+    post:
+      operationId: cases_assign_sergeant_create
+      description: |-
+        POST /api/cases/{id}/assign-sergeant/
+
+        Steps
+        -----
+        1. ``case = self._get_case(pk)``.
+        2. Validate with ``AssignPersonnelSerializer``.
+        3. Fetch sergeant user.
+        4. Delegate to ``CaseAssignmentService.assign_sergeant(case, sergeant, request.user)``.
+        5. Return HTTP 200 with ``CaseDetailSerializer``.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - cases
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/cases/{id}/cadet-review/:
+    post:
+      operationId: cases_cadet_review_create
+      description: |-
+        POST /api/cases/{id}/cadet-review/
+
+        Cadet approves or rejects a complaint case.
+
+        Steps
+        -----
+        1. ``case = self._get_case(pk)``.
+        2. Validate ``request.data`` with ``CadetReviewSerializer``.
+        3. Delegate to ``CaseWorkflowService.process_cadet_review(
+               case,
+               validated_data["decision"],
+               validated_data["message"],
+               request.user,
+           )``.
+        4. Return HTTP 200 with ``CaseDetailSerializer``.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - cases
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/cases/{id}/calculations/:
+    get:
+      operationId: cases_calculations_retrieve
+      description: |-
+        GET /api/cases/{id}/calculations/
+
+        Return the computed reward and tracking-threshold values for the case.
+
+        Steps
+        -----
+        1. ``case = self._get_case(pk)``.
+        2. ``data = CaseCalculationService.get_calculations_dict(case)``.
+        3. Serialize with ``CaseCalculationsSerializer(data)``.
+        4. Return HTTP 200.
+
+        Example response::
+
+            {
+              "crime_level_degree": 3,
+              "days_since_creation": 45,
+              "tracking_threshold": 135,
+              "reward_rials": 2700000000
+            }
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - cases
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/cases/{id}/complainants/:
+    get:
+      operationId: cases_complainants_retrieve
+      description: |-
+        GET  /api/cases/{id}/complainants/ — list all complainants.
+        POST /api/cases/{id}/complainants/ — add a new complainant.
+
+        GET Steps
+        ---------
+        1. ``case = self._get_case(pk)``.
+        2. Serialize ``case.complainants.select_related("user", "reviewed_by")``.
+        3. Return HTTP 200.
+
+        POST Steps
+        ----------
+        1. ``case = self._get_case(pk)``.
+        2. Validate with ``AddComplainantSerializer``.
+        3. Fetch user by ``validated_data["user_id"]``.
+        4. Delegate to ``CaseComplainantService.add_complainant(case, user, request.user)``.
+        5. Return HTTP 201 with ``CaseComplainantSerializer``.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - cases
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+    post:
+      operationId: cases_complainants_create
+      description: |-
+        GET  /api/cases/{id}/complainants/ — list all complainants.
+        POST /api/cases/{id}/complainants/ — add a new complainant.
+
+        GET Steps
+        ---------
+        1. ``case = self._get_case(pk)``.
+        2. Serialize ``case.complainants.select_related("user", "reviewed_by")``.
+        3. Return HTTP 200.
+
+        POST Steps
+        ----------
+        1. ``case = self._get_case(pk)``.
+        2. Validate with ``AddComplainantSerializer``.
+        3. Fetch user by ``validated_data["user_id"]``.
+        4. Delegate to ``CaseComplainantService.add_complainant(case, user, request.user)``.
+        5. Return HTTP 201 with ``CaseComplainantSerializer``.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - cases
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/cases/{id}/complainants/{complainant_pk}/review/:
+    post:
+      operationId: cases_complainants_review_create
+      description: |-
+        POST /api/cases/{id}/complainants/{complainant_pk}/review/
+
+        Cadet approves or rejects an individual complainant's information.
+
+        Steps
+        -----
+        1. ``case = self._get_case(pk)``.
+        2. ``complainant = self._get_complainant(case, complainant_pk)``.
+        3. Validate ``request.data`` with ``ComplainantReviewSerializer``.
+        4. Delegate to ``CaseComplainantService.review_complainant(
+               complainant, validated_data["decision"], request.user
+           )``.
+        5. Return HTTP 200 with ``CaseComplainantSerializer``.
+      parameters:
+      - in: path
+        name: complainant_pk
+        schema:
+          type: string
+        required: true
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - cases
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/cases/{id}/declare-suspects/:
+    post:
+      operationId: cases_declare_suspects_create
+      description: |-
+        POST /api/cases/{id}/declare-suspects/
+
+        Detective declares suspects identified and escalates to Sergeant review.
+        (INVESTIGATION → SUSPECT_IDENTIFIED → SERGEANT_REVIEW)
+
+        Steps
+        -----
+        1. ``case = self._get_case(pk)``.
+        2. Delegate to ``CaseWorkflowService.declare_suspects_identified(case, request.user)``.
+        3. Return HTTP 200 with ``CaseDetailSerializer``.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - cases
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/cases/{id}/forward-judiciary/:
+    post:
+      operationId: cases_forward_judiciary_create
+      description: |-
+        POST /api/cases/{id}/forward-judiciary/
+
+        Captain or Chief forwards the case to the judiciary system.
+        For critical cases the flow passes through CHIEF_REVIEW first.
+
+        Steps
+        -----
+        1. ``case = self._get_case(pk)``.
+        2. Delegate to ``CaseWorkflowService.forward_to_judiciary(case, request.user)``.
+        3. Return HTTP 200 with ``CaseDetailSerializer``.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - cases
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/cases/{id}/officer-review/:
+    post:
+      operationId: cases_officer_review_create
+      description: |-
+        POST /api/cases/{id}/officer-review/
+
+        Officer approves or rejects a case forwarded by the Cadet.
+
+        Steps
+        -----
+        1. ``case = self._get_case(pk)``.
+        2. Validate with ``OfficerReviewSerializer``.
+        3. Delegate to ``CaseWorkflowService.process_officer_review``.
+        4. Return HTTP 200 with ``CaseDetailSerializer``.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - cases
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/cases/{id}/report/:
+    get:
+      operationId: cases_report_retrieve
+      description: Return a comprehensive, aggregated report for the case including
+        personnel, complainants, witnesses, evidence, suspects with interrogation
+        & trial summaries, status history, and calculations. Accessible by Judge,
+        Captain, Police Chief, and System Administrator.
+      summary: Full case report
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - Cases
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CaseReport'
+          description: Aggregated case report.
+        '403':
+          description: Role not allowed.
+        '404':
+          description: Case not found.
+  /api/cases/{id}/resubmit/:
+    post:
+      operationId: cases_resubmit_create
+      description: |-
+        POST /api/cases/{id}/resubmit/
+
+        Complainant edits and re-submits a case that was returned.
+
+        Steps
+        -----
+        1. ``case = self._get_case(pk)``.
+        2. Validate ``request.data`` with ``ResubmitComplaintSerializer``.
+        3. Delegate to ``CaseWorkflowService.resubmit_complaint(case, validated_data, request.user)``.
+        4. Return HTTP 200 with ``CaseDetailSerializer``.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - cases
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/cases/{id}/sergeant-review/:
+    post:
+      operationId: cases_sergeant_review_create
+      description: |-
+        POST /api/cases/{id}/sergeant-review/
+
+        Sergeant approves arrest or rejects and returns to Detective.
+
+        Steps
+        -----
+        1. ``case = self._get_case(pk)``.
+        2. Validate with ``SergeantReviewSerializer``.
+        3. Delegate to ``CaseWorkflowService.process_sergeant_review``.
+        4. Return HTTP 200 with ``CaseDetailSerializer``.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - cases
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/cases/{id}/status-log/:
+    get:
+      operationId: cases_status_log_retrieve
+      description: |-
+        GET /api/cases/{id}/status-log/
+
+        Return the immutable status-transition audit trail for the case,
+        ordered chronologically (newest first).
+
+        Steps
+        -----
+        1. ``case = self._get_case(pk)``.
+        2. ``logs = case.status_logs.select_related("changed_by").order_by("-created_at")``.
+        3. Serialize with ``CaseStatusLogSerializer(logs, many=True)``.
+        4. Return HTTP 200.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - cases
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/cases/{id}/submit/:
+    post:
+      operationId: cases_submit_create
+      description: |-
+        POST /api/cases/{id}/submit/
+
+        Complainant submits a draft complaint for initial Cadet review.
+
+        Steps
+        -----
+        1. ``case = self._get_case(pk)``.
+        2. Delegate to ``CaseWorkflowService.submit_for_review(case, request.user)``.
+        3. Return HTTP 200 with ``CaseDetailSerializer`` payload.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - cases
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/cases/{id}/transition/:
+    post:
+      operationId: cases_transition_create
+      description: |-
+        POST /api/cases/{id}/transition/
+
+        **Centralized generic state-transition endpoint.**
+
+        Used for transitions that do not have a dedicated semantic action
+        (e.g. INTERROGATION → CAPTAIN_REVIEW, JUDICIARY → CLOSED).
+
+        Steps
+        -----
+        1. ``case = self._get_case(pk)``.
+        2. Validate ``request.data`` with ``CaseTransitionSerializer``.
+        3. Delegate to ``CaseWorkflowService.transition_state(
+               case,
+               validated_data["target_status"],
+               request.user,
+               validated_data.get("message", ""),
+           )``.
+        4. Return HTTP 200 with ``CaseDetailSerializer``.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - cases
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/cases/{id}/unassign-detective/:
+    delete:
+      operationId: cases_unassign_detective_destroy
+      description: |-
+        DELETE /api/cases/{id}/unassign-detective/
+
+        Remove the currently assigned detective.
+
+        Steps
+        -----
+        1. ``case = self._get_case(pk)``.
+        2. Delegate to ``CaseAssignmentService.unassign_role(case, "assigned_detective", request.user)``.
+        3. Return HTTP 200 with ``CaseDetailSerializer``.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - cases
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/cases/{id}/witnesses/:
+    get:
+      operationId: cases_witnesses_retrieve
+      description: |-
+        GET  /api/cases/{id}/witnesses/ — list witnesses.
+        POST /api/cases/{id}/witnesses/ — add a witness.
+
+        GET Steps
+        ---------
+        Serialize ``case.witnesses.all()`` with ``CaseWitnessSerializer``.
+
+        POST Steps
+        ----------
+        1. ``case = self._get_case(pk)``.
+        2. Validate with ``CaseWitnessCreateSerializer``.
+        3. Delegate to ``CaseWitnessService.add_witness(case, validated_data, request.user)``.
+        4. Return HTTP 201 with ``CaseWitnessSerializer``.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - cases
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+    post:
+      operationId: cases_witnesses_create
+      description: |-
+        GET  /api/cases/{id}/witnesses/ — list witnesses.
+        POST /api/cases/{id}/witnesses/ — add a witness.
+
+        GET Steps
+        ---------
+        Serialize ``case.witnesses.all()`` with ``CaseWitnessSerializer``.
+
+        POST Steps
+        ----------
+        1. ``case = self._get_case(pk)``.
+        2. Validate with ``CaseWitnessCreateSerializer``.
+        3. Delegate to ``CaseWitnessService.add_witness(case, validated_data, request.user)``.
+        4. Return HTTP 201 with ``CaseWitnessSerializer``.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - cases
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/core/constants/:
+    get:
+      operationId: core_constants_retrieve
+      description: Return all system-wide choice enumerations and the role hierarchy
+        so the frontend can dynamically build dropdowns, filters, and labels.
+      summary: System constants
+      tags:
+      - System
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemConstants'
+          description: System constants.
+  /api/core/dashboard/:
+    get:
+      operationId: core_dashboard_retrieve
+      description: Return aggregated dashboard statistics scoped to the authenticated
+        user’s role. Captains and Police Chiefs see department-wide metrics; Detectives
+        see only their assigned cases.
+      summary: Dashboard statistics
+      tags:
+      - Dashboard
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardStats'
+          description: Dashboard stats.
+  /api/core/notifications/:
+    get:
+      operationId: core_notifications_list
+      description: Return all notifications for the authenticated user.
+      summary: List notifications
+      tags:
+      - Notifications
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Notification'
+          description: Notification list.
+  /api/core/notifications/{id}/read/:
+    post:
+      operationId: core_notifications_read_create
+      description: |-
+        Mark a single notification as read.
+
+        **POST /api/core/notifications/{id}/read/**
+
+        Delegates to ``NotificationService.mark_as_read()``.
+
+        Raises:
+            NotImplementedError: Propagated from the service layer
+                                 (structural draft).
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - core
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/core/search/:
+    get:
+      operationId: core_search_retrieve
+      description: Perform a unified search across Cases, Suspects, and Evidence.
+        Results are categorised and scoped to the user’s permissions.
+      summary: Global search
+      parameters:
+      - in: query
+        name: category
+        schema:
+          type: string
+        description: 'Restrict to: cases, suspects, or evidence.'
+      - in: query
+        name: limit
+        schema:
+          type: integer
+        description: Max results per category (default 10, max 50).
+      - in: query
+        name: q
+        schema:
+          type: string
+        description: Search term (min 2 chars).
+        required: true
+      tags:
+      - Search
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GlobalSearchResponse'
+          description: Search results.
+        '400':
+          description: Missing or invalid query parameter.
+  /api/evidence/:
+    get:
+      operationId: evidence_list
+      description: Return evidence items with optional filters (type, status, case,
+        date range, search).
+      summary: List evidence items
+      parameters:
+      - in: query
+        name: case
+        schema:
+          type: integer
+        description: Filter by linked case ID.
+      - in: query
+        name: collected_after
+        schema:
+          type: string
+        description: ISO date — collected on or after.
+      - in: query
+        name: collected_before
+        schema:
+          type: string
+        description: ISO date — collected on or before.
+      - in: query
+        name: evidence_type
+        schema:
+          type: string
+        description: Filter by evidence type.
+      - in: query
+        name: search
+        schema:
+          type: string
+        description: Free-text search across evidence fields.
+      - in: query
+        name: verification_status
+        schema:
+          type: string
+        description: Filter by verification status.
+      tags:
+      - Evidence
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/EvidenceList'
+          description: Evidence list.
+    post:
+      operationId: evidence_create
+      description: 'Create a new evidence item. The `evidence_type` field acts as
+        a discriminator to determine which child serializer validates the rest of
+        the payload. Supported types: testimony, biological, vehicle, identity, other.'
+      summary: Create evidence (polymorphic)
+      tags:
+      - Evidence
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EvidencePolymorphicCreate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/EvidencePolymorphicCreate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/EvidencePolymorphicCreate'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EvidenceList'
+          description: Evidence created.
+        '400':
+          description: Validation error.
+  /api/evidence/{id}/:
+    get:
+      operationId: evidence_retrieve
+      description: Fetch full detail for a single evidence item, resolved to its polymorphic
+        subtype.
+      summary: Retrieve evidence detail
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Evidence.
+        required: true
+      tags:
+      - Evidence
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EvidenceList'
+          description: Evidence detail (type-specific).
+    patch:
+      operationId: evidence_partial_update
+      description: Update evidence fields. The update serializer is selected based
+        on the evidence type.
+      summary: Partial update evidence
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Evidence.
+        required: true
+      tags:
+      - Evidence
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedEvidenceUpdate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedEvidenceUpdate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedEvidenceUpdate'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EvidenceList'
+          description: Evidence updated.
+        '400':
+          description: Validation error.
+    delete:
+      operationId: evidence_destroy
+      description: Delete an evidence item.
+      summary: Delete evidence
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Evidence.
+        required: true
+      tags:
+      - Evidence
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: Deleted.
+  /api/evidence/{id}/chain-of-custody/:
+    get:
+      operationId: evidence_chain_of_custody_retrieve
+      description: GET /api/evidence/{id}/chain-of-custody/ — Audit trail.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Evidence.
+        required: true
+      tags:
+      - evidence
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/evidence/{id}/files/:
+    get:
+      operationId: evidence_files_retrieve
+      description: |-
+        GET  /api/evidence/{id}/files/ — list attached files.
+        POST /api/evidence/{id}/files/ — upload a new file.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Evidence.
+        required: true
+      tags:
+      - evidence
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+    post:
+      operationId: evidence_files_create
+      description: |-
+        GET  /api/evidence/{id}/files/ — list attached files.
+        POST /api/evidence/{id}/files/ — upload a new file.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Evidence.
+        required: true
+      tags:
+      - evidence
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/evidence/{id}/link-case/:
+    post:
+      operationId: evidence_link_case_create
+      description: POST /api/evidence/{id}/link-case/ — Link evidence to a case.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Evidence.
+        required: true
+      tags:
+      - evidence
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/evidence/{id}/unlink-case/:
+    post:
+      operationId: evidence_unlink_case_create
+      description: POST /api/evidence/{id}/unlink-case/ — Unlink evidence from a case.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Evidence.
+        required: true
+      tags:
+      - evidence
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/evidence/{id}/verify/:
+    post:
+      operationId: evidence_verify_create
+      description: POST /api/evidence/{id}/verify/ — Coroner verifies biological evidence.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Evidence.
+        required: true
+      tags:
+      - evidence
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/schema/:
+    get:
+      operationId: schema_retrieve
+      description: |-
+        OpenApi3 schema for this API. Format can be selected via content negotiation.
+
+        - YAML: application/vnd.oai.openapi
+        - JSON: application/vnd.oai.openapi+json
+      parameters:
+      - in: query
+        name: format
+        schema:
+          type: string
+          enum:
+          - json
+          - yaml
+      - in: query
+        name: lang
+        schema:
+          type: string
+          enum:
+          - af
+          - ar
+          - ar-dz
+          - ast
+          - az
+          - be
+          - bg
+          - bn
+          - br
+          - bs
+          - ca
+          - ckb
+          - cs
+          - cy
+          - da
+          - de
+          - dsb
+          - el
+          - en
+          - en-au
+          - en-gb
+          - eo
+          - es
+          - es-ar
+          - es-co
+          - es-mx
+          - es-ni
+          - es-ve
+          - et
+          - eu
+          - fa
+          - fi
+          - fr
+          - fy
+          - ga
+          - gd
+          - gl
+          - he
+          - hi
+          - hr
+          - hsb
+          - ht
+          - hu
+          - hy
+          - ia
+          - id
+          - ig
+          - io
+          - is
+          - it
+          - ja
+          - ka
+          - kab
+          - kk
+          - km
+          - kn
+          - ko
+          - ky
+          - lb
+          - lt
+          - lv
+          - mk
+          - ml
+          - mn
+          - mr
+          - ms
+          - my
+          - nb
+          - ne
+          - nl
+          - nn
+          - os
+          - pa
+          - pl
+          - pt
+          - pt-br
+          - ro
+          - ru
+          - sk
+          - sl
+          - sq
+          - sr
+          - sr-latn
+          - sv
+          - sw
+          - ta
+          - te
+          - tg
+          - th
+          - tk
+          - tr
+          - tt
+          - udm
+          - ug
+          - uk
+          - ur
+          - uz
+          - vi
+          - zh-hans
+          - zh-hant
+      tags:
+      - schema
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/vnd.oai.openapi:
+              schema:
+                type: object
+                additionalProperties: {}
+            application/yaml:
+              schema:
+                type: object
+                additionalProperties: {}
+            application/vnd.oai.openapi+json:
+              schema:
+                type: object
+                additionalProperties: {}
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/suspects/bounty-tips/:
+    get:
+      operationId: suspects_bounty_tips_list
+      description: Return bounty tips visible to the authenticated user.
+      summary: List bounty tips
+      tags:
+      - Bounty Tips
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BountyTipList'
+          description: Bounty tip list.
+    post:
+      operationId: suspects_bounty_tips_create
+      description: Citizen submits a tip about a suspect or case.
+      summary: Submit a bounty tip
+      tags:
+      - Bounty Tips
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BountyTipCreate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/BountyTipCreate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/BountyTipCreate'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BountyTipDetail'
+          description: Tip submitted.
+        '400':
+          description: Validation error.
+  /api/suspects/bounty-tips/{id}/:
+    get:
+      operationId: suspects_bounty_tips_retrieve
+      description: Fetch a single bounty tip by ID.
+      summary: Retrieve bounty tip detail
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - Bounty Tips
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BountyTipDetail'
+          description: Tip detail.
+  /api/suspects/bounty-tips/{id}/review/:
+    post:
+      operationId: suspects_bounty_tips_review_create
+      description: |-
+        POST /api/bounty-tips/{id}/review/
+
+        Police Officer reviews a bounty tip.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - suspects
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/suspects/bounty-tips/{id}/verify/:
+    post:
+      operationId: suspects_bounty_tips_verify_create
+      description: |-
+        POST /api/bounty-tips/{id}/verify/
+
+        Detective verifies a bounty tip. Upon verification, a unique
+        reward code is generated for the informant.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - suspects
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/suspects/bounty-tips/lookup-reward/:
+    post:
+      operationId: suspects_bounty_tips_lookup_reward_create
+      description: |-
+        POST /api/bounty-tips/lookup-reward/
+
+        Look up bounty reward using citizen's national ID and unique code.
+      tags:
+      - suspects
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/suspects/suspects/:
+    get:
+      operationId: suspects_suspects_list
+      description: List suspects visible to the authenticated user with optional query-parameter
+        filtering. Requires authentication.
+      summary: List suspects
+      parameters:
+      - in: query
+        name: approval_status
+        schema:
+          type: string
+        description: 'Filter by approval: pending, approved, rejected.'
+      - in: query
+        name: case
+        schema:
+          type: integer
+        description: Filter by associated case PK.
+      - in: query
+        name: most_wanted
+        schema:
+          type: boolean
+        description: If true, only suspects wanted > 30 days.
+      - in: query
+        name: national_id
+        schema:
+          type: string
+        description: Exact match on national ID.
+      - in: query
+        name: search
+        schema:
+          type: string
+        description: Free-text search on name/aliases/description.
+      - in: query
+        name: status
+        schema:
+          type: string
+        description: Filter by suspect status.
+      tags:
+      - Suspects
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SuspectList'
+          description: List of suspects.
+    post:
+      operationId: suspects_suspects_create
+      description: Create a new suspect and link them to a case. Requires Detective
+        role (CAN_IDENTIFY_SUSPECT permission).
+      summary: Identify a new suspect
+      tags:
+      - Suspects
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SuspectCreate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SuspectCreate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SuspectCreate'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuspectDetail'
+          description: Suspect created.
+        '400':
+          description: Validation error.
+        '403':
+          description: Permission denied. Requires Detective role.
+  /api/suspects/suspects/{id}/:
+    get:
+      operationId: suspects_suspects_retrieve
+      description: Return full suspect detail with nested interrogations, trials,
+        bails, and computed ranking properties. Requires authentication.
+      summary: Retrieve suspect details
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - Suspects
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuspectDetail'
+          description: Suspect detail.
+        '404':
+          description: Suspect not found.
+    patch:
+      operationId: suspects_suspects_partial_update
+      description: Partially update a suspect's mutable profile fields (name, address,
+        etc.). Status changes use dedicated workflow endpoints. Requires Detective
+        role.
+      summary: Update suspect profile
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - Suspects
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedSuspectUpdate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedSuspectUpdate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedSuspectUpdate'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuspectDetail'
+          description: Suspect updated.
+        '400':
+          description: Validation error.
+        '403':
+          description: Permission denied.
+  /api/suspects/suspects/{id}/approve/:
+    post:
+      operationId: suspects_suspects_approve_create
+      description: |-
+        POST /api/suspects/{id}/approve/
+
+        **Sergeant approves or rejects a suspect identification.**
+
+        Steps
+        -----
+        1. Validate ``request.data`` with ``SuspectApprovalSerializer``.
+        2. If invalid, return HTTP 400.
+        3. Delegate to ``ArrestAndWarrantService.approve_or_reject_suspect(
+               suspect_id=pk,
+               sergeant_user=request.user,
+               decision=validated_data["decision"],
+               rejection_message=validated_data.get("rejection_message", ""),
+           )``.
+        4. Serialize result with ``SuspectDetailSerializer``.
+        5. Return HTTP 200.
+
+        Error Handling
+        --------------
+        - HTTP 400 if validation fails.
+        - HTTP 403 if lacking Sergeant permission (raised by service).
+        - HTTP 400 if suspect is not in pending approval status.
+
+        Example Request (Approve)
+        -------------------------
+        ::
+
+            POST /api/suspects/12/approve/
+            {"decision": "approve"}
+
+        Example Request (Reject)
+        ------------------------
+        ::
+
+            POST /api/suspects/12/approve/
+            {
+                "decision": "reject",
+                "rejection_message": "Insufficient evidence."
+            }
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - suspects
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/suspects/suspects/{id}/arrest/:
+    post:
+      operationId: suspects_suspects_arrest_create
+      description: |-
+        POST /api/suspects/{id}/arrest/
+
+        **Execute the arrest of a suspect — transition to In Custody.**
+
+        This is the most critical endpoint in the suspects app.  It
+        requires strict permission checks, warrant validation, and
+        creates a full audit trail.
+
+        Steps
+        -----
+        1. Validate ``request.data`` with ``ArrestPayloadSerializer``.
+        2. If invalid, return HTTP 400.
+        3. Delegate to ``ArrestAndWarrantService.execute_arrest(
+               suspect_id=pk,
+               arresting_officer=request.user,
+               arrest_location=validated_data["arrest_location"],
+               arrest_notes=validated_data.get("arrest_notes", ""),
+               warrant_override_justification=validated_data.get(
+                   "warrant_override_justification", ""
+               ),
+           )``.
+        4. Serialize result with ``SuspectDetailSerializer``.
+        5. Return HTTP 200.
+
+        Error Handling
+        --------------
+        - HTTP 400 if suspect is not WANTED or not approved.
+        - HTTP 400 if no warrant and no override justification.
+        - HTTP 403 if lacking arrest permission.
+
+        Example Request (With Warrant)
+        ------------------------------
+        ::
+
+            POST /api/suspects/12/arrest/
+            {
+                "arrest_location": "742 S. Broadway, Los Angeles",
+                "arrest_notes": "Apprehended without resistance."
+            }
+
+        Example Request (Without Warrant — Override)
+        ---------------------------------------------
+        ::
+
+            POST /api/suspects/12/arrest/
+            {
+                "arrest_location": "Corner of 5th and Main",
+                "arrest_notes": "Suspect caught fleeing crime scene.",
+                "warrant_override_justification": "Caught in the act."
+            }
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - suspects
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/suspects/suspects/{id}/captain-verdict/:
+    post:
+      operationId: suspects_suspects_captain_verdict_create
+      description: |-
+        POST /api/suspects/{id}/captain-verdict/
+
+        **Captain renders a verdict on a suspect after reviewing
+        interrogation scores and evidence.**
+
+        For CRITICAL crime-level cases, this sets the suspect to
+        PENDING_CHIEF_APPROVAL. For other levels, the suspect is
+        forwarded directly to trial (UNDER_TRIAL).
+
+        Example Request
+        ---------------
+        ::
+
+            POST /api/suspects/12/captain-verdict/
+            {
+                "verdict": "guilty",
+                "notes": "Strong forensic evidence and high interrogation scores."
+            }
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - suspects
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/suspects/suspects/{id}/chief-approval/:
+    post:
+      operationId: suspects_suspects_chief_approval_create
+      description: |-
+        POST /api/suspects/{id}/chief-approval/
+
+        **Police Chief approves or rejects the Captain's verdict for
+        a CRITICAL case suspect.**
+
+        Only available when the suspect is in PENDING_CHIEF_APPROVAL
+        status.
+
+        - Approve: suspect moves to UNDER_TRIAL.
+        - Reject: suspect reverts to UNDER_INTERROGATION.
+
+        Example Request (Approve)
+        -------------------------
+        ::
+
+            POST /api/suspects/12/chief-approval/
+            {"decision": "approve", "notes": "Evidence supports verdict."}
+
+        Example Request (Reject)
+        ------------------------
+        ::
+
+            POST /api/suspects/12/chief-approval/
+            {
+                "decision": "reject",
+                "notes": "Insufficient evidence. Re-interrogate."
+            }
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - suspects
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/suspects/suspects/{id}/issue-warrant/:
+    post:
+      operationId: suspects_suspects_issue_warrant_create
+      description: |-
+        POST /api/suspects/{id}/issue-warrant/
+
+        **Sergeant issues an arrest warrant for an approved suspect.**
+
+        Steps
+        -----
+        1. Validate ``request.data`` with ``ArrestWarrantSerializer``.
+        2. If invalid, return HTTP 400.
+        3. Delegate to ``ArrestAndWarrantService.issue_arrest_warrant(
+               suspect_id=pk,
+               issuing_sergeant=request.user,
+               warrant_reason=validated_data["warrant_reason"],
+               priority=validated_data.get("priority", "normal"),
+           )``.
+        4. Serialize result with ``SuspectDetailSerializer``.
+        5. Return HTTP 200.
+
+        Error Handling
+        --------------
+        - HTTP 400 if suspect is not approved or not in WANTED status.
+        - HTTP 403 if lacking ``CAN_ISSUE_ARREST_WARRANT`` permission.
+
+        Example Request
+        ---------------
+        ::
+
+            POST /api/suspects/12/issue-warrant/
+            {
+                "warrant_reason": "Strong forensic evidence.",
+                "priority": "high"
+            }
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - suspects
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/suspects/suspects/{id}/transition-status/:
+    post:
+      operationId: suspects_suspects_transition_status_create
+      description: |-
+        POST /api/suspects/{id}/transition-status/
+
+        **Generic status transition for non-arrest lifecycle changes.**
+
+        Steps
+        -----
+        1. Validate ``request.data`` with ``SuspectStatusTransitionSerializer``.
+        2. If invalid, return HTTP 400.
+        3. Delegate to ``ArrestAndWarrantService.transition_status(
+               suspect_id=pk,
+               requesting_user=request.user,
+               new_status=validated_data["new_status"],
+               reason=validated_data["reason"],
+           )``.
+        4. Serialize result with ``SuspectDetailSerializer``.
+        5. Return HTTP 200.
+
+        Error Handling
+        --------------
+        - HTTP 400 if the transition is not allowed from current status.
+        - HTTP 403 if lacking the permission for the specific transition.
+
+        Example Request
+        ---------------
+        ::
+
+            POST /api/suspects/12/transition-status/
+            {
+                "new_status": "under_interrogation",
+                "reason": "Suspect arrested, beginning interrogation."
+            }
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - suspects
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/suspects/suspects/{suspect_pk}/bails/:
+    get:
+      operationId: suspects_suspects_bails_list
+      description: Return all bail/fine records for the given suspect.
+      summary: List bail records for a suspect
+      parameters:
+      - in: path
+        name: suspect_pk
+        schema:
+          type: string
+        required: true
+      tags:
+      - Bail
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BailList'
+          description: Bail list.
+    post:
+      operationId: suspects_suspects_bails_create
+      description: Set a bail amount for the suspect. Requires CAN_SET_BAIL_AMOUNT
+        permission.
+      summary: Create bail record
+      parameters:
+      - in: path
+        name: suspect_pk
+        schema:
+          type: string
+        required: true
+      tags:
+      - Bail
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BailCreate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/BailCreate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/BailCreate'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BailDetail'
+          description: Bail created.
+        '400':
+          description: Validation error.
+  /api/suspects/suspects/{suspect_pk}/bails/{id}/:
+    get:
+      operationId: suspects_suspects_bails_retrieve
+      description: Fetch a single bail record by ID.
+      summary: Retrieve bail detail
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      - in: path
+        name: suspect_pk
+        schema:
+          type: string
+        required: true
+      tags:
+      - Bail
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BailDetail'
+          description: Bail detail.
+  /api/suspects/suspects/{suspect_pk}/bails/{id}/pay/:
+    post:
+      operationId: suspects_suspects_bails_pay_create
+      description: |-
+        POST /api/suspects/{suspect_pk}/bails/{id}/pay/
+
+        Process bail payment via payment gateway callback.
+
+        Steps
+        -----
+        1. Extract ``payment_reference`` from ``request.data``.
+        2. Delegate to ``BailService.process_bail_payment(
+               bail_id=pk,
+               payment_reference=request.data.get("payment_reference", ""),
+               requesting_user=request.user,
+           )``.
+        3. Serialize result with ``BailDetailSerializer``.
+        4. Return HTTP 200.
+
+        Example Request
+        ---------------
+        ::
+
+            POST /api/suspects/12/bails/5/pay/
+            {"payment_reference": "ZP-TXN-20260222-001"}
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      - in: path
+        name: suspect_pk
+        schema:
+          type: string
+        required: true
+      tags:
+      - suspects
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/suspects/suspects/{suspect_pk}/interrogations/:
+    get:
+      operationId: suspects_suspects_interrogations_list
+      description: Return all interrogation sessions recorded for the given suspect.
+      summary: List interrogations for a suspect
+      parameters:
+      - in: path
+        name: suspect_pk
+        schema:
+          type: string
+        required: true
+      tags:
+      - Interrogations
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/InterrogationList'
+          description: Interrogation list.
+    post:
+      operationId: suspects_suspects_interrogations_create
+      description: Record a new interrogation session for the suspect. Requires CAN_CONDUCT_INTERROGATION
+        permission.
+      summary: Create interrogation session
+      parameters:
+      - in: path
+        name: suspect_pk
+        schema:
+          type: string
+        required: true
+      tags:
+      - Interrogations
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InterrogationCreate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/InterrogationCreate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/InterrogationCreate'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InterrogationDetail'
+          description: Interrogation created.
+        '400':
+          description: Validation error.
+  /api/suspects/suspects/{suspect_pk}/interrogations/{id}/:
+    get:
+      operationId: suspects_suspects_interrogations_retrieve
+      description: Fetch a single interrogation session by ID.
+      summary: Retrieve interrogation detail
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      - in: path
+        name: suspect_pk
+        schema:
+          type: string
+        required: true
+      tags:
+      - Interrogations
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InterrogationDetail'
+          description: Interrogation detail.
+  /api/suspects/suspects/{suspect_pk}/trials/:
+    get:
+      operationId: suspects_suspects_trials_list
+      description: Return all trial records for the given suspect.
+      summary: List trials for a suspect
+      parameters:
+      - in: path
+        name: suspect_pk
+        schema:
+          type: string
+        required: true
+      tags:
+      - Trials
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TrialList'
+          description: Trial list.
+    post:
+      operationId: suspects_suspects_trials_create
+      description: Record a trial verdict for the suspect. Requires CAN_JUDGE_TRIAL
+        permission.
+      summary: Create trial record
+      parameters:
+      - in: path
+        name: suspect_pk
+        schema:
+          type: string
+        required: true
+      tags:
+      - Trials
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TrialCreate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TrialCreate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TrialCreate'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TrialDetail'
+          description: Trial created.
+        '400':
+          description: Validation error.
+  /api/suspects/suspects/{suspect_pk}/trials/{id}/:
+    get:
+      operationId: suspects_suspects_trials_retrieve
+      description: Fetch a single trial record by ID.
+      summary: Retrieve trial detail
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      - in: path
+        name: suspect_pk
+        schema:
+          type: string
+        required: true
+      tags:
+      - Trials
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TrialDetail'
+          description: Trial detail.
+  /api/suspects/suspects/most-wanted/:
+    get:
+      operationId: suspects_suspects_most_wanted_retrieve
+      description: |-
+        GET /api/suspects/most-wanted/
+
+        Return the Most Wanted list — suspects wanted for > 30 days,
+        ranked by their ``most_wanted_score``.
+
+        Visible to all authenticated users (including base users)
+        per project-doc §4.7.
+
+        Steps
+        -----
+        1. Get queryset via ``SuspectProfileService.get_most_wanted_list()``.
+        2. Serialize with ``MostWantedSerializer(queryset, many=True)``.
+        3. Return HTTP 200.
+
+        Example Response
+        ----------------
+        ::
+
+            [
+                {
+                    "id": 1,
+                    "full_name": "Roy Earle",
+                    "photo": "/media/suspect_photos/2026/01/earle.jpg",
+                    "description": "Tall, dark hair, scar on left cheek.",
+                    "status": "wanted",
+                    "wanted_since": "2026-01-15T08:00:00Z",
+                    "days_wanted": 38,
+                    "most_wanted_score": 152,
+                    "reward_amount": 1520000000,
+                    "case_title": "Hollywood Murder"
+                }
+            ]
+      tags:
+      - suspects
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+components:
+  schemas:
+    BailCreate:
+      type: object
+      description: |-
+        Validates input for creating a bail record.
+
+        The ``approved_by`` (sergeant) is injected from ``request.user``.
+        The ``suspect`` and ``case`` are resolved from the URL path.
+
+        Validation
+        ----------
+        The service layer validates that:
+        - The suspect's case is Level 2 or Level 3.
+        - The suspect is currently ``ARRESTED`` or ``CONVICTED`` (for Level 3 criminals).
+        - The bail ``amount`` is positive.
+
+        Example Request
+        ---------------
+        ::
+
+            POST /api/suspects/12/bails/
+            {
+                "amount": 50000000
+            }
+      properties:
+        amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
+          title: Bail Amount (Rials)
+        conditions:
+          type: string
+          default: ''
+          description: Optional bail conditions imposed on the suspect.
+      required:
+      - amount
+    BailDetail:
+      type: object
+      description: Full detail serializer for a single bail record.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        suspect:
+          type: integer
+          readOnly: true
+        suspect_name:
+          type: string
+          nullable: true
+          description: Return the suspect's full name.
+          readOnly: true
+        case:
+          type: integer
+          readOnly: true
+        amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
+          readOnly: true
+          title: Bail Amount (Rials)
+        conditions:
+          type: string
+          readOnly: true
+          title: Bail Conditions
+          description: Optional conditions imposed on the bail release.
+        is_paid:
+          type: boolean
+          readOnly: true
+          title: Paid
+        payment_reference:
+          type: string
+          readOnly: true
+        paid_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+          title: Payment Date
+        approved_by:
+          type: integer
+          readOnly: true
+          title: Approved By (Sergeant)
+        approved_by_name:
+          type: string
+          nullable: true
+          description: Return the approving sergeant's full name.
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - amount
+      - approved_by
+      - approved_by_name
+      - case
+      - conditions
+      - created_at
+      - id
+      - is_paid
+      - paid_at
+      - payment_reference
+      - suspect
+      - suspect_name
+      - updated_at
+    BailInline:
+      type: object
+      description: |-
+        Compact inline serializer for bail records nested inside
+        ``SuspectDetailSerializer``.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
+          readOnly: true
+          title: Bail Amount (Rials)
+        is_paid:
+          type: boolean
+          readOnly: true
+          title: Paid
+        payment_reference:
+          type: string
+          readOnly: true
+        paid_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+          title: Payment Date
+        approved_by:
+          type: integer
+          readOnly: true
+          title: Approved By (Sergeant)
+        approved_by_name:
+          type: string
+          nullable: true
+          description: Return the approving sergeant's full name.
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - amount
+      - approved_by
+      - approved_by_name
+      - created_at
+      - id
+      - is_paid
+      - paid_at
+      - payment_reference
+    BailList:
+      type: object
+      description: Compact representation for listing bail records.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        suspect:
+          type: integer
+          readOnly: true
+        case:
+          type: integer
+          readOnly: true
+        amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
+          readOnly: true
+          title: Bail Amount (Rials)
+        conditions:
+          type: string
+          readOnly: true
+          title: Bail Conditions
+          description: Optional conditions imposed on the bail release.
+        is_paid:
+          type: boolean
+          readOnly: true
+          title: Paid
+        approved_by:
+          type: integer
+          readOnly: true
+          title: Approved By (Sergeant)
+        approved_by_name:
+          type: string
+          nullable: true
+          description: Return the approving sergeant's full name.
+          readOnly: true
+        paid_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+          title: Payment Date
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - amount
+      - approved_by
+      - approved_by_name
+      - case
+      - conditions
+      - created_at
+      - id
+      - is_paid
+      - paid_at
+      - suspect
+    BoardConnectionCreate:
+      type: object
+      description: |-
+        Validates the request body for creating a red-line connection.
+
+        Both ``from_item`` and ``to_item`` must belong to the same board
+        (validated in the service layer, not here).
+
+        Cross-field validation stub: the serializer validates that
+        ``from_item != to_item`` (no self-loops).
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        from_item:
+          type: integer
+        to_item:
+          type: integer
+        label:
+          type: string
+          title: Connection Label
+          description: Optional annotation on the red line.
+          maxLength: 255
+      required:
+      - from_item
+      - id
+      - to_item
+    BoardConnectionInline:
+      type: object
+      description: Compact ``BoardConnection`` used inside the full-board-state response.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        from_item:
+          type: integer
+        to_item:
+          type: integer
+        label:
+          type: string
+          title: Connection Label
+          description: Optional annotation on the red line.
+          maxLength: 255
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - from_item
+      - id
+      - to_item
+      - updated_at
+    BoardConnectionResponse:
+      type: object
+      description: Full read representation of a ``BoardConnection``.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        board:
+          type: integer
+          readOnly: true
+        from_item:
+          type: integer
+        to_item:
+          type: integer
+        label:
+          type: string
+          title: Connection Label
+          description: Optional annotation on the red line.
+          maxLength: 255
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - board
+      - created_at
+      - from_item
+      - id
+      - to_item
+      - updated_at
+    BoardItemCreate:
+      type: object
+      description: |-
+        Validates the request body for adding a new item to a board.
+
+        Accepts a ``content_object`` payload (``content_type_id`` + ``object_id``)
+        via ``GenericObjectRelatedField`` and optional initial coordinates.
+        The ``board`` is resolved from the URL kwarg in the view and injected
+        by the service, not from the request body.
+
+        Request body example::
+
+            {
+              "content_object": { "content_type_id": 7, "object_id": 42 },
+              "position_x": 120.5,
+              "position_y": 300.0
+            }
+      properties:
+        content_object:
+          type: string
+        position_x:
+          type: number
+          format: double
+          default: 0.0
+        position_y:
+          type: number
+          format: double
+          default: 0.0
+      required:
+      - content_object
+    BoardItemInline:
+      type: object
+      description: |-
+        Compact ``BoardItem`` representation used inside the full-board-state
+        response payload.
+
+        ``content_object_summary`` is populated by ``GenericObjectRelatedField``
+        so the frontend receives the resolved type/id/name for each pin.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        content_type:
+          type: integer
+        object_id:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        content_object_summary:
+          type: string
+          readOnly: true
+        position_x:
+          type: number
+          format: double
+          title: X Coordinate
+        position_y:
+          type: number
+          format: double
+          title: Y Coordinate
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - content_object_summary
+      - content_type
+      - created_at
+      - id
+      - object_id
+      - updated_at
+    BoardItemResponse:
+      type: object
+      description: Full read representation of a single ``BoardItem`` after creation.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        board:
+          type: integer
+          readOnly: true
+        content_type:
+          type: integer
+        object_id:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        content_object_summary:
+          type: string
+          readOnly: true
+        position_x:
+          type: number
+          format: double
+          title: X Coordinate
+        position_y:
+          type: number
+          format: double
+          title: Y Coordinate
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - board
+      - content_object_summary
+      - content_type
+      - created_at
+      - id
+      - object_id
+      - updated_at
+    BoardNoteCreateUpdate:
+      type: object
+      description: |-
+        Validates input for creating or updating a sticky note on the board.
+
+        ``board`` is resolved from the URL kwarg and injected by the service.
+        ``created_by`` defaults to ``request.user`` in the service — not
+        accepted from the client.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        title:
+          type: string
+          maxLength: 255
+        content:
+          type: string
+        created_by:
+          type: integer
+          readOnly: true
+      required:
+      - created_by
+      - id
+      - title
+    BoardNoteInline:
+      type: object
+      description: Compact BoardNote used inside the full-board-state response.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        title:
+          type: string
+          maxLength: 255
+        content:
+          type: string
+        created_by:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - created_by
+      - id
+      - title
+      - updated_at
+    BoardNoteResponse:
+      type: object
+      description: Full read representation of a ``BoardNote``.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        board:
+          type: integer
+          readOnly: true
+        title:
+          type: string
+          maxLength: 255
+        content:
+          type: string
+        created_by:
+          type: integer
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - board
+      - created_at
+      - created_by
+      - id
+      - title
+      - updated_at
+    BountyTipCreate:
+      type: object
+      description: |-
+        Validates input for a citizen submitting a bounty tip.
+
+        The ``informant`` is injected from ``request.user`` by the service.
+        At least one of ``suspect`` or ``case`` must be provided.
+
+        Example Request
+        ---------------
+        ::
+
+            POST /api/bounty-tips/
+            {
+                "suspect": 12,
+                "case": 5,
+                "information": "I saw the suspect at the corner of 5th and Main at 3 AM."
+            }
+      properties:
+        suspect:
+          type: integer
+          nullable: true
+        case:
+          type: integer
+          nullable: true
+        information:
+          type: string
+          title: Submitted Information
+      required:
+      - information
+    BountyTipDetail:
+      type: object
+      description: Full detail serializer for a single bounty tip.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        suspect:
+          type: integer
+          readOnly: true
+          nullable: true
+        case:
+          type: integer
+          readOnly: true
+          nullable: true
+        informant:
+          type: integer
+          readOnly: true
+        informant_name:
+          type: string
+          nullable: true
+          description: Return the informant's full name.
+          readOnly: true
+        information:
+          type: string
+          readOnly: true
+          title: Submitted Information
+        status:
+          allOf:
+          - $ref: '#/components/schemas/StatusE62Enum'
+          readOnly: true
+        status_display:
+          type: string
+          readOnly: true
+        reviewed_by:
+          type: integer
+          readOnly: true
+          nullable: true
+          title: Reviewed By (Officer)
+        reviewed_by_name:
+          type: string
+          nullable: true
+          description: Return the reviewing officer's name, or None.
+          readOnly: true
+        verified_by:
+          type: integer
+          readOnly: true
+          nullable: true
+          title: Verified By (Detective)
+        verified_by_name:
+          type: string
+          nullable: true
+          description: Return the verifying detective's name, or None.
+          readOnly: true
+        unique_code:
+          type: string
+          readOnly: true
+          nullable: true
+          title: Reward Claim Code
+          description: Generated upon detective verification.
+        reward_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,15}(?:\.\d{0,0})?$
+          readOnly: true
+          nullable: true
+          title: Reward Amount (Rials)
+        is_claimed:
+          type: boolean
+          readOnly: true
+          title: Reward Claimed
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - case
+      - created_at
+      - id
+      - informant
+      - informant_name
+      - information
+      - is_claimed
+      - reviewed_by
+      - reviewed_by_name
+      - reward_amount
+      - status
+      - status_display
+      - suspect
+      - unique_code
+      - updated_at
+      - verified_by
+      - verified_by_name
+    BountyTipList:
+      type: object
+      description: |-
+        Compact representation for listing bounty tips.
+
+        Used in ``GET /api/suspects/{id}/bounty-tips/`` and
+        ``GET /api/bounty-tips/``.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        suspect:
+          type: integer
+          readOnly: true
+          nullable: true
+        case:
+          type: integer
+          readOnly: true
+          nullable: true
+        informant:
+          type: integer
+          readOnly: true
+        informant_name:
+          type: string
+          nullable: true
+          description: Return the informant's full name.
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/StatusE62Enum'
+          readOnly: true
+        status_display:
+          type: string
+          readOnly: true
+        is_claimed:
+          type: boolean
+          readOnly: true
+          title: Reward Claimed
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - case
+      - created_at
+      - id
+      - informant
+      - informant_name
+      - is_claimed
+      - status
+      - status_display
+      - suspect
+    CaseComplainant:
+      type: object
+      description: Read representation of a ``CaseComplainant`` junction record.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        user:
+          type: integer
+          readOnly: true
+          title: Complainant
+        user_display:
+          type: string
+          description: Return user's full name.
+          readOnly: true
+        is_primary:
+          type: boolean
+          readOnly: true
+          title: Primary Complainant
+        status:
+          allOf:
+          - $ref: '#/components/schemas/StatusE94Enum'
+          readOnly: true
+          title: Approval Status
+        reviewed_by:
+          type: integer
+          readOnly: true
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - id
+      - is_primary
+      - reviewed_by
+      - status
+      - updated_at
+      - user
+      - user_display
+    CaseDetail:
+      type: object
+      description: |-
+        **Full case detail serializer.**
+
+        Aggregates all nested sub-resources plus computed formula fields
+        into a single response payload.  Used for ``GET /api/cases/{id}/``
+        and the general reporting endpoint.
+
+        The view's service call MUST pre-fetch the following before passing
+        the case instance here to avoid N+1 queries:
+        - ``complainants`` with ``select_related("user", "reviewed_by")``
+        - ``witnesses``
+        - ``status_logs`` with ``select_related("changed_by")``
+
+        Formula fields are populated via ``SerializerMethodField`` so they
+        are computed at serialisation time with zero extra DB queries
+        (all data is already on the model instance).
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        title:
+          type: string
+          title: Case Title
+          maxLength: 255
+        description:
+          type: string
+        crime_level:
+          allOf:
+          - $ref: '#/components/schemas/CrimeLevelEnum'
+          description: |-
+            Determines severity and affects Most-Wanted ranking formula.
+
+            * `1` - Level 3 (Minor)
+            * `2` - Level 2 (Medium)
+            * `3` - Level 1 (Major)
+            * `4` - Critical
+          minimum: -2147483648
+          maximum: 2147483647
+        crime_level_display:
+          type: string
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/ToStatusEnum'
+          title: Current Status
+        status_display:
+          type: string
+          readOnly: true
+        creation_type:
+          $ref: '#/components/schemas/CreationTypeEnum'
+        rejection_count:
+          type: integer
+          readOnly: true
+          description: If this reaches 3 the case is voided automatically.
+        incident_date:
+          type: string
+          format: date-time
+          nullable: true
+          title: Incident Date/Time
+        location:
+          type: string
+          title: Incident Location
+          maxLength: 500
+        created_by:
+          type: integer
+          readOnly: true
+        approved_by:
+          type: integer
+          readOnly: true
+          nullable: true
+          description: Superior who approved the case (crime-scene workflow).
+        assigned_detective:
+          type: integer
+          nullable: true
+        assigned_sergeant:
+          type: integer
+          nullable: true
+        assigned_captain:
+          type: integer
+          nullable: true
+        assigned_judge:
+          type: integer
+          nullable: true
+        complainants:
+          type: array
+          items:
+            $ref: '#/components/schemas/CaseComplainant'
+          readOnly: true
+        witnesses:
+          type: array
+          items:
+            $ref: '#/components/schemas/CaseWitness'
+          readOnly: true
+        status_logs:
+          type: array
+          items:
+            $ref: '#/components/schemas/CaseStatusLog'
+          readOnly: true
+        calculations:
+          type: object
+          additionalProperties: {}
+          description: |-
+            Invoke ``CaseCalculationService.get_calculations_dict`` and return
+            a serialised dict of the two formula outputs.
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - approved_by
+      - calculations
+      - complainants
+      - created_at
+      - created_by
+      - creation_type
+      - crime_level
+      - crime_level_display
+      - description
+      - id
+      - rejection_count
+      - status_display
+      - status_logs
+      - title
+      - updated_at
+      - witnesses
+    CaseList:
+      type: object
+      description: |-
+        Compact representation for the list endpoint.
+
+        Excludes heavy nested data (complainants, witnesses, status log)
+        to keep list-page payloads small.  Includes summary counts as
+        annotated read-only fields.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        title:
+          type: string
+          title: Case Title
+          maxLength: 255
+        crime_level:
+          allOf:
+          - $ref: '#/components/schemas/CrimeLevelEnum'
+          description: |-
+            Determines severity and affects Most-Wanted ranking formula.
+
+            * `1` - Level 3 (Minor)
+            * `2` - Level 2 (Medium)
+            * `3` - Level 1 (Major)
+            * `4` - Critical
+          minimum: -2147483648
+          maximum: 2147483647
+        crime_level_display:
+          type: string
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/ToStatusEnum'
+          title: Current Status
+        status_display:
+          type: string
+          readOnly: true
+        creation_type:
+          $ref: '#/components/schemas/CreationTypeEnum'
+        incident_date:
+          type: string
+          format: date-time
+          nullable: true
+          title: Incident Date/Time
+        location:
+          type: string
+          title: Incident Location
+          maxLength: 500
+        assigned_detective:
+          type: integer
+          nullable: true
+        assigned_detective_name:
+          type: string
+          nullable: true
+          description: Return the detective's full name or ``None`` if unassigned.
+          readOnly: true
+        complainant_count:
+          type: integer
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - assigned_detective_name
+      - complainant_count
+      - created_at
+      - creation_type
+      - crime_level
+      - crime_level_display
+      - id
+      - status_display
+      - title
+      - updated_at
+    CaseReport:
+      type: object
+      description: |-
+        Read-only serializer for the aggregated case report returned by
+        ``CaseReportingService.get_case_report()``.
+
+        This mirrors the exact dictionary structure produced by the service
+        and provides schema documentation for drf-spectacular / Swagger.
+      properties:
+        case:
+          allOf:
+          - $ref: '#/components/schemas/_ReportCase'
+          readOnly: true
+        personnel:
+          allOf:
+          - $ref: '#/components/schemas/_ReportPersonnel'
+          readOnly: true
+        complainants:
+          type: array
+          items:
+            $ref: '#/components/schemas/_ReportComplainant'
+          readOnly: true
+        witnesses:
+          type: array
+          items:
+            $ref: '#/components/schemas/_ReportWitness'
+          readOnly: true
+        evidence:
+          type: array
+          items:
+            $ref: '#/components/schemas/_ReportEvidence'
+          readOnly: true
+        suspects:
+          type: array
+          items:
+            $ref: '#/components/schemas/_ReportSuspect'
+          readOnly: true
+        status_history:
+          type: array
+          items:
+            $ref: '#/components/schemas/_ReportStatusLog'
+          readOnly: true
+        calculations:
+          allOf:
+          - $ref: '#/components/schemas/_ReportCalculations'
+          readOnly: true
+      required:
+      - calculations
+      - case
+      - complainants
+      - evidence
+      - personnel
+      - status_history
+      - suspects
+      - witnesses
+    CaseStatusLog:
+      type: object
+      description: Read-only serializer for the case audit trail.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        from_status:
+          allOf:
+          - $ref: '#/components/schemas/ToStatusEnum'
+          readOnly: true
+          title: Previous Status
+        to_status:
+          allOf:
+          - $ref: '#/components/schemas/ToStatusEnum'
+          readOnly: true
+          title: New Status
+        changed_by:
+          type: integer
+          readOnly: true
+          nullable: true
+        changed_by_name:
+          type: string
+          nullable: true
+          description: Return full name of the actor or None.
+          readOnly: true
+        message:
+          type: string
+          readOnly: true
+          title: Message / Rejection Reason
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - changed_by
+      - changed_by_name
+      - created_at
+      - from_status
+      - id
+      - message
+      - to_status
+    CaseWitness:
+      type: object
+      description: Read representation of a ``CaseWitness`` record.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        full_name:
+          type: string
+          readOnly: true
+        phone_number:
+          type: string
+          readOnly: true
+        national_id:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - full_name
+      - id
+      - national_id
+      - phone_number
+      - updated_at
+    CasesByCrimeLevel:
+      type: object
+      description: |-
+        Breakdown of case counts grouped by crime level.
+
+        Example::
+
+            {"crime_level": 4, "label": "Critical", "count": 3}
+      properties:
+        crime_level:
+          type: integer
+          description: Integer crime-level value (1–4).
+        label:
+          type: string
+          description: Human-readable label for the crime level.
+        count:
+          type: integer
+          description: Number of cases at this crime level.
+      required:
+      - count
+      - crime_level
+      - label
+    CasesByStatus:
+      type: object
+      description: |-
+        Breakdown of case counts grouped by status.
+
+        Example::
+
+            {"status": "open", "label": "Open", "count": 12}
+      properties:
+        status:
+          type: string
+          description: Machine-readable status key (e.g. 'open', 'closed').
+        label:
+          type: string
+          description: Human-readable display label for the status.
+        count:
+          type: integer
+          description: Number of cases currently in this status.
+      required:
+      - count
+      - label
+      - status
+    ChoiceItem:
+      type: object
+      description: |-
+        A single key-label pair representing one choice/enum option.
+
+        Example::
+
+            {"value": "open", "label": "Open"}
+      properties:
+        value:
+          type: string
+          description: Machine-readable value to send in API requests.
+        label:
+          type: string
+          description: Human-readable display label for the UI.
+      required:
+      - label
+      - value
+    ComplaintCaseCreate:
+      type: object
+      description: |-
+        Validates input for creating a case via the **complaint** path.
+
+        Fields accepted: ``title``, ``description``, ``crime_level``,
+        ``incident_date`` (optional), ``location`` (optional).
+
+        ``creation_type``, ``status``, and ``created_by`` are set by the
+        service layer and must NOT be accepted from the client.
+      properties:
+        title:
+          type: string
+          title: Case Title
+          maxLength: 255
+        description:
+          type: string
+        crime_level:
+          allOf:
+          - $ref: '#/components/schemas/CrimeLevelEnum'
+          description: |-
+            Determines severity and affects Most-Wanted ranking formula.
+
+            * `1` - Level 3 (Minor)
+            * `2` - Level 2 (Medium)
+            * `3` - Level 1 (Major)
+            * `4` - Critical
+          minimum: -2147483648
+          maximum: 2147483647
+        incident_date:
+          type: string
+          format: date-time
+          nullable: true
+          title: Incident Date/Time
+        location:
+          type: string
+          title: Incident Location
+          maxLength: 500
+      required:
+      - crime_level
+      - description
+      - title
+    CreationTypeEnum:
+      enum:
+      - complaint
+      - crime_scene
+      type: string
+      description: |-
+        * `complaint` - Via Complaint
+        * `crime_scene` - Via Crime-Scene Report
+    CrimeLevelEnum:
+      enum:
+      - 1
+      - 2
+      - 3
+      - 4
+      type: integer
+      description: |-
+        * `1` - Level 3 (Minor)
+        * `2` - Level 2 (Medium)
+        * `3` - Level 1 (Major)
+        * `4` - Critical
+    DashboardStats:
+      type: object
+      description: |-
+        Top-level response serializer for ``GET /api/core/dashboard/``.
+
+        Returns an aggregated snapshot of system metrics.  The data returned
+        is **role-aware**:
+
+        * **Captain / Police Chief / System Admin**: department-wide stats.
+        * **Detective**: stats scoped to their own assigned cases.
+        * **Sergeant**: stats scoped to their supervised cases.
+        * **Other roles**: limited public statistics only.
+
+        Response shape::
+
+            {
+                "total_cases": 150,
+                "active_cases": 42,
+                "closed_cases": 95,
+                "voided_cases": 13,
+                "total_suspects": 87,
+                "total_evidence": 320,
+                "total_employees": 55,
+                "unassigned_evidence_count": 12,
+                "cases_by_status": [...],
+                "cases_by_crime_level": [...],
+                "top_wanted_suspects": [...],
+                "recent_activity": [...]
+            }
+      properties:
+        total_cases:
+          type: integer
+          description: Total number of cases (scoped by role).
+        active_cases:
+          type: integer
+          description: Cases that are currently open / under investigation.
+        closed_cases:
+          type: integer
+          description: Cases that have been closed.
+        voided_cases:
+          type: integer
+          description: Cases that were voided (3 complaint rejections).
+        total_suspects:
+          type: integer
+          description: Total suspect records (scoped by role).
+        total_evidence:
+          type: integer
+          description: Total evidence items (scoped by role).
+        total_employees:
+          type: integer
+          description: Total number of organisation employees (staff users).
+        unassigned_evidence_count:
+          type: integer
+          description: Evidence items not yet linked to a detective's board or whose
+            case has no assigned detective.
+        cases_by_status:
+          type: array
+          items:
+            $ref: '#/components/schemas/CasesByStatus'
+          description: Case count grouped by workflow status.
+        cases_by_crime_level:
+          type: array
+          items:
+            $ref: '#/components/schemas/CasesByCrimeLevel'
+          description: Case count grouped by crime level.
+        top_wanted_suspects:
+          type: array
+          items:
+            $ref: '#/components/schemas/TopWantedSuspect'
+          description: Top N most-wanted suspects ordered by score descending.
+        recent_activity:
+          type: array
+          items:
+            $ref: '#/components/schemas/RecentActivity'
+          description: Latest activity feed items.
+      required:
+      - active_cases
+      - cases_by_crime_level
+      - cases_by_status
+      - closed_cases
+      - recent_activity
+      - top_wanted_suspects
+      - total_cases
+      - total_employees
+      - total_evidence
+      - total_suspects
+      - unassigned_evidence_count
+      - voided_cases
+    DetectiveBoardCreateUpdate:
+      type: object
+      description: |-
+        Validates input for creating or updating a ``DetectiveBoard``.
+
+        ``detective`` defaults to ``request.user`` in the service layer and
+        should NOT be accepted from the client (set ``read_only=True``).
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        case:
+          type: integer
+        detective:
+          type: integer
+          readOnly: true
+      required:
+      - case
+      - detective
+      - id
+    DetectiveBoardList:
+      type: object
+      description: |-
+        Compact representation of a ``DetectiveBoard`` for list endpoints.
+
+        Excludes nested items/connections/notes to keep the payload small.
+        Includes ``item_count`` and ``connection_count`` as annotated fields
+        so the frontend can show summary chips without a second request.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        case:
+          type: integer
+        detective:
+          type: integer
+        item_count:
+          type: integer
+          readOnly: true
+        connection_count:
+          type: integer
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - case
+      - connection_count
+      - created_at
+      - detective
+      - id
+      - item_count
+      - updated_at
+    EvidenceList:
+      type: object
+      description: |-
+        Compact representation for the list endpoint.
+
+        Excludes heavy nested data (files, type-specific fields) to keep
+        list-page payloads small.  Includes display labels and registrar info.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        title:
+          type: string
+          readOnly: true
+        description:
+          type: string
+          readOnly: true
+        evidence_type:
+          allOf:
+          - $ref: '#/components/schemas/EvidenceTypeEnum'
+          readOnly: true
+        evidence_type_display:
+          type: string
+          readOnly: true
+        case:
+          type: integer
+          readOnly: true
+        registered_by:
+          type: integer
+          readOnly: true
+        registered_by_name:
+          type: string
+          nullable: true
+          description: Return the registrar's full name.
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - case
+      - created_at
+      - description
+      - evidence_type
+      - evidence_type_display
+      - id
+      - registered_by
+      - registered_by_name
+      - title
+      - updated_at
+    EvidencePolymorphicCreate:
+      type: object
+      description: |-
+        **Top-level dispatcher** for polymorphic evidence creation.
+
+        The frontend sends a JSON payload with an ``evidence_type`` discriminator.
+        This serializer selects the appropriate child serializer based on
+        that discriminator and delegates validation to it.
+
+        Usage (in the view's ``create`` action)
+        ----------------------------------------
+        ::
+
+            serializer = EvidencePolymorphicCreateSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            evidence_type = serializer.validated_data["evidence_type"]
+            child_serializer_class = serializer.get_child_serializer_class(evidence_type)
+            child_serializer = child_serializer_class(data=request.data)
+            child_serializer.is_valid(raise_exception=True)
+            # pass child_serializer.validated_data to service layer
+
+        Alternatively, the view may use ``get_child_serializer_class`` directly
+        after extracting ``evidence_type`` from ``request.data``.
+      properties:
+        evidence_type:
+          allOf:
+          - $ref: '#/components/schemas/EvidenceTypeEnum'
+          description: |-
+            Discriminator field. Determines which type-specific fields are expected: testimony, biological, vehicle, identity, other.
+
+            * `testimony` - Witness / Local Testimony
+            * `biological` - Biological / Medical
+            * `vehicle` - Vehicle
+            * `identity` - Identity Document
+            * `other` - Other Item
+      required:
+      - evidence_type
+    EvidenceTypeEnum:
+      enum:
+      - testimony
+      - biological
+      - vehicle
+      - identity
+      - other
+      type: string
+      description: |-
+        * `testimony` - Witness / Local Testimony
+        * `biological` - Biological / Medical
+        * `vehicle` - Vehicle
+        * `identity` - Identity Document
+        * `other` - Other Item
+    FullBoardState:
+      type: object
+      description: |-
+        **The most important read serializer in the board app.**
+
+        Returns a single ``DetectiveBoard`` together with *all* nested
+        relationships (items, connections, notes) in one payload.
+
+        This prevents an N+1 waterfall of API calls from the Next.js canvas
+        renderer.  The service layer (``BoardWorkspaceService.get_full_board_graph``)
+        MUST use ``select_related`` and ``prefetch_related`` so that this
+        serializer never triggers additional database queries beyond the initial
+        prefetched sets.
+
+        Response shape::
+
+            {
+              "id": 1,
+              "case": 5,
+              "detective": 3,
+              "items": [ { ...BoardItemInlineSerializer... }, ... ],
+              "connections": [ { ...BoardConnectionInlineSerializer... }, ... ],
+              "notes": [ { ...BoardNoteInlineSerializer... }, ... ],
+              "created_at": "...",
+              "updated_at": "..."
+            }
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        case:
+          type: integer
+        detective:
+          type: integer
+          readOnly: true
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/BoardItemInline'
+          readOnly: true
+        connections:
+          type: array
+          items:
+            $ref: '#/components/schemas/BoardConnectionInline'
+          readOnly: true
+        notes:
+          type: array
+          items:
+            $ref: '#/components/schemas/BoardNoteInline'
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - case
+      - connections
+      - created_at
+      - detective
+      - id
+      - items
+      - notes
+      - updated_at
+    GlobalSearchResponse:
+      type: object
+      description: |-
+        Top-level response serializer for ``GET /api/core/search/?q=...``.
+
+        Returns a unified, categorised JSON response containing matched
+        results across Cases, Suspects, and Evidence.  Each category is a
+        list that may be empty if no matches were found.
+
+        Query parameter:
+            ``q`` (str, required) — The search term (min 2 characters).
+
+        Optional query parameters:
+            ``category`` (str) — Restrict search to ``cases``, ``suspects``,
+                or ``evidence``.  Omit to search all categories.
+            ``limit`` (int) — Max results per category (default 10, max 50).
+
+        Response shape::
+
+            {
+                "query": "john",
+                "total_results": 15,
+                "cases": [...],
+                "suspects": [...],
+                "evidence": [...]
+            }
+      properties:
+        query:
+          type: string
+          description: The search term that was used.
+        total_results:
+          type: integer
+          description: Sum of results across all categories.
+        cases:
+          type: array
+          items:
+            $ref: '#/components/schemas/SearchCaseResult'
+          description: Case records matching the search query.
+        suspects:
+          type: array
+          items:
+            $ref: '#/components/schemas/SearchSuspectResult'
+          description: Suspect records matching the search query.
+        evidence:
+          type: array
+          items:
+            $ref: '#/components/schemas/SearchEvidenceResult'
+          description: Evidence records matching the search query.
+      required:
+      - cases
+      - evidence
+      - query
+      - suspects
+      - total_results
+    InterrogationCreate:
+      type: object
+      description: |-
+        Validates input for creating a new interrogation session.
+
+        The ``detective`` and ``sergeant`` are resolved from ``request.user``
+        and the case context by the service layer.  The ``case`` is
+        automatically derived from the suspect's linked case.
+
+        Fields
+        ------
+        - ``detective_guilt_score`` : int (1–10)
+        - ``sergeant_guilt_score``  : int (1–10)
+        - ``notes``                 : str (optional)
+
+        The ``suspect`` FK is injected by the view from the URL path
+        parameter (``/suspects/{suspect_id}/interrogations/``).
+
+        Example Request
+        ---------------
+        ::
+
+            POST /api/suspects/12/interrogations/
+            {
+                "detective_guilt_score": 8,
+                "sergeant_guilt_score": 7,
+                "notes": "Suspect showed signs of deception during questioning about alibi."
+            }
+      properties:
+        detective_guilt_score:
+          type: integer
+          maximum: 10
+          minimum: 1
+          description: Detective's assessment of suspect guilt (1=lowest, 10=highest).
+        sergeant_guilt_score:
+          type: integer
+          maximum: 10
+          minimum: 1
+          description: Sergeant's assessment of suspect guilt (1=lowest, 10=highest).
+        notes:
+          type: string
+          title: Interrogation Notes
+      required:
+      - detective_guilt_score
+      - sergeant_guilt_score
+    InterrogationDetail:
+      type: object
+      description: |-
+        Full detail serializer for a single interrogation session.
+
+        Includes all fields plus nested subject (suspect) info.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        suspect:
+          type: integer
+          readOnly: true
+        suspect_name:
+          type: string
+          nullable: true
+          description: Return the suspect's full name.
+          readOnly: true
+        case:
+          type: integer
+          readOnly: true
+        detective:
+          type: integer
+          readOnly: true
+        detective_name:
+          type: string
+          nullable: true
+          description: Return the detective's full name.
+          readOnly: true
+        sergeant:
+          type: integer
+          readOnly: true
+        sergeant_name:
+          type: string
+          nullable: true
+          description: Return the sergeant's full name.
+          readOnly: true
+        detective_guilt_score:
+          type: integer
+          readOnly: true
+          title: Detective's Guilt Score (1–10)
+        sergeant_guilt_score:
+          type: integer
+          readOnly: true
+          title: Sergeant's Guilt Score (1–10)
+        notes:
+          type: string
+          readOnly: true
+          title: Interrogation Notes
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - case
+      - created_at
+      - detective
+      - detective_guilt_score
+      - detective_name
+      - id
+      - notes
+      - sergeant
+      - sergeant_guilt_score
+      - sergeant_name
+      - suspect
+      - suspect_name
+      - updated_at
+    InterrogationInline:
+      type: object
+      description: |-
+        Compact inline serializer for interrogations nested inside
+        ``SuspectDetailSerializer``.  Shows key scores and officer info
+        without the full interrogation detail.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        detective:
+          type: integer
+          readOnly: true
+        detective_name:
+          type: string
+          nullable: true
+          description: Return the detective's full name.
+          readOnly: true
+        sergeant:
+          type: integer
+          readOnly: true
+        sergeant_name:
+          type: string
+          nullable: true
+          description: Return the sergeant's full name.
+          readOnly: true
+        detective_guilt_score:
+          type: integer
+          readOnly: true
+          title: Detective's Guilt Score (1–10)
+        sergeant_guilt_score:
+          type: integer
+          readOnly: true
+          title: Sergeant's Guilt Score (1–10)
+        notes:
+          type: string
+          readOnly: true
+          title: Interrogation Notes
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - detective
+      - detective_guilt_score
+      - detective_name
+      - id
+      - notes
+      - sergeant
+      - sergeant_guilt_score
+      - sergeant_name
+    InterrogationList:
+      type: object
+      description: |-
+        Compact representation for listing interrogation sessions.
+
+        Used in ``GET /api/suspects/{id}/interrogations/``.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        suspect:
+          type: integer
+          readOnly: true
+        case:
+          type: integer
+          readOnly: true
+        detective:
+          type: integer
+          readOnly: true
+        detective_name:
+          type: string
+          nullable: true
+          description: Return the detective's full name.
+          readOnly: true
+        sergeant:
+          type: integer
+          readOnly: true
+        sergeant_name:
+          type: string
+          nullable: true
+          description: Return the sergeant's full name.
+          readOnly: true
+        detective_guilt_score:
+          type: integer
+          readOnly: true
+          title: Detective's Guilt Score (1–10)
+        sergeant_guilt_score:
+          type: integer
+          readOnly: true
+          title: Sergeant's Guilt Score (1–10)
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - case
+      - created_at
+      - detective
+      - detective_guilt_score
+      - detective_name
+      - id
+      - sergeant
+      - sergeant_guilt_score
+      - sergeant_name
+      - suspect
+    LoginRequest:
+      type: object
+      description: |-
+        Accepts multi-field login credentials.
+
+        The client sends ``identifier`` (which may be a username,
+        national_id, phone_number, or email) together with ``password``.
+        The service layer resolves the user from the identifier.
+      properties:
+        identifier:
+          type: string
+          description: Username, National ID, Phone Number, or Email.
+        password:
+          type: string
+          writeOnly: true
+          description: User account password.
+      required:
+      - identifier
+      - password
+    Notification:
+      type: object
+      description: |-
+        Read-only serializer for ``Notification`` instances.
+
+        Used by the Notification ViewSet to list and retrieve notifications
+        for the authenticated user.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+          description: Notification PK.
+        title:
+          type: string
+          readOnly: true
+          description: Short notification title.
+        message:
+          type: string
+          readOnly: true
+          description: Full notification message body.
+        is_read:
+          type: boolean
+          readOnly: true
+          description: Whether the recipient has marked this notification as read.
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+          description: When the notification was created.
+        content_type:
+          type: string
+          readOnly: true
+          description: Related content type (if any).
+        object_id:
+          type: integer
+          readOnly: true
+          nullable: true
+          description: PK of the related object (if any).
+      required:
+      - content_type
+      - created_at
+      - id
+      - is_read
+      - message
+      - object_id
+      - title
+    PatchedBoardNoteCreateUpdate:
+      type: object
+      description: |-
+        Validates input for creating or updating a sticky note on the board.
+
+        ``board`` is resolved from the URL kwarg and injected by the service.
+        ``created_by`` defaults to ``request.user`` in the service — not
+        accepted from the client.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        title:
+          type: string
+          maxLength: 255
+        content:
+          type: string
+        created_by:
+          type: integer
+          readOnly: true
+    PatchedCaseUpdate:
+      type: object
+      description: |-
+        Validates partial updates to mutable case fields.
+
+        Only the fields explicitly listed here may be changed via PATCH.
+        ``status``, ``crime_level``, ``creation_type``, and all assigned-user
+        fields are immutable through this serializer — they are changed only
+        via dedicated workflow/assignment endpoints.
+      properties:
+        title:
+          type: string
+          title: Case Title
+          maxLength: 255
+        description:
+          type: string
+        incident_date:
+          type: string
+          format: date-time
+          nullable: true
+          title: Incident Date/Time
+        location:
+          type: string
+          title: Incident Location
+          maxLength: 500
+    PatchedDetectiveBoardCreateUpdate:
+      type: object
+      description: |-
+        Validates input for creating or updating a ``DetectiveBoard``.
+
+        ``detective`` defaults to ``request.user`` in the service layer and
+        should NOT be accepted from the client (set ``read_only=True``).
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        case:
+          type: integer
+        detective:
+          type: integer
+          readOnly: true
+    PatchedEvidenceUpdate:
+      type: object
+      description: |-
+        Validates partial updates to common evidence fields.
+
+        Only mutable metadata fields are accepted.  ``evidence_type``,
+        ``registered_by``, and ``case`` are immutable after creation.
+        Type-specific fields are handled by dedicated update serializers.
+      properties:
+        title:
+          type: string
+          maxLength: 255
+        description:
+          type: string
+    PatchedMeUpdate:
+      type: object
+      description: |-
+        Allows the authenticated user to update limited profile fields.
+        Sensitive fields (role, is_active, username) are read-only and
+        cannot be self-modified.
+      properties:
+        email:
+          type: string
+          format: email
+          title: Email Address
+          maxLength: 254
+        phone_number:
+          type: string
+          maxLength: 15
+        first_name:
+          type: string
+          maxLength: 150
+        last_name:
+          type: string
+          maxLength: 150
+    PatchedRoleDetail:
+      type: object
+      description: |-
+        Full serializer for Role CRUD including nested permission IDs.
+
+        ``permissions`` is a list of permission PKs (writable on
+        create / update) and resolves to full codename strings on read.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+          title: Role Name
+          maxLength: 100
+        description:
+          type: string
+        hierarchy_level:
+          type: integer
+          maximum: 32767
+          minimum: 0
+          description: Higher value = more authority (e.g. Chief=10, Cadet=1).
+        permissions:
+          type: array
+          items:
+            type: integer
+          description: Specific permissions for this role.
+        permissions_display:
+          type: array
+          items:
+            type: string
+          description: Flat list of 'app_label.codename' strings (read-only).
+          readOnly: true
+    PatchedSuspectUpdate:
+      type: object
+      description: |-
+        Validates partial updates to a suspect's profile fields.
+
+        Only mutable identity/description fields are accepted.
+        ``status``, ``case``, ``identified_by``, and approval fields are
+        managed through dedicated workflow endpoints, NOT through this
+        serializer.
+
+        Mutable Fields
+        --------------
+        - ``full_name``, ``national_id``, ``phone_number``, ``photo``,
+          ``address``, ``description``
+
+        Immutable Fields (excluded)
+        ---------------------------
+        - ``case``, ``status``, ``identified_by``, ``approved_by_sergeant``,
+          ``sergeant_approval_status``, ``wanted_since``, ``user``
+      properties:
+        full_name:
+          type: string
+          maxLength: 255
+        national_id:
+          type: string
+          maxLength: 10
+        phone_number:
+          type: string
+          maxLength: 15
+        photo:
+          type: string
+          format: uri
+          nullable: true
+        address:
+          type: string
+        description:
+          type: string
+          title: Additional Description
+    Permission:
+      type: object
+      description: |-
+        Serializer for listing all available Django permissions.
+        Used by admin UI when assigning permissions to roles.
+
+        Returns ``app_label.codename`` as a convenience field alongside
+        the raw PK so the admin can select permissions by human-readable
+        label but submit by ID.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+          readOnly: true
+        codename:
+          type: string
+          readOnly: true
+        full_codename:
+          type: string
+          description: '''app_label.codename'' string.'
+          readOnly: true
+      required:
+      - codename
+      - full_codename
+      - id
+      - name
+    RecentActivity:
+      type: object
+      description: |-
+        A single recent activity item for the dashboard feed.
+
+        Example::
+
+            {
+                "timestamp": "2025-06-15T10:30:00Z",
+                "type": "case_status_change",
+                "description": "Case #12 moved to Investigation",
+                "actor": "det.smith"
+            }
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+          description: When the activity occurred.
+        type:
+          type: string
+          description: Activity category, e.g. 'case_created', 'evidence_added', 'suspect_identified',
+            'case_status_change'.
+        description:
+          type: string
+          description: Human-readable description of the activity.
+        actor:
+          type: string
+          nullable: true
+          description: Username of the user who performed the action.
+      required:
+      - actor
+      - description
+      - timestamp
+      - type
+    RegisterRequest:
+      type: object
+      description: |-
+        Validates new-user registration data.
+
+        Required fields: username, password, email, phone_number,
+        first_name, last_name, national_id.
+
+        The ``password`` field is write-only and will be hashed by the
+        service layer before persisting.  The response after a successful
+        registration is handled by ``UserDetailSerializer``.
+      properties:
+        username:
+          type: string
+          description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
+            only.
+          pattern: ^[\w.@+-]+$
+          maxLength: 150
+        password:
+          type: string
+          writeOnly: true
+          description: Minimum 8 characters.
+          minLength: 8
+        password_confirm:
+          type: string
+          writeOnly: true
+          description: Must match 'password'.
+        email:
+          type: string
+          format: email
+          title: Email Address
+          maxLength: 254
+        phone_number:
+          type: string
+          maxLength: 15
+        first_name:
+          type: string
+          maxLength: 150
+        last_name:
+          type: string
+          maxLength: 150
+        national_id:
+          type: string
+          description: Unique 10-digit Iranian national identification number.
+          maxLength: 10
+      required:
+      - email
+      - first_name
+      - last_name
+      - national_id
+      - password
+      - password_confirm
+      - phone_number
+      - username
+    RoleDetail:
+      type: object
+      description: |-
+        Full serializer for Role CRUD including nested permission IDs.
+
+        ``permissions`` is a list of permission PKs (writable on
+        create / update) and resolves to full codename strings on read.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+          title: Role Name
+          maxLength: 100
+        description:
+          type: string
+        hierarchy_level:
+          type: integer
+          maximum: 32767
+          minimum: 0
+          description: Higher value = more authority (e.g. Chief=10, Cadet=1).
+        permissions:
+          type: array
+          items:
+            type: integer
+          description: Specific permissions for this role.
+        permissions_display:
+          type: array
+          items:
+            type: string
+          description: Flat list of 'app_label.codename' strings (read-only).
+          readOnly: true
+      required:
+      - id
+      - name
+      - permissions_display
+    RoleHierarchyItem:
+      type: object
+      description: |-
+        A single role with its hierarchy level for the frontend's
+        understanding of organisational structure.
+
+        Example::
+
+            {"id": 3, "name": "Captain", "hierarchy_level": 8}
+      properties:
+        id:
+          type: integer
+          description: Role PK.
+        name:
+          type: string
+          description: Role display name.
+        hierarchy_level:
+          type: integer
+          description: Authority level (higher = more authority).
+      required:
+      - hierarchy_level
+      - id
+      - name
+    RoleList:
+      type: object
+      description: Lightweight serializer for listing roles (no permissions detail).
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+          title: Role Name
+          maxLength: 100
+        description:
+          type: string
+        hierarchy_level:
+          type: integer
+          maximum: 32767
+          minimum: 0
+          description: Higher value = more authority (e.g. Chief=10, Cadet=1).
+      required:
+      - id
+      - name
+    SearchCaseResult:
+      type: object
+      description: |-
+        A single case hit from the global search.
+
+        Example::
+
+            {
+                "id": 7,
+                "title": "Downtown Heist",
+                "status": "investigation",
+                "crime_level": 2,
+                "crime_level_label": "Level 2 (Medium)",
+                "created_at": "2025-05-01T09:00:00Z"
+            }
+      properties:
+        id:
+          type: integer
+          description: Case PK.
+        title:
+          type: string
+          description: Case title.
+        status:
+          type: string
+          description: Current workflow status key.
+        crime_level:
+          type: integer
+          description: Crime level (1–4).
+        crime_level_label:
+          type: string
+          description: Human-readable crime level label.
+        created_at:
+          type: string
+          format: date-time
+          description: Case creation timestamp.
+      required:
+      - created_at
+      - crime_level
+      - crime_level_label
+      - id
+      - status
+      - title
+    SearchEvidenceResult:
+      type: object
+      description: |-
+        A single evidence hit from the global search.
+
+        Example::
+
+            {
+                "id": 88,
+                "title": "Fingerprint on glass",
+                "evidence_type": "biological",
+                "evidence_type_label": "Biological / Medical",
+                "case_id": 7,
+                "case_title": "Downtown Heist"
+            }
+      properties:
+        id:
+          type: integer
+          description: Evidence PK.
+        title:
+          type: string
+          description: Evidence title.
+        evidence_type:
+          type: string
+          description: Evidence type key.
+        evidence_type_label:
+          type: string
+          description: Human-readable evidence type label.
+        case_id:
+          type: integer
+          description: Related case PK.
+        case_title:
+          type: string
+          description: Related case title.
+      required:
+      - case_id
+      - case_title
+      - evidence_type
+      - evidence_type_label
+      - id
+      - title
+    SearchSuspectResult:
+      type: object
+      description: |-
+        A single suspect hit from the global search.
+
+        Example::
+
+            {
+                "id": 42,
+                "full_name": "John Doe",
+                "national_id": "1234567890",
+                "status": "wanted",
+                "case_id": 7,
+                "case_title": "Downtown Heist"
+            }
+      properties:
+        id:
+          type: integer
+          description: Suspect record PK.
+        full_name:
+          type: string
+          description: Suspect's full name.
+        national_id:
+          type: string
+          description: National ID.
+        status:
+          type: string
+          description: Current suspect status.
+        case_id:
+          type: integer
+          description: Related case PK.
+        case_title:
+          type: string
+          description: Related case title.
+      required:
+      - case_id
+      - case_title
+      - full_name
+      - id
+      - national_id
+      - status
+    SergeantApprovalStatusEnum:
+      enum:
+      - pending
+      - approved
+      - rejected
+      type: string
+      description: |-
+        * `pending` - Pending
+        * `approved` - Approved
+        * `rejected` - Rejected
+    Status334Enum:
+      enum:
+      - wanted
+      - arrested
+      - under_interrogation
+      - pending_captain_verdict
+      - pending_chief_approval
+      - under_trial
+      - convicted
+      - acquitted
+      - released
+      type: string
+      description: |-
+        * `wanted` - Wanted
+        * `arrested` - Arrested
+        * `under_interrogation` - Under Interrogation
+        * `pending_captain_verdict` - Pending Captain Verdict
+        * `pending_chief_approval` - Pending Chief Approval
+        * `under_trial` - Under Trial
+        * `convicted` - Convicted
+        * `acquitted` - Acquitted
+        * `released` - Released on Bail
+    StatusE62Enum:
+      enum:
+      - pending
+      - officer_reviewed
+      - verified
+      - rejected
+      type: string
+      description: |-
+        * `pending` - Pending Review
+        * `officer_reviewed` - Reviewed by Officer
+        * `verified` - Verified by Detective
+        * `rejected` - Rejected
+    StatusE94Enum:
+      enum:
+      - pending
+      - approved
+      - rejected
+      type: string
+      description: |-
+        * `pending` - Pending
+        * `approved` - Approved
+        * `rejected` - Rejected
+    SuspectCreate:
+      type: object
+      description: |-
+        Validates input for identifying/creating a new suspect in a case.
+
+        The ``identified_by`` (detective) is injected by the service layer
+        from ``request.user``, not accepted from the client.  The ``status``
+        defaults to ``WANTED`` and ``sergeant_approval_status`` defaults to
+        ``pending`` — both set by the service.
+
+        Required Fields
+        ---------------
+        - ``case``       : FK to the case this suspect is linked to
+        - ``full_name``  : suspect's full name
+
+        Optional Fields
+        ---------------
+        - ``national_id``, ``phone_number``, ``photo``, ``address``,
+          ``description``, ``user`` (link to system user if applicable)
+
+        Example Request
+        ---------------
+        ::
+
+            POST /api/suspects/
+            {
+                "case": 5,
+                "full_name": "Roy Earle",
+                "national_id": "1234567890",
+                "phone_number": "+1-213-555-0147",
+                "address": "742 S. Broadway, Los Angeles",
+                "description": "Tall, dark hair, scar on left cheek."
+            }
+      properties:
+        case:
+          type: integer
+        full_name:
+          type: string
+          maxLength: 255
+        national_id:
+          type: string
+          maxLength: 10
+        phone_number:
+          type: string
+          maxLength: 15
+        photo:
+          type: string
+          format: uri
+          nullable: true
+        address:
+          type: string
+        description:
+          type: string
+          title: Additional Description
+        user:
+          type: integer
+          nullable: true
+          title: Linked User Account
+      required:
+      - case
+      - full_name
+    SuspectDetail:
+      type: object
+      description: |-
+        Full detail serializer for a single suspect.
+
+        Nests related interrogations, trials, bail records, and computed
+        properties (most wanted score, reward amount, days wanted).  This
+        gives the detective/sergeant a comprehensive view of the suspect's
+        full profile and lifecycle within a single API call.
+
+        Nested Relations
+        ----------------
+        - ``interrogations`` — all interrogation sessions for this suspect
+        - ``trials``         — all trial records for this suspect
+        - ``bails``          — all bail records for this suspect
+        - ``bounty_tip_count`` — number of tips submitted about this suspect
+
+        Computed Fields
+        ---------------
+        - ``days_wanted``       — days since ``wanted_since``
+        - ``is_most_wanted``    — True if wanted > 30 days
+        - ``most_wanted_score`` — ranking score for Most Wanted page
+        - ``reward_amount``     — bounty reward in Rials
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        full_name:
+          type: string
+          readOnly: true
+        national_id:
+          type: string
+          readOnly: true
+        phone_number:
+          type: string
+          readOnly: true
+        photo:
+          type: string
+          format: uri
+          readOnly: true
+          nullable: true
+        address:
+          type: string
+          readOnly: true
+        description:
+          type: string
+          readOnly: true
+          title: Additional Description
+        status:
+          allOf:
+          - $ref: '#/components/schemas/Status334Enum'
+          readOnly: true
+        status_display:
+          type: string
+          readOnly: true
+        case:
+          type: integer
+          readOnly: true
+        case_title:
+          type: string
+          nullable: true
+          description: Return the linked case's title.
+          readOnly: true
+        user:
+          type: integer
+          readOnly: true
+          nullable: true
+          title: Linked User Account
+        wanted_since:
+          type: string
+          format: date-time
+          readOnly: true
+        days_wanted:
+          type: integer
+          readOnly: true
+        is_most_wanted:
+          type: boolean
+          readOnly: true
+        most_wanted_score:
+          type: integer
+          readOnly: true
+        reward_amount:
+          type: integer
+          readOnly: true
+        identified_by:
+          type: integer
+          readOnly: true
+          title: Identified By (Detective)
+        identified_by_name:
+          type: string
+          nullable: true
+          description: Return the identifying detective's full name.
+          readOnly: true
+        approved_by_sergeant:
+          type: integer
+          readOnly: true
+          nullable: true
+          title: Approved By (Sergeant)
+        approved_by_name:
+          type: string
+          nullable: true
+          description: |-
+            Return the approving sergeant's full name, or ``None`` if not
+            yet approved.
+          readOnly: true
+        sergeant_approval_status:
+          allOf:
+          - $ref: '#/components/schemas/SergeantApprovalStatusEnum'
+          readOnly: true
+          title: Sergeant Approval
+        sergeant_rejection_message:
+          type: string
+          readOnly: true
+        interrogations:
+          type: array
+          items:
+            $ref: '#/components/schemas/InterrogationInline'
+          readOnly: true
+        trials:
+          type: array
+          items:
+            $ref: '#/components/schemas/TrialInline'
+          readOnly: true
+        bails:
+          type: array
+          items:
+            $ref: '#/components/schemas/BailInline'
+          readOnly: true
+        bounty_tip_count:
+          type: integer
+          description: Return the number of bounty tips submitted about this suspect.
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - address
+      - approved_by_name
+      - approved_by_sergeant
+      - bails
+      - bounty_tip_count
+      - case
+      - case_title
+      - created_at
+      - days_wanted
+      - description
+      - full_name
+      - id
+      - identified_by
+      - identified_by_name
+      - interrogations
+      - is_most_wanted
+      - most_wanted_score
+      - national_id
+      - phone_number
+      - photo
+      - reward_amount
+      - sergeant_approval_status
+      - sergeant_rejection_message
+      - status
+      - status_display
+      - trials
+      - updated_at
+      - user
+      - wanted_since
+    SuspectList:
+      type: object
+      description: |-
+        Compact representation for the suspect list endpoint.
+
+        Excludes heavy nested data (interrogations, warrants, trials) to
+        keep list-page payloads small.  Includes display labels, case info,
+        and identification metadata.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        full_name:
+          type: string
+          readOnly: true
+        national_id:
+          type: string
+          readOnly: true
+        phone_number:
+          type: string
+          readOnly: true
+        photo:
+          type: string
+          format: uri
+          readOnly: true
+          nullable: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/Status334Enum'
+          readOnly: true
+        status_display:
+          type: string
+          readOnly: true
+        case:
+          type: integer
+          readOnly: true
+        case_title:
+          type: string
+          nullable: true
+          description: |-
+            Return the linked case's title for display purposes.
+
+            Implementation Contract
+            -----------------------
+            Return ``obj.case.title`` if the case FK is loaded.
+          readOnly: true
+        wanted_since:
+          type: string
+          format: date-time
+          readOnly: true
+        days_wanted:
+          type: integer
+          readOnly: true
+        is_most_wanted:
+          type: boolean
+          readOnly: true
+        identified_by:
+          type: integer
+          readOnly: true
+          title: Identified By (Detective)
+        identified_by_name:
+          type: string
+          nullable: true
+          description: |-
+            Return the identifying detective's full name.
+
+            Implementation Contract
+            -----------------------
+            Return ``obj.identified_by.get_full_name()`` or ``None``.
+          readOnly: true
+        sergeant_approval_status:
+          allOf:
+          - $ref: '#/components/schemas/SergeantApprovalStatusEnum'
+          readOnly: true
+          title: Sergeant Approval
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - case
+      - case_title
+      - created_at
+      - days_wanted
+      - full_name
+      - id
+      - identified_by
+      - identified_by_name
+      - is_most_wanted
+      - national_id
+      - phone_number
+      - photo
+      - sergeant_approval_status
+      - status
+      - status_display
+      - updated_at
+      - wanted_since
+    SystemConstants:
+      type: object
+      description: |-
+        Top-level response serializer for ``GET /api/core/constants/``.
+
+        Provides all system-wide choice enumerations so the frontend can
+        dynamically build dropdowns, filters, and labels **without**
+        hardcoding values.
+
+        Response shape::
+
+            {
+                "crime_levels": [
+                    {"value": "1", "label": "Level 3 (Minor)"},
+                    ...
+                ],
+                "case_statuses": [...],
+                "case_creation_types": [...],
+                "evidence_types": [...],
+                "evidence_file_types": [...],
+                "suspect_statuses": [...],
+                "verdict_choices": [...],
+                "bounty_tip_statuses": [...],
+                "complainant_statuses": [...],
+                "role_hierarchy": [
+                    {"id": 1, "name": "Police Chief", "hierarchy_level": 10},
+                    ...
+                ]
+            }
+      properties:
+        crime_levels:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChoiceItem'
+          description: Available crime severity levels (CrimeLevel enum).
+        case_statuses:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChoiceItem'
+          description: All possible case workflow statuses (CaseStatus enum).
+        case_creation_types:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChoiceItem'
+          description: How a case can be created (complaint vs crime-scene).
+        evidence_types:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChoiceItem'
+          description: Evidence type discriminator choices (EvidenceType enum).
+        evidence_file_types:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChoiceItem'
+          description: Allowed file media types for evidence attachments.
+        suspect_statuses:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChoiceItem'
+          description: Suspect lifecycle statuses (SuspectStatus enum).
+        verdict_choices:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChoiceItem'
+          description: Judge verdict options (Guilty / Innocent).
+        bounty_tip_statuses:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChoiceItem'
+          description: Bounty tip review pipeline statuses.
+        complainant_statuses:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChoiceItem'
+          description: Approval statuses for case complainants.
+        role_hierarchy:
+          type: array
+          items:
+            $ref: '#/components/schemas/RoleHierarchyItem'
+          description: All roles with their hierarchy levels, ordered by authority.
+      required:
+      - bounty_tip_statuses
+      - case_creation_types
+      - case_statuses
+      - complainant_statuses
+      - crime_levels
+      - evidence_file_types
+      - evidence_types
+      - role_hierarchy
+      - suspect_statuses
+      - verdict_choices
+    ToStatusEnum:
+      enum:
+      - complaint_registered
+      - cadet_review
+      - returned_to_complainant
+      - officer_review
+      - returned_to_cadet
+      - voided
+      - pending_approval
+      - open
+      - investigation
+      - suspect_identified
+      - sergeant_review
+      - arrest_ordered
+      - interrogation
+      - captain_review
+      - chief_review
+      - judiciary
+      - closed
+      type: string
+      description: |-
+        * `complaint_registered` - Complaint Registered
+        * `cadet_review` - Under Cadet Review
+        * `returned_to_complainant` - Returned to Complainant
+        * `officer_review` - Under Officer Review
+        * `returned_to_cadet` - Returned to Cadet
+        * `voided` - Voided
+        * `pending_approval` - Pending Superior Approval
+        * `open` - Open
+        * `investigation` - Under Investigation
+        * `suspect_identified` - Suspect Identified
+        * `sergeant_review` - Under Sergeant Review
+        * `arrest_ordered` - Arrest Ordered
+        * `interrogation` - Under Interrogation
+        * `captain_review` - Under Captain Review
+        * `chief_review` - Under Chief Review
+        * `judiciary` - Referred to Judiciary
+        * `closed` - Closed
+    TokenRefresh:
+      type: object
+      properties:
+        access:
+          type: string
+          readOnly: true
+        refresh:
+          type: string
+      required:
+      - access
+      - refresh
+    TokenResponse:
+      type: object
+      description: Serializes the JWT token pair returned after successful login.
+      properties:
+        access:
+          type: string
+          readOnly: true
+        refresh:
+          type: string
+          readOnly: true
+        user:
+          type: object
+          additionalProperties: {}
+          description: |-
+            Nest minimal user info alongside tokens.
+
+            Future implementation MUST return the user representation
+            using ``UserDetailSerializer``.
+          readOnly: true
+      required:
+      - access
+      - refresh
+      - user
+    TopWantedSuspect:
+      type: object
+      description: |-
+        Abbreviated suspect info for the dashboard's "Top Wanted" widget.
+
+        Example::
+
+            {
+                "id": 42,
+                "full_name": "John Doe",
+                "national_id": "1234567890",
+                "photo_url": "/media/suspect_photos/2025/01/john.jpg",
+                "most_wanted_score": 120,
+                "reward_amount": 1200000000,
+                "days_wanted": 45,
+                "case_id": 7,
+                "case_title": "Downtown Heist"
+            }
+      properties:
+        id:
+          type: integer
+          description: Suspect record PK.
+        full_name:
+          type: string
+          description: Suspect's full name.
+        national_id:
+          type: string
+          description: National ID (used for cross-case grouping).
+        photo_url:
+          type: string
+          nullable: true
+          description: Absolute or relative URL to suspect photo.
+        most_wanted_score:
+          type: integer
+          description: 'Ranking score: max(days_wanted) × max(crime_degree).'
+        reward_amount:
+          type: integer
+          description: Bounty reward in Rials.
+        days_wanted:
+          type: integer
+          description: Number of days the suspect has been wanted.
+        case_id:
+          type: integer
+          description: Primary case PK.
+        case_title:
+          type: string
+          description: Primary case title.
+      required:
+      - case_id
+      - case_title
+      - days_wanted
+      - full_name
+      - id
+      - most_wanted_score
+      - national_id
+      - photo_url
+      - reward_amount
+    TrialCreate:
+      type: object
+      description: |-
+        Validates input for creating a trial record.
+
+        The ``judge`` is injected from ``request.user`` by the service layer.
+        The ``suspect`` and ``case`` are resolved from the URL path.
+
+        Fields
+        ------
+        - ``verdict``               : str ("guilty" or "innocent")
+        - ``punishment_title``      : str (required if guilty)
+        - ``punishment_description``: str (required if guilty)
+
+        Validation
+        ----------
+        If ``verdict == "guilty"``, both ``punishment_title`` and
+        ``punishment_description`` must be provided.
+
+        Example Request
+        ---------------
+        ::
+
+            POST /api/suspects/12/trials/
+            {
+                "verdict": "guilty",
+                "punishment_title": "First Degree Murder",
+                "punishment_description": "25 years imprisonment without parole."
+            }
+      properties:
+        verdict:
+          $ref: '#/components/schemas/VerdictEnum'
+        punishment_title:
+          type: string
+          maxLength: 255
+        punishment_description:
+          type: string
+      required:
+      - verdict
+    TrialDetail:
+      type: object
+      description: Full detail serializer for a single trial record.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        suspect:
+          type: integer
+          readOnly: true
+        suspect_name:
+          type: string
+          nullable: true
+          description: Return the suspect's full name.
+          readOnly: true
+        case:
+          type: integer
+          readOnly: true
+        judge:
+          type: integer
+          readOnly: true
+        judge_name:
+          type: string
+          nullable: true
+          description: Return the judge's full name.
+          readOnly: true
+        verdict:
+          allOf:
+          - $ref: '#/components/schemas/VerdictEnum'
+          readOnly: true
+        verdict_display:
+          type: string
+          readOnly: true
+        punishment_title:
+          type: string
+          readOnly: true
+        punishment_description:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - case
+      - created_at
+      - id
+      - judge
+      - judge_name
+      - punishment_description
+      - punishment_title
+      - suspect
+      - suspect_name
+      - updated_at
+      - verdict
+      - verdict_display
+    TrialInline:
+      type: object
+      description: |-
+        Compact inline serializer for trials nested inside
+        ``SuspectDetailSerializer``.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        judge:
+          type: integer
+          readOnly: true
+        judge_name:
+          type: string
+          nullable: true
+          description: Return the judge's full name.
+          readOnly: true
+        verdict:
+          allOf:
+          - $ref: '#/components/schemas/VerdictEnum'
+          readOnly: true
+        verdict_display:
+          type: string
+          readOnly: true
+        punishment_title:
+          type: string
+          readOnly: true
+        punishment_description:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - id
+      - judge
+      - judge_name
+      - punishment_description
+      - punishment_title
+      - verdict
+      - verdict_display
+    TrialList:
+      type: object
+      description: |-
+        Compact representation for listing trials.
+
+        Used in ``GET /api/suspects/{id}/trials/``.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        suspect:
+          type: integer
+          readOnly: true
+        case:
+          type: integer
+          readOnly: true
+        judge:
+          type: integer
+          readOnly: true
+        judge_name:
+          type: string
+          nullable: true
+          description: Return the judge's full name.
+          readOnly: true
+        verdict:
+          allOf:
+          - $ref: '#/components/schemas/VerdictEnum'
+          readOnly: true
+        verdict_display:
+          type: string
+          readOnly: true
+        punishment_title:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - case
+      - created_at
+      - id
+      - judge
+      - judge_name
+      - punishment_title
+      - suspect
+      - verdict
+      - verdict_display
+    UserDetail:
+      type: object
+      description: |-
+        Full user representation (used in retrieve, me, and registration
+        response).  Includes the nested role object and a flat permissions
+        list consumed by the Next.js frontend to conditionally render UI
+        components.
+
+        ``permissions`` is a read-only flat list such as:
+            ['cases.view_case', 'evidence.add_evidence', ...]
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        username:
+          type: string
+          readOnly: true
+          description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
+            only.
+        email:
+          type: string
+          format: email
+          title: Email Address
+          maxLength: 254
+        national_id:
+          type: string
+          description: Unique 10-digit Iranian national identification number.
+          maxLength: 10
+        phone_number:
+          type: string
+          maxLength: 15
+        first_name:
+          type: string
+          maxLength: 150
+        last_name:
+          type: string
+          maxLength: 150
+        is_active:
+          type: boolean
+          readOnly: true
+          title: Active
+          description: Designates whether this user should be treated as active. Unselect
+            this instead of deleting accounts.
+        date_joined:
+          type: string
+          format: date-time
+          readOnly: true
+        role:
+          type: integer
+          readOnly: true
+          nullable: true
+          title: Assigned Role
+        role_detail:
+          allOf:
+          - $ref: '#/components/schemas/RoleList'
+          readOnly: true
+        permissions:
+          type: array
+          items:
+            type: string
+          readOnly: true
+          description: Flat list of 'app_label.codename' permission strings.
+      required:
+      - date_joined
+      - email
+      - id
+      - is_active
+      - national_id
+      - permissions
+      - phone_number
+      - role
+      - role_detail
+      - username
+    UserList:
+      type: object
+      description: |-
+        Serializer for listing users (admin views).
+        Includes role name and hierarchy level for quick scanning.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        username:
+          type: string
+          readOnly: true
+          description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
+            only.
+        email:
+          type: string
+          format: email
+          readOnly: true
+          title: Email Address
+        national_id:
+          type: string
+          readOnly: true
+          description: Unique 10-digit Iranian national identification number.
+        phone_number:
+          type: string
+          readOnly: true
+        first_name:
+          type: string
+          readOnly: true
+        last_name:
+          type: string
+          readOnly: true
+        is_active:
+          type: boolean
+          readOnly: true
+          title: Active
+          description: Designates whether this user should be treated as active. Unselect
+            this instead of deleting accounts.
+        role:
+          type: integer
+          readOnly: true
+          nullable: true
+          title: Assigned Role
+        role_name:
+          type: string
+          readOnly: true
+        hierarchy_level:
+          type: integer
+          readOnly: true
+          default: 0
+      required:
+      - email
+      - first_name
+      - hierarchy_level
+      - id
+      - is_active
+      - last_name
+      - national_id
+      - phone_number
+      - role
+      - role_name
+      - username
+    VerdictEnum:
+      enum:
+      - guilty
+      - innocent
+      type: string
+      description: |-
+        * `guilty` - Guilty
+        * `innocent` - Innocent
+    _ReportCalculations:
+      type: object
+      description: Computed values for the case.
+      properties:
+        crime_level_degree:
+          type: integer
+          readOnly: true
+        days_since_creation:
+          type: integer
+          readOnly: true
+        tracking_threshold:
+          type: integer
+          readOnly: true
+        reward_rials:
+          type: integer
+          readOnly: true
+      required:
+      - crime_level_degree
+      - days_since_creation
+      - reward_rials
+      - tracking_threshold
+    _ReportCase:
+      type: object
+      description: Top-level case fields within the report.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        title:
+          type: string
+          readOnly: true
+        description:
+          type: string
+          readOnly: true
+        crime_level:
+          type: integer
+          readOnly: true
+        crime_level_display:
+          type: string
+          readOnly: true
+        status:
+          type: string
+          readOnly: true
+        status_display:
+          type: string
+          readOnly: true
+        creation_type:
+          type: string
+          readOnly: true
+        rejection_count:
+          type: integer
+          readOnly: true
+        incident_date:
+          type: string
+          readOnly: true
+          nullable: true
+        location:
+          type: string
+          readOnly: true
+          nullable: true
+        created_at:
+          type: string
+          readOnly: true
+          nullable: true
+        updated_at:
+          type: string
+          readOnly: true
+          nullable: true
+      required:
+      - created_at
+      - creation_type
+      - crime_level
+      - crime_level_display
+      - description
+      - id
+      - incident_date
+      - location
+      - rejection_count
+      - status
+      - status_display
+      - title
+      - updated_at
+    _ReportComplainant:
+      type: object
+      description: Single complainant within the report.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        user:
+          allOf:
+          - $ref: '#/components/schemas/_UserSummary'
+          readOnly: true
+          nullable: true
+        is_primary:
+          type: boolean
+          readOnly: true
+        status:
+          type: string
+          readOnly: true
+        reviewed_by:
+          allOf:
+          - $ref: '#/components/schemas/_UserSummary'
+          readOnly: true
+          nullable: true
+      required:
+      - id
+      - is_primary
+      - reviewed_by
+      - status
+      - user
+    _ReportEvidence:
+      type: object
+      description: Evidence metadata entry within the report.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        evidence_type:
+          type: string
+          readOnly: true
+        title:
+          type: string
+          readOnly: true
+        description:
+          type: string
+          readOnly: true
+          nullable: true
+        registered_by:
+          allOf:
+          - $ref: '#/components/schemas/_UserSummary'
+          readOnly: true
+          nullable: true
+        created_at:
+          type: string
+          readOnly: true
+          nullable: true
+      required:
+      - created_at
+      - description
+      - evidence_type
+      - id
+      - registered_by
+      - title
+    _ReportInterrogation:
+      type: object
+      description: Interrogation summary nested under a suspect.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        detective:
+          allOf:
+          - $ref: '#/components/schemas/_UserSummary'
+          readOnly: true
+          nullable: true
+        sergeant:
+          allOf:
+          - $ref: '#/components/schemas/_UserSummary'
+          readOnly: true
+          nullable: true
+        detective_guilt_score:
+          type: integer
+          readOnly: true
+          nullable: true
+        sergeant_guilt_score:
+          type: integer
+          readOnly: true
+          nullable: true
+        notes:
+          type: string
+          readOnly: true
+          nullable: true
+        created_at:
+          type: string
+          readOnly: true
+          nullable: true
+      required:
+      - created_at
+      - detective
+      - detective_guilt_score
+      - id
+      - notes
+      - sergeant
+      - sergeant_guilt_score
+    _ReportPersonnel:
+      type: object
+      description: Personnel assignments block.
+      properties:
+        created_by:
+          allOf:
+          - $ref: '#/components/schemas/_UserSummary'
+          readOnly: true
+          nullable: true
+        approved_by:
+          allOf:
+          - $ref: '#/components/schemas/_UserSummary'
+          readOnly: true
+          nullable: true
+        assigned_detective:
+          allOf:
+          - $ref: '#/components/schemas/_UserSummary'
+          readOnly: true
+          nullable: true
+        assigned_sergeant:
+          allOf:
+          - $ref: '#/components/schemas/_UserSummary'
+          readOnly: true
+          nullable: true
+        assigned_captain:
+          allOf:
+          - $ref: '#/components/schemas/_UserSummary'
+          readOnly: true
+          nullable: true
+        assigned_judge:
+          allOf:
+          - $ref: '#/components/schemas/_UserSummary'
+          readOnly: true
+          nullable: true
+      required:
+      - approved_by
+      - assigned_captain
+      - assigned_detective
+      - assigned_judge
+      - assigned_sergeant
+      - created_by
+    _ReportStatusLog:
+      type: object
+      description: Single status-history entry.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        from_status:
+          type: string
+          readOnly: true
+          nullable: true
+        to_status:
+          type: string
+          readOnly: true
+        changed_by:
+          allOf:
+          - $ref: '#/components/schemas/_UserSummary'
+          readOnly: true
+          nullable: true
+        message:
+          type: string
+          readOnly: true
+          nullable: true
+        created_at:
+          type: string
+          readOnly: true
+          nullable: true
+      required:
+      - changed_by
+      - created_at
+      - from_status
+      - id
+      - message
+      - to_status
+    _ReportSuspect:
+      type: object
+      description: Full suspect block with interrogation & trial sub-lists.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        full_name:
+          type: string
+          readOnly: true
+        national_id:
+          type: string
+          readOnly: true
+          nullable: true
+        status:
+          type: string
+          readOnly: true
+        status_display:
+          type: string
+          readOnly: true
+        wanted_since:
+          type: string
+          readOnly: true
+          nullable: true
+        days_wanted:
+          type: integer
+          readOnly: true
+          nullable: true
+        identified_by:
+          allOf:
+          - $ref: '#/components/schemas/_UserSummary'
+          readOnly: true
+          nullable: true
+        sergeant_approval_status:
+          type: string
+          readOnly: true
+          nullable: true
+        approved_by_sergeant:
+          allOf:
+          - $ref: '#/components/schemas/_UserSummary'
+          readOnly: true
+          nullable: true
+        sergeant_rejection_message:
+          type: string
+          readOnly: true
+          nullable: true
+        interrogations:
+          type: array
+          items:
+            $ref: '#/components/schemas/_ReportInterrogation'
+          readOnly: true
+        trials:
+          type: array
+          items:
+            $ref: '#/components/schemas/_ReportTrial'
+          readOnly: true
+      required:
+      - approved_by_sergeant
+      - days_wanted
+      - full_name
+      - id
+      - identified_by
+      - interrogations
+      - national_id
+      - sergeant_approval_status
+      - sergeant_rejection_message
+      - status
+      - status_display
+      - trials
+      - wanted_since
+    _ReportTrial:
+      type: object
+      description: Trial summary nested under a suspect.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        judge:
+          allOf:
+          - $ref: '#/components/schemas/_UserSummary'
+          readOnly: true
+          nullable: true
+        verdict:
+          type: string
+          readOnly: true
+        punishment_title:
+          type: string
+          readOnly: true
+          nullable: true
+        punishment_description:
+          type: string
+          readOnly: true
+          nullable: true
+        created_at:
+          type: string
+          readOnly: true
+          nullable: true
+      required:
+      - created_at
+      - id
+      - judge
+      - punishment_description
+      - punishment_title
+      - verdict
+    _ReportWitness:
+      type: object
+      description: Single witness within the report.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        full_name:
+          type: string
+          readOnly: true
+        phone_number:
+          type: string
+          readOnly: true
+          nullable: true
+        national_id:
+          type: string
+          readOnly: true
+          nullable: true
+      required:
+      - full_name
+      - id
+      - national_id
+      - phone_number
+    _UserSummary:
+      type: object
+      description: Compact user representation used across report sub-sections.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        full_name:
+          type: string
+          readOnly: true
+        role:
+          type: string
+          readOnly: true
+          nullable: true
+      required:
+      - full_name
+      - id
+      - role
+  securitySchemes:
+    jwtAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
