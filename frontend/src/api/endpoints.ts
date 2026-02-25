@@ -46,5 +46,6 @@ export const API = {
   // Core
   DASHBOARD_STATS: "/core/dashboard/",
   SYSTEM_CONSTANTS: "/core/constants/",
+  GLOBAL_SEARCH: "/core/search/",
   NOTIFICATIONS: "/core/notifications/",
 } as const;

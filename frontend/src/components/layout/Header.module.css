@@ -4,7 +4,7 @@
   z-index: 100;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: var(--space-md);
   height: var(--header-height);
   padding: 0 var(--space-lg);
   background-color: var(--color-surface);
@@ -35,6 +35,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-md);
+  margin-left: auto;
 }
 
 .navLink {

@@ -36,26 +36,44 @@ export interface DashboardStats {
 }
 
 // ---------------------------------------------------------------------------
-// Search
+// Search (from GET /api/core/search/?q=...)
 // ---------------------------------------------------------------------------
 
-export interface SearchRequest {
-  q: string;
-  type?: "cases" | "suspects" | "evidence" | "users";
-}
+export type SearchCategory = "cases" | "suspects" | "evidence";
 
-export interface SearchResultItem {
+export interface SearchCaseResult {
   id: number;
-  type: string;
   title: string;
-  description: string;
-  url: string;
+  status: string;
+  crime_level: number;
+  crime_level_label: string;
+  created_at: string;
 }
 
-export interface SearchResponse {
+export interface SearchSuspectResult {
+  id: number;
+  full_name: string;
+  national_id: string;
+  status: string;
+  case_id: number;
+  case_title: string;
+}
+
+export interface SearchEvidenceResult {
+  id: number;
+  title: string;
+  evidence_type: string;
+  evidence_type_label: string;
+  case_id: number;
+  case_title: string;
+}
+
+export interface GlobalSearchResponse {
   query: string;
-  results: SearchResultItem[];
-  count: number;
+  total_results: number;
+  cases: SearchCaseResult[];
+  suspects: SearchSuspectResult[];
+  evidence: SearchEvidenceResult[];
 }
 
 // ---------------------------------------------------------------------------

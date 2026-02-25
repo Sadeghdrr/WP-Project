@@ -17,3 +17,5 @@ export {
 export type { ApiResponse, ApiError } from "./client";
 export { API } from "./endpoints";
 export { loginApi, registerApi, refreshTokenApi, fetchMeApi } from "./auth";
+export { globalSearchApi } from "./search";
+export type { SearchParams } from "./search";
