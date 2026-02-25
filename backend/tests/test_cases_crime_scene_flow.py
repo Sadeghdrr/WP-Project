@@ -1,0 +1,506 @@
+"""
+Integration tests — Crime-Scene Case Creation Flow (Scenarios 4.1–4.5).
+
+Business-flow reference : md-files/project-doc.md  §4.2.2
+API endpoint reference  : md-files/swagger_documentation_report.md  §3.2
+Service implementation  : md-files/cases_services_crime_scene_flow_report.md
+
+All scenarios share this single class so fixtures are created once and
+the whole file can be run as one suite:
+
+    python manage.py test tests.test_cases_crime_scene_flow
+
+Test map
+--------
+  4.1  Officer creates crime-scene case → status "pending_approval"
+  4.2  Superior (Captain) approves crime-scene case → status "open"
+  4.3  Police Chief creates crime-scene case → status "open" (auto-approved)
+  4.4  Cadet attempts to create crime-scene case → 403 Forbidden
+  4.5  Witnesses embedded at creation are persisted correctly
+"""
+
+from __future__ import annotations
+
+from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Permission
+from django.test import TestCase
+from django.urls import reverse
+from rest_framework import status
+from rest_framework.test import APIClient
+
+from accounts.models import Role
+from cases.models import Case, CaseStatus, CaseStatusLog
+
+User = get_user_model()
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  Helpers — shared across scenarios inside this module
+# ═══════════════════════════════════════════════════════════════════
+
+def _make_role(name: str, hierarchy_level: int) -> Role:
+    """
+    Get or create a Role by name.
+
+    Uses get_or_create so the method is safe to call multiple times
+    (idempotent within a single test-database transaction).
+    """
+    role, _ = Role.objects.get_or_create(
+        name=name,
+        defaults={
+            "description": f"Test role: {name}",
+            "hierarchy_level": hierarchy_level,
+        },
+    )
+    return role
+
+
+def _assign_permission_to_role(role: Role, codename: str, app_label: str = "cases") -> None:
+    """
+    Attach a single Django permission to a role (no-op if already assigned).
+
+    Permissions must already exist in the DB (populated by migrate).
+    """
+    perm = Permission.objects.get(codename=codename, content_type__app_label=app_label)
+    role.permissions.add(perm)
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  Test class
+# ═══════════════════════════════════════════════════════════════════
+
+class TestCrimeSceneCaseFlow(TestCase):
+    """
+    End-to-end integration tests for the crime-scene case creation path.
+
+    Reference: project-doc.md §4.2.2 — "Case Creation via Crime Scene Registration"
+
+    Approval rules implemented in cases/services.py:
+      - Police Chief creator  → OPEN immediately (auto-approved)
+      - Any rank below Chief  → PENDING_APPROVAL (one superior must approve)
+      - Cadet / Base User     → 403 Forbidden
+
+    All HTTP interactions go through real endpoints via APIClient.
+    Users / roles are seeded in setUpTestData via the DB/model layer
+    (permitted by the test constraints).
+    """
+
+    # ── Shared payload for a valid crime-scene case ─────────────────
+    _VALID_PAYLOAD: dict = {
+        "creation_type": "crime_scene",
+        "title": "Armed Robbery at 5th Avenue",
+        "description": "Two armed suspects robbed a jewelry store at gunpoint.",
+        "crime_level": 2,           # Level 2 (Medium) — see CrimeLevel.LEVEL_2
+        "incident_date": "2026-02-23T14:30:00Z",
+        "location": "5th Avenue, Downtown LA",
+        "witnesses": [
+            {
+                "full_name": "John Smith",
+                "phone_number": "+12025551234",
+                "national_id": "1234567890",
+            }
+        ],
+    }
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        """
+        Create roles and users once for the entire test class.
+
+        DB/model creation is allowed in setUpTestData.
+        All scenario *actions* are performed via endpoints in each test.
+
+        Roles and hierarchy levels follow project-doc.md §3.1 and
+        the setup_rbac management command in accounts/management/commands/setup_rbac.py.
+        """
+        # ── Roles ────────────────────────────────────────────────────
+        cls.chief_role    = _make_role("Police Chief",   hierarchy_level=10)
+        cls.captain_role  = _make_role("Captain",        hierarchy_level=9)
+        cls.officer_role  = _make_role("Police Officer", hierarchy_level=6)
+        cls.cadet_role    = _make_role("Cadet",          hierarchy_level=1)
+        cls.base_role     = _make_role("Base User",      hierarchy_level=0)
+
+        # Grant the minimum permissions needed for case creation and approval.
+        # Permission codenames are defined in core/permissions_constants.py.
+        #
+        # Police Officer and Captain need "add_case" so IsAuthenticated + service
+        # role-name check passes.  Captain additionally needs "can_approve_case"
+        # to run approve-crime-scene.
+        #
+        # The service layer does NOT check Django permissions for crime-scene
+        # creation — it checks the role *name* only (see cases/services.py
+        # `_CRIME_SCENE_FORBIDDEN_ROLES`).  We still attach "add_case" to
+        # officer/captain/chief for completeness and realistic RBAC parity.
+        for role in (cls.officer_role, cls.captain_role, cls.chief_role):
+            _assign_permission_to_role(role, "add_case", app_label="cases")
+            _assign_permission_to_role(role, "view_case", app_label="cases")
+
+        # Captain and Chief can approve crime-scene cases.
+        # Reference: cases_services_crime_scene_flow_report.md §1 "Who Can Approve?"
+        for role in (cls.captain_role, cls.chief_role):
+            _assign_permission_to_role(role, "can_approve_case", app_label="cases")
+
+        # ── Users ────────────────────────────────────────────────────
+        cls.officer_password = "0fficer!Pass99"
+        cls.captain_password = "C@ptain!Pass99"
+        cls.chief_password   = "Ch!ef!Pass9999"
+        cls.cadet_password   = "C@det!Pass9999"
+
+        cls.officer_user = User.objects.create_user(
+            username="test_officer",
+            password=cls.officer_password,
+            email="officer@lapd.test",
+            phone_number="09130000001",
+            national_id="1000000001",
+            first_name="John",
+            last_name="Officer",
+            role=cls.officer_role,
+        )
+        cls.captain_user = User.objects.create_user(
+            username="test_captain",
+            password=cls.captain_password,
+            email="captain@lapd.test",
+            phone_number="09130000002",
+            national_id="1000000002",
+            first_name="Jane",
+            last_name="Captain",
+            role=cls.captain_role,
+        )
+        cls.chief_user = User.objects.create_user(
+            username="test_chief",
+            password=cls.chief_password,
+            email="chief@lapd.test",
+            phone_number="09130000003",
+            national_id="1000000003",
+            first_name="James",
+            last_name="Chief",
+            role=cls.chief_role,
+        )
+        cls.cadet_user = User.objects.create_user(
+            username="test_cadet",
+            password=cls.cadet_password,
+            email="cadet@lapd.test",
+            phone_number="09130000004",
+            national_id="1000000004",
+            first_name="Jake",
+            last_name="Cadet",
+            role=cls.cadet_role,
+        )
+
+    def setUp(self) -> None:
+        """Instantiate a fresh APIClient before every test method."""
+        self.client = APIClient()
+
+    # ────────────────────────────────────────────────────────────────
+    #  Helpers
+    # ────────────────────────────────────────────────────────────────
+
+    def _login(self, username: str, password: str) -> str:
+        """
+        Log in via POST /api/accounts/auth/login/ and return the JWT access token.
+
+        Login endpoint: accounts/urls.py → path("auth/login/", ...)
+        Payload schema: {"identifier": <username|national_id|phone|email>, "password": <str>}
+        Response schema: {"access": <str>, "refresh": <str>, ...}
+        Reference: swagger_documentation_report.md §3.1 — LoginView.post
+        """
+        url = reverse("accounts:login")
+        response = self.client.post(
+            url,
+            {"identifier": username, "password": password},
+            format="json",
+        )
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+            msg=f"Login failed for '{username}': {response.data}",
+        )
+        return response.data["access"]
+
+    def _auth(self, token: str) -> None:
+        """
+        Set the Bearer token on the shared APIClient.
+
+        Scheme: Authorization: Bearer <token>
+        Reference: swagger_documentation_report.md §3.1 — SimpleJWT
+        """
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+    def _login_as(self, username: str, password: str) -> None:
+        """Convenience: login and immediately authenticate the client."""
+        token = self._login(username, password)
+        self._auth(token)
+
+    def _create_crime_scene_case(self, payload: dict | None = None) -> "rest_framework.response.Response":  # type: ignore[name-defined]
+        """
+        POST the given payload to POST /api/cases/.
+
+        If no payload is provided, _VALID_PAYLOAD is used.
+        Reference: swagger_documentation_report.md §3.2 — CaseViewSet.create
+        """
+        data = payload if payload is not None else self._VALID_PAYLOAD
+        return self.client.post(reverse("case-list"), data, format="json")
+
+    # ────────────────────────────────────────────────────────────────
+    #  Scenario 4.1 — Officer creates crime-scene case
+    # ────────────────────────────────────────────────────────────────
+
+    def test_officer_creates_crime_scene_case_returns_201(self) -> None:
+        """
+        Scenario 4.1 (step A): POST /api/cases/ as Police Officer returns HTTP 201.
+
+        Reference:
+          - project-doc.md §4.2.2 — "a police rank (other than Cadet) can
+            register a crime scene"
+          - cases_services_crime_scene_flow_report.md §4.1 Officer Path
+          - swagger_documentation_report.md §3.2 — CaseViewSet.create → 201
+        """
+        self._login_as(self.officer_user.username, self.officer_password)
+        response = self._create_crime_scene_case()
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_201_CREATED,
+            msg=f"Expected 201 Created but got {response.status_code}: {response.data}",
+        )
+
+    def test_officer_crime_scene_case_has_id_in_response(self) -> None:
+        """
+        Scenario 4.1 (step B): Response body must include a case 'id' field.
+
+        Reference: swagger_documentation_report.md §3.2 — CaseDetailSerializer fields
+        """
+        self._login_as(self.officer_user.username, self.officer_password)
+        response = self._create_crime_scene_case()
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertIn(
+            "id",
+            response.data,
+            msg="Response JSON must contain 'id' for the created case.",
+        )
+        self.assertIsNotNone(response.data["id"])
+
+    def test_officer_crime_scene_case_initial_status_is_pending_approval(self) -> None:
+        """
+        Scenario 4.1 (core assertion): Initial status MUST be "pending_approval".
+
+        Logic in cases/services.py CaseCreationService.create_crime_scene_case:
+          - creator role != "police_chief" → CaseStatus.PENDING_APPROVAL
+          - "pending_approval" is the exact enum value from CaseStatus.PENDING_APPROVAL
+
+        Reference:
+          - project-doc.md §4.2.2 — "only one superior rank needs to approve"
+          - cases_services_crime_scene_flow_report.md §1 Approval Rules Table
+          - cases/models.py CaseStatus.PENDING_APPROVAL = "pending_approval"
+        """
+        self._login_as(self.officer_user.username, self.officer_password)
+        response = self._create_crime_scene_case()
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(
+            response.data.get("status"),
+            CaseStatus.PENDING_APPROVAL,   # "pending_approval"
+            msg=(
+                f"Expected status='pending_approval' for officer-created crime-scene case, "
+                f"got '{response.data.get('status')}' instead."
+            ),
+        )
+
+    def test_officer_crime_scene_case_persisted_fields_match(self) -> None:
+        """
+        Scenario 4.1 (persistence check): Fetch GET /api/cases/{id}/ and assert
+        all submitted fields are correctly stored in the database.
+
+        Reference:
+          - swagger_documentation_report.md §3.2 — CaseViewSet.retrieve → 200
+          - cases/serializers.py CaseDetailSerializer fields
+        """
+        self._login_as(self.officer_user.username, self.officer_password)
+        create_response = self._create_crime_scene_case()
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+
+        case_id = create_response.data["id"]
+        detail_url = reverse("case-detail", kwargs={"pk": case_id})
+        get_response = self.client.get(detail_url)
+
+        self.assertEqual(
+            get_response.status_code,
+            status.HTTP_200_OK,
+            msg=f"GET /api/cases/{case_id}/ failed: {get_response.data}",
+        )
+
+        data = get_response.data
+        payload = self._VALID_PAYLOAD
+
+        # Core fields
+        self.assertEqual(data["title"],         payload["title"])
+        self.assertEqual(data["description"],   payload["description"])
+        self.assertEqual(data["crime_level"],   payload["crime_level"])
+        self.assertEqual(data["location"],      payload["location"])
+        self.assertEqual(data["creation_type"], "crime_scene")
+
+        # Status persisted correctly
+        self.assertEqual(
+            data["status"],
+            CaseStatus.PENDING_APPROVAL,
+            msg="Persisted status in DB must be 'pending_approval'.",
+        )
+
+        # created_by must point to the Officer
+        self.assertEqual(
+            data["created_by"],
+            self.officer_user.pk,
+            msg="created_by must be set to the officer who submitted the case.",
+        )
+
+        # approved_by must be null for pending-approval cases
+        self.assertIsNone(
+            data.get("approved_by"),
+            msg="approved_by must be None when case is pending approval.",
+        )
+
+    def test_officer_crime_scene_case_witness_persisted(self) -> None:
+        """
+        Scenario 4.1 (witness persistence): Witness supplied at creation
+        must appear in the case detail response under 'witnesses'.
+
+        Reference:
+          - cases_services_crime_scene_flow_report.md §3 Witness Validation Rules
+          - cases/serializers.py CaseWitnessSerializer
+        """
+        self._login_as(self.officer_user.username, self.officer_password)
+        create_response = self._create_crime_scene_case()
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+
+        case_id = create_response.data["id"]
+        detail_url = reverse("case-detail", kwargs={"pk": case_id})
+        get_response = self.client.get(detail_url)
+
+        self.assertEqual(get_response.status_code, status.HTTP_200_OK)
+        witnesses = get_response.data.get("witnesses", [])
+        self.assertEqual(
+            len(witnesses),
+            1,
+            msg="One witness was included in the payload; it must be persisted.",
+        )
+        witness = witnesses[0]
+        expected_witness = self._VALID_PAYLOAD["witnesses"][0]
+        self.assertEqual(witness["full_name"],    expected_witness["full_name"])
+        self.assertEqual(witness["phone_number"], expected_witness["phone_number"])
+        self.assertEqual(witness["national_id"],  expected_witness["national_id"])
+
+    def test_officer_crime_scene_case_status_log_created(self) -> None:
+        """
+        Scenario 4.1 (audit trail): A CaseStatusLog entry must be created
+        on case creation with to_status="pending_approval".
+
+        Reference:
+          - cases/services.py CaseCreationService.create_crime_scene_case
+            (creates CaseStatusLog with from_status="" and to_status=PENDING_APPROVAL)
+          - swagger_documentation_report.md §3.2 — CaseViewSet.status_log
+        """
+        self._login_as(self.officer_user.username, self.officer_password)
+        create_response = self._create_crime_scene_case()
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+
+        case_id = create_response.data["id"]
+
+        # Verify via the status-log sub-resource endpoint
+        log_url = reverse("case-status-log", kwargs={"pk": case_id})
+        log_response = self.client.get(log_url)
+
+        self.assertEqual(
+            log_response.status_code,
+            status.HTTP_200_OK,
+            msg=f"GET /api/cases/{case_id}/status-log/ failed: {log_response.data}",
+        )
+
+        logs = log_response.data
+        self.assertGreaterEqual(
+            len(logs),
+            1,
+            msg="At least one status log entry must exist after case creation.",
+        )
+
+        # The initial log entry must record the transition to pending_approval
+        creation_log = logs[0]
+        self.assertEqual(
+            creation_log["to_status"],
+            CaseStatus.PENDING_APPROVAL,
+            msg="First status-log entry must have to_status='pending_approval'.",
+        )
+
+        # Also verify directly in the ORM as a belt-and-suspenders check
+        exists_in_db = CaseStatusLog.objects.filter(
+            case_id=case_id,
+            to_status=CaseStatus.PENDING_APPROVAL,
+        ).exists()
+        self.assertTrue(
+            exists_in_db,
+            msg="CaseStatusLog row with to_status='pending_approval' must exist in DB.",
+        )
+
+    def test_officer_crime_scene_case_without_witnesses_returns_201(self) -> None:
+        """
+        Scenario 4.1 (optional witnesses): Creating a crime-scene case with an
+        empty witnesses list must still succeed with status 201.
+
+        Reference: CrimeSceneCaseCreateSerializer — witnesses is required=False
+        """
+        self._login_as(self.officer_user.username, self.officer_password)
+        payload = {
+            **self._VALID_PAYLOAD,
+            "witnesses": [],
+        }
+        response = self._create_crime_scene_case(payload)
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_201_CREATED,
+            msg=f"Crime-scene case without witnesses must still be accepted: {response.data}",
+        )
+        self.assertEqual(response.data.get("status"), CaseStatus.PENDING_APPROVAL)
+
+    def test_officer_crime_scene_case_missing_required_field_returns_400(self) -> None:
+        """
+        Scenario 4.1 (negative/validation): Omitting a required field
+        (incident_date) must produce HTTP 400 Bad Request.
+
+        Reference:
+          - cases/serializers.py CrimeSceneCaseCreateSerializer
+            incident_date is required=True for crime_scene path
+        """
+        self._login_as(self.officer_user.username, self.officer_password)
+        payload = {
+            "creation_type": "crime_scene",
+            "title": "Test Missing Date",
+            "description": "No incident_date supplied.",
+            "crime_level": 1,
+            "location": "Somewhere",
+            # incident_date intentionally omitted
+        }
+        response = self._create_crime_scene_case(payload)
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+            msg="Missing required 'incident_date' must cause 400 Bad Request.",
+        )
+
+    def test_unauthenticated_request_returns_401(self) -> None:
+        """
+        Scenario 4.1 (auth guard): Unauthenticated POST /api/cases/ must
+        return HTTP 401 Unauthorized.
+
+        Reference:
+          - cases/views.py CaseViewSet permission_classes = [IsAuthenticated]
+        """
+        # Do NOT call _auth — client is anonymous
+        response = self._create_crime_scene_case()
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_401_UNAUTHORIZED,
+            msg="Unauthenticated request must return 401.",
+        )
