@@ -120,6 +120,10 @@ they appear in the generated schema.
 | `BountyTipViewSet.verify`          | POST  | `/api/bounty-tips/{id}/verify/`                   | Bounty Tips         |
 | `BountyTipViewSet.lookup_reward`   | POST  | `/api/bounty-tips/lookup-reward/`                 | Bounty Tips         |
 
+Validation note for `BountyTipViewSet.review` request body:
+- `decision` accepts `accept` or `reject`.
+- `review_notes` is required when `decision=reject`.
+
 ### 3.4 `evidence` app — Tag: **Evidence**
 
 | View / Method                      | HTTP     | Path                                   | Tag      |

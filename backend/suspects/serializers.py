@@ -1217,6 +1217,16 @@ class BountyTipReviewSerializer(serializers.Serializer):
         max_length=2000,
     )
 
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        """
+        Reject decisions must include officer review notes.
+        """
+        if attrs.get("decision") == "reject" and not attrs.get("review_notes", "").strip():
+            raise serializers.ValidationError(
+                {"review_notes": "This field is required when decision is reject."}
+            )
+        return attrs
+
 
 class BountyTipVerifySerializer(serializers.Serializer):
     """

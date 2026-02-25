@@ -176,6 +176,35 @@ class TestBountyTipsFlow(TestCase):
         )
         return response.data["id"]
 
+    def create_tip_as_citizen(
+        self,
+        *,
+        information: str = "Citizen tip for officer review scenario.",
+    ) -> int:
+        token = self.login(self.citizen_user)
+        self.auth(token)
+        return self.create_bounty_tip_via_api(
+            suspect_id=self.wanted_suspect.id,
+            case_id=self.open_case.id,
+            information=information,
+        )
+
+    def review_tip(
+        self,
+        *,
+        tip_id: int,
+        decision: str,
+        review_notes: str | None = None,
+    ):
+        payload = {"decision": decision}
+        if review_notes is not None:
+            payload["review_notes"] = review_notes
+        return self.client.post(
+            reverse("bounty-tip-review", kwargs={"pk": tip_id}),
+            payload,
+            format="json",
+        )
+
     def test_citizen_submits_tip_successfully_with_pending_status_and_no_unique_code(self):
         token = self.login(self.citizen_user)
         self.auth(token)
@@ -259,4 +288,151 @@ class TestBountyTipsFlow(TestCase):
             response.status_code,
             (status.HTTP_400_BAD_REQUEST, status.HTTP_409_CONFLICT),
             msg=f"Expected rejection for closed-case bounty tip: {response.data}",
+        )
+
+    def test_officer_accepts_pending_tip_successfully(self):
+        tip_id = self.create_tip_as_citizen(
+            information="Accept path: suspect seen near the bus terminal.",
+        )
+
+        officer_token = self.login(self.officer_user)
+        self.auth(officer_token)
+        response = self.review_tip(
+            tip_id=tip_id,
+            decision="accept",
+            review_notes="Preliminary review complete; forwarded to detective.",
+        )
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+            msg=f"Officer accept review failed: {response.data}",
+        )
+        self.assertEqual(response.data["status"], "officer_reviewed")
+        self.assertEqual(response.data["reviewed_by"], self.officer_user.id)
+        if "reviewed_at" in response.data:
+            self.assertIsNotNone(response.data["reviewed_at"])
+
+        tip = BountyTip.objects.get(pk=tip_id)
+        self.assertEqual(tip.status, "officer_reviewed")
+        self.assertEqual(tip.reviewed_by_id, self.officer_user.id)
+
+        detail_response = self.client.get(
+            reverse("bounty-tip-detail", kwargs={"pk": tip_id}),
+            format="json",
+        )
+        self.assertEqual(
+            detail_response.status_code,
+            status.HTTP_200_OK,
+            msg=f"Tip detail after accept failed: {detail_response.data}",
+        )
+        self.assertEqual(detail_response.data["status"], "officer_reviewed")
+        self.assertEqual(detail_response.data["reviewed_by"], self.officer_user.id)
+
+    def test_officer_rejects_pending_tip_successfully(self):
+        rejection_notes = "Information is inconsistent with current case facts."
+        tip_id = self.create_tip_as_citizen(
+            information="Reject path: conflicting location/time details.",
+        )
+
+        officer_token = self.login(self.officer_user)
+        self.auth(officer_token)
+        response = self.review_tip(
+            tip_id=tip_id,
+            decision="reject",
+            review_notes=rejection_notes,
+        )
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+            msg=f"Officer reject review failed: {response.data}",
+        )
+        self.assertEqual(response.data["status"], "rejected")
+        self.assertEqual(response.data["reviewed_by"], self.officer_user.id)
+        if "review_notes" in response.data:
+            self.assertEqual(response.data["review_notes"], rejection_notes)
+        if "reviewed_at" in response.data:
+            self.assertIsNotNone(response.data["reviewed_at"])
+
+        tip = BountyTip.objects.get(pk=tip_id)
+        self.assertEqual(tip.status, "rejected")
+        self.assertEqual(tip.reviewed_by_id, self.officer_user.id)
+
+        detail_response = self.client.get(
+            reverse("bounty-tip-detail", kwargs={"pk": tip_id}),
+            format="json",
+        )
+        self.assertEqual(
+            detail_response.status_code,
+            status.HTTP_200_OK,
+            msg=f"Tip detail after reject failed: {detail_response.data}",
+        )
+        self.assertEqual(detail_response.data["status"], "rejected")
+        self.assertEqual(detail_response.data["reviewed_by"], self.officer_user.id)
+        if "review_notes" in detail_response.data:
+            self.assertEqual(detail_response.data["review_notes"], rejection_notes)
+
+    def test_non_officer_cannot_review_tip(self):
+        tip_id = self.create_tip_as_citizen(
+            information="Non-officer review permission guard.",
+        )
+
+        detective_token = self.login(self.detective_user)
+        self.auth(detective_token)
+        response = self.review_tip(
+            tip_id=tip_id,
+            decision="accept",
+            review_notes="I am not an officer reviewer.",
+        )
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+            msg=f"Non-officer review should be forbidden: {response.data}",
+        )
+
+    def test_reject_without_required_review_notes_returns_400(self):
+        tip_id = self.create_tip_as_citizen(
+            information="Reject without notes should fail validation.",
+        )
+
+        officer_token = self.login(self.officer_user)
+        self.auth(officer_token)
+        response = self.review_tip(
+            tip_id=tip_id,
+            decision="reject",
+            review_notes="",
+        )
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+            msg=f"Expected 400 when reject has no review_notes: {response.data}",
+        )
+        self.assertIn("review_notes", response.data)
+
+    def test_review_non_pending_tip_returns_409_or_400(self):
+        tip_id = self.create_tip_as_citizen(
+            information="Second review should be blocked.",
+        )
+
+        officer_token = self.login(self.officer_user)
+        self.auth(officer_token)
+        first_review = self.review_tip(
+            tip_id=tip_id,
+            decision="accept",
+            review_notes="Initial officer acceptance.",
+        )
+        self.assertEqual(
+            first_review.status_code,
+            status.HTTP_200_OK,
+            msg=f"Initial review setup failed: {first_review.data}",
+        )
+
+        second_review = self.review_tip(
+            tip_id=tip_id,
+            decision="reject",
+            review_notes="Second review attempt must fail.",
+        )
+        self.assertIn(
+            second_review.status_code,
+            (status.HTTP_409_CONFLICT, status.HTTP_400_BAD_REQUEST),
+            msg=f"Expected rejection for non-pending review: {second_review.data}",
         )

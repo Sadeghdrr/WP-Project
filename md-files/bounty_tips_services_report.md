@@ -145,6 +145,8 @@ Authorization: Bearer <officer_jwt>
 }
 ```
 
+For `decision: "reject"`, `review_notes` is required.
+
 **Response (200 OK):**
 ```json
 {

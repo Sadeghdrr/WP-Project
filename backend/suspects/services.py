@@ -2271,10 +2271,9 @@ class BountyTipService:
             )
 
         try:
-            tip = BountyTip.objects.select_related(
-                "suspect", "case", "informant",
-                "suspect__case__assigned_detective",
-            ).select_for_update().get(pk=tip_id)
+            # Lock only the tip row to avoid PostgreSQL FOR UPDATE errors
+            # on nullable joined relations (suspect/case are nullable).
+            tip = BountyTip.objects.select_for_update().get(pk=tip_id)
         except BountyTip.DoesNotExist:
             raise NotFound(f"Bounty tip with id {tip_id} not found.")
 
@@ -2358,9 +2357,9 @@ class BountyTipService:
             )
 
         try:
-            tip = BountyTip.objects.select_related(
-                "suspect", "case", "informant",
-            ).select_for_update().get(pk=tip_id)
+            # Lock only the tip row to avoid PostgreSQL FOR UPDATE errors
+            # on nullable joined relations (suspect/case are nullable).
+            tip = BountyTip.objects.select_for_update().get(pk=tip_id)
         except BountyTip.DoesNotExist:
             raise NotFound(f"Bounty tip with id {tip_id} not found.")
 
