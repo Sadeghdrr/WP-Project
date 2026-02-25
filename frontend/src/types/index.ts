@@ -42,8 +42,15 @@ export type {
   CaseCreateComplaintRequest,
   CaseCreateCrimeSceneRequest,
   CaseStatusTransitionRequest,
+  CaseGenericTransitionRequest,
+  ReviewDecisionRequest,
+  ResubmitComplaintRequest,
+  AssignPersonnelRequest,
   ComplainantCreateRequest,
   ComplainantReviewRequest,
+  CaseListItem,
+  CaseDetail,
+  CaseCalculations,
 } from "./cases";
 export type { CrimeLevel, CaseStatus, CaseCreationType, ComplainantStatus } from "./cases";
 

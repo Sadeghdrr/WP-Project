@@ -141,6 +141,27 @@ export interface CaseStatusTransitionRequest {
   message?: string;
 }
 
+export interface CaseGenericTransitionRequest {
+  target_status: CaseStatus;
+  message?: string;
+}
+
+export interface ReviewDecisionRequest {
+  decision: "approve" | "reject";
+  message?: string;
+}
+
+export interface ResubmitComplaintRequest {
+  title?: string;
+  description?: string;
+  incident_date?: ISODateTime;
+  location?: string;
+}
+
+export interface AssignPersonnelRequest {
+  user_id: number;
+}
+
 export interface ComplainantCreateRequest {
   user_id: number;
   is_primary?: boolean;
@@ -148,4 +169,60 @@ export interface ComplainantCreateRequest {
 
 export interface ComplainantReviewRequest {
   status: "approved" | "rejected";
+}
+
+// ---------------------------------------------------------------------------
+// List item (lightweight, from CaseListSerializer)
+// ---------------------------------------------------------------------------
+
+export interface CaseListItem {
+  id: number;
+  title: string;
+  crime_level: CrimeLevel;
+  crime_level_display: string;
+  status: CaseStatus;
+  status_display: string;
+  creation_type: CaseCreationType;
+  incident_date: ISODateTime | null;
+  location: string;
+  assigned_detective: number | null;
+  assigned_detective_name: string | null;
+  complainant_count: number;
+  created_at: ISODateTime;
+  updated_at: ISODateTime;
+}
+
+// ---------------------------------------------------------------------------
+// Detail (full, from CaseDetailSerializer)
+// ---------------------------------------------------------------------------
+
+export interface CaseDetail extends TimeStamped {
+  id: number;
+  title: string;
+  description: string;
+  crime_level: CrimeLevel;
+  crime_level_display: string;
+  status: CaseStatus;
+  status_display: string;
+  creation_type: CaseCreationType;
+  rejection_count: number;
+  incident_date: ISODateTime | null;
+  location: string;
+  created_by: number;
+  approved_by: number | null;
+  assigned_detective: number | null;
+  assigned_sergeant: number | null;
+  assigned_captain: number | null;
+  assigned_judge: number | null;
+  complainants: CaseComplainant[];
+  witnesses: CaseWitness[];
+  status_logs: CaseStatusLog[];
+  calculations: CaseCalculations | null;
+}
+
+export interface CaseCalculations {
+  crime_level_degree: number;
+  days_since_creation: number;
+  tracking_threshold: number;
+  reward_rials: number;
 }

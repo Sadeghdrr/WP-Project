@@ -19,3 +19,5 @@ export { API } from "./endpoints";
 export { loginApi, registerApi, refreshTokenApi, fetchMeApi } from "./auth";
 export { globalSearchApi } from "./search";
 export type { SearchParams } from "./search";
+export * as casesApi from "./cases";
+export type { CaseFilters } from "./cases";
