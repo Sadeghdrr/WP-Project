@@ -10,7 +10,7 @@
 
 | HTTP Method | URL                                    | Purpose                                               | Access Level                                                              |
 | ----------- | -------------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------- |
-| `GET`       | `/api/evidence/`                       | List all evidence (filtered, role-scoped)             | Authenticated (role-scoped visibility)                                    |
+| `GET`       | `/api/evidence/`                       | List all evidence (filtered, role-scoped)             | `view_evidence` permission + role/case visibility scope                   |
 | `POST`      | `/api/evidence/`                       | Create new evidence (polymorphic by `evidence_type`)  | `add_evidence` permission                                                 |
 | `GET`       | `/api/evidence/{id}/`                  | Retrieve full evidence detail (type-specific fields)  | `view_evidence` permission                                                |
 | `PATCH`     | `/api/evidence/{id}/`                  | Partially update mutable evidence fields              | `change_evidence` permission                                              |

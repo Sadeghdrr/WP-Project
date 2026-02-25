@@ -67,7 +67,12 @@ class EvidenceFilterSerializer(serializers.Serializer):
     )
     case = serializers.IntegerField(required=False, min_value=1, help_text="Filter by associated case PK.")
     registered_by = serializers.IntegerField(required=False, min_value=1, help_text="Filter by registrar user PK.")
-    is_verified = serializers.BooleanField(required=False, help_text="Filter biological evidence by verification status. Only valid with evidence_type='biological'.")
+    is_verified = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Filter biological evidence by verification status. Only valid with evidence_type='biological'.",
+    )
     search = serializers.CharField(
         required=False,
         max_length=255,

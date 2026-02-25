@@ -194,5 +194,5 @@ curl -X POST /api/evidence/ \
 - **Fat Services, Skinny Views**: All polymorphic dispatch, validation, permission checks, DB transactions, and notifications reside in `services.py`. Views only parse input, delegate, and serialize responses.
 - **`transaction.atomic()`**: Every create/update/delete operation is wrapped in an atomic transaction to ensure the base `Evidence` row and its child subtype are created safely.
 - **Notifications**: When new evidence is added, a notification is dispatched to the case's `assigned_detective` (if any) via `NotificationService.create()` with `event_type="evidence_added"`.
-- **Role-Scoped Queries**: `EvidenceQueryService.get_filtered_queryset()` uses `core.domain.access.apply_role_filter()` with a per-role scope configuration to restrict visibility based on the requesting user's role.
+- **Role-Scoped Queries**: `EvidenceQueryService.get_filtered_queryset()` first enforces `evidence.view_evidence`, then scopes evidence by the requester's visible case set (from case-query RBAC rules) with a fallback role-scope map for roles outside case scope config.
 - **Domain Exceptions**: Service methods raise `core.domain.exceptions.PermissionDenied`, `NotFound`, or `DomainError`. These are automatically mapped to HTTP 403, 404, or 400 by the global `domain_exception_handler` registered in DRF settings.

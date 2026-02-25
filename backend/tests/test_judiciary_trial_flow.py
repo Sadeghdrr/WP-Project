@@ -50,6 +50,7 @@ class TestJudiciaryTrialFlow(TestCase):
         cls.base_user_role = _make_role("Base User", hierarchy_level=1)
 
         _grant(cls.judge_role, "can_judge_trial", "suspects")
+        _grant(cls.judge_role, "view_evidence", "evidence")
         _grant(cls.captain_role, "can_render_verdict", "suspects")
         _grant(cls.captain_role, "can_forward_to_judiciary", "cases")
         _grant(cls.captain_role, "can_change_case_status", "cases")
@@ -573,12 +574,13 @@ class TestJudiciaryTrialFlow(TestCase):
             {"case": case.id},
             format="json",
         )
-        self.assertEqual(
+        self.assertIn(
             evidence_response.status_code,
-            status.HTTP_200_OK,
+            (status.HTTP_403_FORBIDDEN, status.HTTP_200_OK),
             msg=f"Unexpected evidence list status for unrelated user: {evidence_response.data}",
         )
-        self.assertEqual(evidence_response.data, [])
+        if evidence_response.status_code == status.HTTP_200_OK:
+            self.assertEqual(evidence_response.data, [])
 
         suspects_response = self.client.get(
             reverse("suspect-list"),

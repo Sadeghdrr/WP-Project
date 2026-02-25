@@ -1549,6 +1549,8 @@ class CaseAssignmentService:
             related_object=case,
         )
 
+        return case
+
     @staticmethod
     @transaction.atomic
     def unassign_role(

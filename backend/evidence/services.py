@@ -104,16 +104,34 @@ class EvidenceQueryService:
         """
         Build a role-scoped, filtered queryset of ``Evidence`` objects.
         """
-        # 1. Start with all evidence, apply role-based scoping
-        qs = Evidence.objects.all()
-        qs = apply_role_filter(
-            qs,
-            requesting_user,
-            scope_config=_EVIDENCE_SCOPE_CONFIG,
-            default="none",
-        )
+        # 1) Require explicit read permission first.
+        if not requesting_user.has_perm(f"evidence.{EvidencePerms.VIEW_EVIDENCE}"):
+            raise PermissionDenied("You do not have permission to view evidence.")
 
-        # 2. Apply explicit filters
+        role_name = get_user_role_name(requesting_user)
+        qs = Evidence.objects.all()
+
+        # 2) Primary scope: evidence must belong to cases visible to this user.
+        # This keeps evidence list semantics aligned with case visibility rules.
+        from cases.services import CASE_SCOPE_CONFIG, CaseQueryService
+
+        if role_name in CASE_SCOPE_CONFIG:
+            visible_case_ids = (
+                CaseQueryService
+                .get_filtered_queryset(requesting_user, filters={})
+                .values_list("id", flat=True)
+            )
+            qs = qs.filter(case_id__in=visible_case_ids)
+        else:
+            # Fallback for roles not represented in case scope config.
+            qs = apply_role_filter(
+                qs,
+                requesting_user,
+                scope_config=_EVIDENCE_SCOPE_CONFIG,
+                default="none",
+            )
+
+        # 3. Apply explicit filters
         evidence_type = filters.get("evidence_type")
         if evidence_type:
             qs = qs.filter(evidence_type=evidence_type)
@@ -144,7 +162,7 @@ class EvidenceQueryService:
         if created_before is not None:
             qs = qs.filter(created_at__date__lte=created_before)
 
-        # 3. Optimise with select_related / prefetch_related
+        # 4. Optimise with select_related / prefetch_related
         qs = qs.select_related("registered_by", "case").prefetch_related("files")
 
         return qs
