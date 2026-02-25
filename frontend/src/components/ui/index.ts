@@ -12,4 +12,7 @@ export { default as FieldError } from "./FieldError";
 export type { FieldErrorProps } from "./FieldError";
 export { default as MediaViewer } from "./MediaViewer";
 export type { MediaViewerProps } from "./MediaViewer";
+export { default as ImageRenderer } from "./ImageRenderer";
+export { resolveMediaUrl } from "../../lib/mediaUtils";
+export type { ImageRendererProps } from "./ImageRenderer";
 

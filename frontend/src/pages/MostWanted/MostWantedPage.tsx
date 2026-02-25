@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { Skeleton, ErrorState, EmptyState } from "../../components/ui";
+import ImageRenderer from "../../components/ui/ImageRenderer";
 import { useMostWanted } from "../../hooks/useSuspects";
 import type { MostWantedEntry } from "../../types";
 import css from "./MostWantedPage.module.css";
@@ -34,11 +35,14 @@ function MostWantedCard({
     <article className={css.card}>
       <div className={css.cardTop}>
         <span className={css.rankBadge}>{rank}</span>
-        {entry.photo ? (
-          <img src={entry.photo} alt={entry.full_name} className={css.photo} />
-        ) : (
-          <div className={css.photoPlaceholder}>👤</div>
-        )}
+        <ImageRenderer
+          src={entry.photo}
+          alt={entry.full_name}
+          requiresAuth={false}
+          preview={true}
+          placeholderIcon="👤"
+          style={{ width: "80px", height: "80px", borderRadius: "8px", flexShrink: 0 }}
+        />
         <div className={css.info}>
           <h3 className={css.name}>{entry.full_name}</h3>
           <p className={css.nationalId}>ID: {entry.national_id}</p>
