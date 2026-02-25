@@ -15,13 +15,15 @@ Model reference         : evidence/models.py
 Test map
 --------
   5.1  Create Testimony evidence → 201 + DB persistence + negative tests
-  5.2 – 5.6  (appended by subsequent prompts)
+  5.2  Biological evidence + file upload + chain-of-custody + Coroner verify (approve/reject)
+  5.3 – 5.6  (appended by subsequent prompts)
 """
 
 from __future__ import annotations
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from django.urls import reverse
 from rest_framework import status
@@ -29,7 +31,7 @@ from rest_framework.test import APIClient
 
 from accounts.models import Role
 from cases.models import Case, CaseCreationType, CaseStatus, CrimeLevel
-from evidence.models import EvidenceType, TestimonyEvidence
+from evidence.models import BiologicalEvidence, EvidenceType, TestimonyEvidence
 
 User = get_user_model()
 
@@ -102,15 +104,21 @@ class TestEvidenceFlows(TestCase):
         cls.detective_role = _make_role("Detective", hierarchy_level=7)
         # Cadet — no evidence permissions → used for 403 negative tests
         cls.cadet_role = _make_role("Cadet", hierarchy_level=1)
+        # Coroner — can verify biological evidence (CAN_VERIFY_EVIDENCE)
+        cls.coroner_role = _make_role("Coroner", hierarchy_level=3)
 
-        # Grant Detective the minimum permissions required to create evidence
-        # and read the detail record afterward.
+        # Grant Detective permissions for all scenarios (testimony + biological
+        # creation, file uploads, custody log reads).
         # Reference: setup_rbac.py  "Detective" entry
         for codename in (
             "add_evidence",
             "view_evidence",
             "add_testimonyevidence",
             "view_testimonyevidence",
+            "add_biologicalevidence",
+            "view_biologicalevidence",
+            "add_evidencefile",
+            "view_evidencefile",
         ):
             _grant(cls.detective_role, codename, app_label="evidence")
 
@@ -120,9 +128,23 @@ class TestEvidenceFlows(TestCase):
 
         # Cadet has no evidence permissions (intentionally left empty).
 
+        # Grant Coroner the permissions required to verify biological evidence
+        # and read chain-of-custody.
+        # Reference: setup_rbac.py  "Coroner" entry
+        for codename in (
+            "view_evidence",
+            "view_biologicalevidence",
+            "change_biologicalevidence",
+            "view_evidencefile",
+            "can_verify_evidence",
+        ):
+            _grant(cls.coroner_role, codename, app_label="evidence")
+        _grant(cls.coroner_role, "view_case", app_label="cases")
+
         # ── Users ─────────────────────────────────────────────────────────
         cls.detective_password = "D3tective!Pass"
         cls.cadet_password = "C@det!Pass9999"
+        cls.coroner_password = "C0r0ner!Pass99"
 
         cls.detective_user = User.objects.create_user(
             username="ev_detective",
@@ -143,6 +165,16 @@ class TestEvidenceFlows(TestCase):
             first_name="John",
             last_name="Recruit",
             role=cls.cadet_role,
+        )
+        cls.coroner_user = User.objects.create_user(
+            username="ev_coroner",
+            password=cls.coroner_password,
+            email="coroner@lapd.test",
+            phone_number="09130001003",
+            national_id="2000000003",
+            first_name="Stefan",
+            last_name="Bekowsky",
+            role=cls.coroner_role,
         )
 
         # ── Case ──────────────────────────────────────────────────────────
@@ -427,5 +459,563 @@ class TestEvidenceFlows(TestCase):
             msg=(
                 f"Expected 403 for Cadet (no add_evidence permission), "
                 f"got {response.status_code}: {response.data}"
+            ),
+        )
+
+    # ════════════════════════════════════════════════════════════════════════
+    #  Scenario 5.2 — Biological Evidence + File Upload + Coroner Verify
+    # ════════════════════════════════════════════════════════════════════════
+
+    # ── Payload helper ───────────────────────────────────────────────────
+
+    def _biological_payload(self, **overrides) -> dict:
+        """
+        Return a valid biological-evidence creation payload.
+
+        Fields come from BiologicalEvidenceCreateSerializer:
+            evidence/serializers.py  BiologicalEvidenceCreateSerializer
+            → required: evidence_type (discriminator), case, title
+            → optional: description
+            NOTE: forensic_result must NOT be included on creation —
+                  the service validates it must be empty at creation time.
+
+        Reference:
+            evidence/services.py  EvidenceProcessingService._validate_biological
+        """
+        base = {
+            "evidence_type": "biological",
+            "case": self.case.pk,
+            "title": "Blood Sample — Downtown Homicide",
+            "description": "Blood stain found on the pavement near the victim.",
+        }
+        base.update(overrides)
+        return base
+
+    # ── Internal helper: create biological evidence via API as detective ──
+
+    def _create_biological_evidence(self, title: str | None = None) -> int:
+        """
+        POST a biological evidence payload as the detective and return the
+        created evidence PK.  Asserts HTTP 201 and leaves the client
+        authenticated as the detective.
+        """
+        self._login_as(self.detective_user.username, self.detective_password)
+        payload = self._biological_payload()
+        if title is not None:
+            payload["title"] = title
+        resp = self.client.post(reverse("evidence-list"), payload, format="json")
+        self.assertEqual(
+            resp.status_code,
+            status.HTTP_201_CREATED,
+            msg=f"Biological evidence creation failed: {resp.data}",
+        )
+        return resp.data["id"]
+
+    # ── Test B: Create biological evidence ───────────────────────────────
+
+    def test_create_biological_evidence_returns_201(self) -> None:
+        """
+        Scenario 5.2 — Test B: Detective creates biological evidence.
+
+        Asserts:
+        - HTTP 201
+        - evidence_type == "biological"
+        - case PK matches
+        - forensic_result present and empty (pending Coroner examination)
+        - is_verified == False
+        - verified_by is None
+        - Testimony/vehicle/identity-specific fields are absent
+
+        Reference:
+            swagger_documentation_report.md §3.4 — EvidenceViewSet.create
+            evidence/serializers.py  BiologicalEvidenceDetailSerializer
+        """
+        self._login_as(self.detective_user.username, self.detective_password)
+        url = reverse("evidence-list")
+        response = self.client.post(url, self._biological_payload(), format="json")
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_201_CREATED,
+            msg=f"Expected 201, got {response.status_code}: {response.data}",
+        )
+        data = response.data
+
+        # Required schema fields
+        for field in ("id", "evidence_type", "case", "title", "description",
+                      "forensic_result", "is_verified", "verified_by",
+                      "registered_by", "created_at"):
+            self.assertIn(field, data, msg=f"Field '{field}' missing from biological response")
+
+        self.assertEqual(data["evidence_type"], EvidenceType.BIOLOGICAL)
+        self.assertEqual(data["case"], self.case.pk)
+        # forensic_result must be empty on creation (service validation rule)
+        self.assertEqual(data["forensic_result"], "")
+        self.assertFalse(data["is_verified"])
+        self.assertIsNone(data["verified_by"])
+        self.assertEqual(data["registered_by"], self.detective_user.pk)
+
+        # Fields specific to OTHER types must not appear
+        self.assertNotIn("statement_text", data)
+        self.assertNotIn("vehicle_model", data)
+        self.assertNotIn("owner_full_name", data)
+
+    # ── Test C: Upload a file to biological evidence ─────────────────────
+
+    def test_upload_file_to_biological_evidence_returns_201(self) -> None:
+        """
+        Scenario 5.2 — Test C: Detective uploads an image file to existing
+        biological evidence via POST /api/evidence/{id}/files/.
+
+        The upload uses multipart/form-data with a SimpleUploadedFile.
+        EvidenceFileService.upload_file() creates a CHECKED_IN custody log
+        entry alongside the EvidenceFile row.
+
+        Asserts:
+        - HTTP 201
+        - Response includes: id, file, file_type, caption, created_at
+        - file_type == "image", caption is echoed back
+        - Subsequent GET /api/evidence/{id}/files/ lists the uploaded file id
+
+        Reference:
+            swagger_documentation_report.md §3.4 — EvidenceViewSet.files
+            evidence/services.py  EvidenceFileService.upload_file
+                → creates CustodyAction.CHECKED_IN log entry
+        """
+        evid_id = self._create_biological_evidence(
+            title="Bio Evidence — File Upload Test"
+        )
+
+        fake_image = SimpleUploadedFile(
+            name="crime_scene_blood.jpg",
+            content=b"\xff\xd8\xff\xe0" + b"0" * 100,  # minimal fake JPEG bytes
+            content_type="image/jpeg",
+        )
+
+        upload_url = reverse("evidence-files", kwargs={"pk": evid_id})
+        upload_resp = self.client.post(
+            upload_url,
+            data={"file": fake_image, "file_type": "image", "caption": "Crime scene photo"},
+            format="multipart",
+        )
+        self.assertEqual(
+            upload_resp.status_code,
+            status.HTTP_201_CREATED,
+            msg=f"File upload returned {upload_resp.status_code}: {upload_resp.data}",
+        )
+
+        upload_data = upload_resp.data
+        # Response schema — EvidenceFileReadSerializer
+        for field in ("id", "file", "file_type", "caption", "created_at"):
+            self.assertIn(field, upload_data, msg=f"Field '{field}' missing from file upload response")
+        self.assertEqual(upload_data["file_type"], "image")
+        self.assertEqual(upload_data["caption"], "Crime scene photo")
+
+        # The uploaded file must appear in GET /evidence/{id}/files/
+        list_resp = self.client.get(upload_url)
+        self.assertEqual(list_resp.status_code, status.HTTP_200_OK)
+        file_ids = [f["id"] for f in list_resp.data]
+        self.assertIn(
+            upload_data["id"],
+            file_ids,
+            msg="Uploaded file id not found in GET /evidence/{id}/files/ response",
+        )
+
+    # ── Test D: Chain of custody contains CHECKED_IN after file upload ───
+
+    def test_chain_of_custody_contains_checked_in_after_upload(self) -> None:
+        """
+        Scenario 5.2 — Test D: After uploading a file, the chain-of-custody
+        log (GET /api/evidence/{id}/chain-of-custody/) must contain at least
+        one entry with action == "Checked In" (CustodyAction.CHECKED_IN).
+
+        EvidenceFileService.upload_file() creates:
+            EvidenceCustodyLog(action_type=CustodyAction.CHECKED_IN, ...)
+
+        Response fields per ChainOfCustodyEntrySerializer:
+            id, timestamp, action (display label), performed_by (PK),
+            performer_name, details
+
+        Reference:
+            evidence/services.py  EvidenceFileService.upload_file
+            evidence/services.py  ChainOfCustodyService.get_chain_of_custody
+            swagger_documentation_report.md §3.4 — EvidenceViewSet.chain_of_custody
+        """
+        evid_id = self._create_biological_evidence(
+            title="Bio Evidence — Custody Log Test"
+        )
+
+        # Upload a file to trigger the CHECKED_IN custody log entry
+        fake_image = SimpleUploadedFile(
+            name="lab_sample.jpg",
+            content=b"\xff\xd8\xff\xe0" + b"1" * 80,
+            content_type="image/jpeg",
+        )
+        upload_url = reverse("evidence-files", kwargs={"pk": evid_id})
+        up_resp = self.client.post(
+            upload_url,
+            data={"file": fake_image, "file_type": "image", "caption": "Lab specimen"},
+            format="multipart",
+        )
+        self.assertEqual(up_resp.status_code, status.HTTP_201_CREATED)
+
+        # Fetch chain of custody (detective has view_evidence)
+        custody_url = reverse("evidence-chain-of-custody", kwargs={"pk": evid_id})
+        custody_resp = self.client.get(custody_url)
+        self.assertEqual(
+            custody_resp.status_code,
+            status.HTTP_200_OK,
+            msg=f"Chain-of-custody GET failed: {custody_resp.data}",
+        )
+
+        entries = custody_resp.data
+        self.assertGreater(
+            len(entries), 0,
+            msg="Chain-of-custody log must not be empty after file upload",
+        )
+
+        # Verify entry schema
+        for field in ("id", "timestamp", "action", "performed_by", "performer_name", "details"):
+            self.assertIn(field, entries[0], msg=f"Custody entry missing field '{field}'")
+
+        # At least one "Checked In" entry must exist (from the file upload)
+        actions = [e["action"] for e in entries]
+        self.assertIn(
+            "Checked In",
+            actions,
+            msg=(
+                "Expected a 'Checked In' custody entry after file upload. "
+                f"Actual actions: {actions}"
+            ),
+        )
+
+        # The actor on the CHECKED_IN entry must be the detective who uploaded
+        checked_in = [e for e in entries if e["action"] == "Checked In"]
+        self.assertEqual(
+            checked_in[0]["performed_by"],
+            self.detective_user.pk,
+            msg="performed_by on the CHECKED_IN entry must be the detective who uploaded the file",
+        )
+
+    # ── Test E: Coroner approves biological evidence ──────────────────────
+
+    def test_coroner_approve_biological_evidence(self) -> None:
+        """
+        Scenario 5.2 — Test E: Coroner approves biological evidence.
+
+        Flow:
+          1. Detective creates biological evidence via API.
+          2. Coroner POSTs to /api/evidence/{id}/verify/ with
+             decision="approve" and forensic_result (required).
+          3. Asserts HTTP 200, is_verified=True, forensic_result matches,
+             verified_by == coroner PK.
+          4. DB row is updated accordingly.
+          5. GET chain-of-custody must contain an "Analysed" entry
+             (CustodyAction.ANALYSED created by the service on verification).
+
+        Reference:
+            evidence/services.py  MedicalExaminerService.verify_biological_evidence
+                → decision=approve:
+                      bio_evidence.is_verified = True
+                      bio_evidence.forensic_result = forensic_result
+                      bio_evidence.verified_by = examiner_user
+                → creates CustodyAction.ANALYSED log entry
+            swagger_documentation_report.md §3.4 — EvidenceViewSet.verify
+        """
+        evid_id = self._create_biological_evidence(
+            title="Bio Evidence — Coroner Approval Test"
+        )
+
+        # Switch to Coroner credentials
+        self._login_as(self.coroner_user.username, self.coroner_password)
+
+        verify_url = reverse("evidence-verify", kwargs={"pk": evid_id})
+        forensic_text = "Blood type O+. DNA profile matches suspect on file."
+        resp = self.client.post(
+            verify_url,
+            {"decision": "approve", "forensic_result": forensic_text},
+            format="json",
+        )
+        self.assertEqual(
+            resp.status_code,
+            status.HTTP_200_OK,
+            msg=f"Coroner approve returned {resp.status_code}: {resp.data}",
+        )
+
+        data = resp.data
+        self.assertTrue(data["is_verified"], msg="is_verified must be True after approval")
+        self.assertEqual(
+            data["forensic_result"],
+            forensic_text,
+            msg="forensic_result must match the submitted value after approval",
+        )
+        self.assertEqual(
+            data["verified_by"],
+            self.coroner_user.pk,
+            msg="verified_by must be the Coroner's PK",
+        )
+
+        # DB must reflect the approval
+        db_bio = BiologicalEvidence.objects.get(pk=evid_id)
+        self.assertTrue(db_bio.is_verified)
+        self.assertEqual(db_bio.forensic_result, forensic_text)
+        self.assertEqual(db_bio.verified_by_id, self.coroner_user.pk)
+
+        # Chain of custody must include an "Analysed" entry
+        custody_resp = self.client.get(
+            reverse("evidence-chain-of-custody", kwargs={"pk": evid_id})
+        )
+        self.assertEqual(custody_resp.status_code, status.HTTP_200_OK)
+        actions = [e["action"] for e in custody_resp.data]
+        self.assertIn(
+            "Analysed",
+            actions,
+            msg=f"Expected 'Analysed' custody entry after Coroner approval. Got: {actions}",
+        )
+
+    # ── Test F: Coroner rejects biological evidence ───────────────────────
+
+    def test_coroner_reject_biological_evidence(self) -> None:
+        """
+        Scenario 5.2 — Test F: Coroner rejects biological evidence.
+
+        Flow:
+          1. Detective creates a fresh biological evidence record.
+          2. Coroner POSTs with decision="reject" and notes (required).
+          3. Asserts:
+             - HTTP 200
+             - is_verified == False  (rejection does NOT set verified)
+             - forensic_result == "REJECTED: <notes>"  (service rule from
+               evidence/services.py line: bio_evidence.forensic_result = f"REJECTED: {notes}")
+             - verified_by == coroner PK  (tracks who acted even on rejection)
+          4. DB row reflects the rejection.
+
+        Reference:
+            evidence/services.py  MedicalExaminerService.verify_biological_evidence
+                → decision=reject:
+                      bio_evidence.is_verified = False
+                      bio_evidence.forensic_result = f"REJECTED: {notes}"
+                      bio_evidence.verified_by = examiner_user
+        """
+        evid_id = self._create_biological_evidence(
+            title="Bio Evidence — Coroner Rejection Test"
+        )
+
+        self._login_as(self.coroner_user.username, self.coroner_password)
+
+        rejection_notes = "Sample contaminated — collection process compromised."
+        verify_url = reverse("evidence-verify", kwargs={"pk": evid_id})
+        resp = self.client.post(
+            verify_url,
+            {"decision": "reject", "notes": rejection_notes},
+            format="json",
+        )
+        self.assertEqual(
+            resp.status_code,
+            status.HTTP_200_OK,
+            msg=f"Coroner reject returned {resp.status_code}: {resp.data}",
+        )
+
+        data = resp.data
+        # Rejection must NOT set is_verified to True
+        self.assertFalse(
+            data["is_verified"],
+            msg="is_verified must remain False after rejection",
+        )
+        # forensic_result is stored as "REJECTED: <notes>" per service rule
+        self.assertEqual(
+            data["forensic_result"],
+            f"REJECTED: {rejection_notes}",
+            msg=(
+                "forensic_result must be prefixed 'REJECTED: ' containing the "
+                "rejection notes (see evidence/services.py line: "
+                "bio_evidence.forensic_result = f'REJECTED: {notes}')"
+            ),
+        )
+        # verified_by tracks the acting Coroner even on rejection
+        self.assertEqual(
+            data["verified_by"],
+            self.coroner_user.pk,
+            msg="verified_by must be set to the Coroner's PK even on rejection",
+        )
+
+        # DB verification
+        db_bio = BiologicalEvidence.objects.get(pk=evid_id)
+        self.assertFalse(db_bio.is_verified)
+        self.assertEqual(db_bio.forensic_result, f"REJECTED: {rejection_notes}")
+        self.assertEqual(db_bio.verified_by_id, self.coroner_user.pk)
+
+    # ── Test G: Approve is irreversible ──────────────────────────────────
+
+    def test_approve_biological_evidence_is_irreversible(self) -> None:
+        """
+        Scenario 5.2 — Test G: Once biological evidence is approved, any
+        subsequent call to the verify endpoint (approve or reject) must
+        return HTTP 400.
+
+        Business rule from the service layer:
+            if bio_evidence.is_verified:
+                raise DomainError(
+                    "This evidence has already been verified. "
+                    "Verification is irreversible."
+                )
+
+        DomainError → HTTP 400 via the custom domain_exception_handler
+        (core/domain/exception_handler.py).
+
+        Reference:
+            evidence/services.py  MedicalExaminerService.verify_biological_evidence
+        """
+        evid_id = self._create_biological_evidence(
+            title="Bio Evidence — Irreversibility Test"
+        )
+
+        # First approval → must succeed
+        self._login_as(self.coroner_user.username, self.coroner_password)
+        verify_url = reverse("evidence-verify", kwargs={"pk": evid_id})
+        first_resp = self.client.post(
+            verify_url,
+            {"decision": "approve", "forensic_result": "Initial report — conclusive."},
+            format="json",
+        )
+        self.assertEqual(
+            first_resp.status_code,
+            status.HTTP_200_OK,
+            msg=f"First approval failed unexpectedly: {first_resp.data}",
+        )
+        self.assertTrue(first_resp.data["is_verified"])
+
+        # Second approve attempt → must fail (irreversibility invariant)
+        second_resp = self.client.post(
+            verify_url,
+            {"decision": "approve", "forensic_result": "Trying to overwrite."},
+            format="json",
+        )
+        self.assertEqual(
+            second_resp.status_code,
+            status.HTTP_400_BAD_REQUEST,
+            msg=(
+                f"Expected 400 on second approve attempt (irreversible), "
+                f"got {second_resp.status_code}: {second_resp.data}"
+            ),
+        )
+        error_str = str(second_resp.data).lower()
+        self.assertIn(
+            "irreversible",
+            error_str,
+            msg=f"Error message should mention 'irreversible'. Got: {second_resp.data}",
+        )
+
+        # Reject attempt on already-approved evidence must also fail
+        reject_resp = self.client.post(
+            verify_url,
+            {"decision": "reject", "notes": "Trying to reverse the approval."},
+            format="json",
+        )
+        self.assertEqual(
+            reject_resp.status_code,
+            status.HTTP_400_BAD_REQUEST,
+            msg=(
+                f"Expected 400 when rejecting already-approved evidence, "
+                f"got {reject_resp.status_code}: {reject_resp.data}"
+            ),
+        )
+
+    # ── Test H1: Non-Coroner cannot verify → 403 ─────────────────────────
+
+    def test_non_coroner_verify_returns_403(self) -> None:
+        """
+        Scenario 5.2 — Test H1: A Detective (lacks can_verify_evidence)
+        attempting POST /api/evidence/{id}/verify/ receives HTTP 403.
+
+        Reference:
+            evidence/services.py  MedicalExaminerService.verify_biological_evidence
+                → if not examiner_user.has_perm("evidence.can_verify_evidence"):
+                      raise PermissionDenied("Only the Coroner can verify...")
+        """
+        evid_id = self._create_biological_evidence(
+            title="Bio Evidence — Non-Coroner Verify 403 Test"
+        )
+        # _create_biological_evidence leaves the client logged in as detective
+        verify_url = reverse("evidence-verify", kwargs={"pk": evid_id})
+        resp = self.client.post(
+            verify_url,
+            {"decision": "approve", "forensic_result": "Unauthorised forensic report."},
+            format="json",
+        )
+        self.assertEqual(
+            resp.status_code,
+            status.HTTP_403_FORBIDDEN,
+            msg=(
+                f"Expected 403 for Detective (no can_verify_evidence), "
+                f"got {resp.status_code}: {resp.data}"
+            ),
+        )
+
+    # ── Test H2: Approve without forensic_result → 400 ───────────────────
+
+    def test_approve_without_forensic_result_returns_400(self) -> None:
+        """
+        Scenario 5.2 — Test H2: Coroner sends decision="approve" with an
+        empty forensic_result.  Must receive HTTP 400.
+
+        Validation fires in VerifyBiologicalEvidenceSerializer.validate():
+            if decision == "approve" and not forensic_result.strip():
+                raise ValidationError({"forensic_result": "..."})
+
+        Reference:
+            evidence/serializers.py  VerifyBiologicalEvidenceSerializer.validate
+        """
+        evid_id = self._create_biological_evidence(
+            title="Bio Evidence — Missing forensic_result 400 Test"
+        )
+        self._login_as(self.coroner_user.username, self.coroner_password)
+
+        verify_url = reverse("evidence-verify", kwargs={"pk": evid_id})
+        resp = self.client.post(
+            verify_url,
+            {"decision": "approve", "forensic_result": ""},
+            format="json",
+        )
+        self.assertEqual(
+            resp.status_code,
+            status.HTTP_400_BAD_REQUEST,
+            msg=(
+                f"Expected 400 when approving without forensic_result, "
+                f"got {resp.status_code}: {resp.data}"
+            ),
+        )
+
+    # ── Test H3: Reject without notes → 400 ─────────────────────────────
+
+    def test_reject_without_notes_returns_400(self) -> None:
+        """
+        Scenario 5.2 — Test H3: Coroner sends decision="reject" with empty
+        notes.  Must receive HTTP 400.
+
+        Validation fires in VerifyBiologicalEvidenceSerializer.validate():
+            if decision == "reject" and not notes.strip():
+                raise ValidationError({"notes": "A rejection reason is required."})
+
+        Reference:
+            evidence/serializers.py  VerifyBiologicalEvidenceSerializer.validate
+        """
+        evid_id = self._create_biological_evidence(
+            title="Bio Evidence — Missing notes 400 Test"
+        )
+        self._login_as(self.coroner_user.username, self.coroner_password)
+
+        verify_url = reverse("evidence-verify", kwargs={"pk": evid_id})
+        resp = self.client.post(
+            verify_url,
+            {"decision": "reject", "notes": ""},
+            format="json",
+        )
+        self.assertEqual(
+            resp.status_code,
+            status.HTTP_400_BAD_REQUEST,
+            msg=(
+                f"Expected 400 when rejecting without notes, "
+                f"got {resp.status_code}: {resp.data}"
             ),
         )
