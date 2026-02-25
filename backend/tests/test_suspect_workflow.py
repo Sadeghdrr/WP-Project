@@ -17,7 +17,7 @@ from rest_framework.test import APIClient
 
 from accounts.models import Role
 from cases.models import Case, CaseCreationType, CaseStatus, CrimeLevel
-from suspects.models import Suspect, SuspectStatus
+from suspects.models import Suspect, SuspectStatus, Warrant
 
 User = get_user_model()
 
@@ -34,11 +34,15 @@ def _make_role(name: str, hierarchy_level: int) -> Role:
 
 
 def _grant(role: Role, codename: str, app_label: str) -> None:
-    perm = Permission.objects.get(
+    perms = Permission.objects.filter(
         codename=codename,
         content_type__app_label=app_label,
     )
-    role.permissions.add(perm)
+    if not perms.exists():
+        raise Permission.DoesNotExist(
+            f"Permission {app_label}.{codename} was not found for test setup."
+        )
+    role.permissions.add(*perms)
 
 
 class TestSuspectWorkflow(TestCase):
@@ -55,6 +59,7 @@ class TestSuspectWorkflow(TestCase):
         _grant(cls.detective_role, "add_suspect", "suspects")
         _grant(cls.detective_role, "view_suspect", "suspects")
         _grant(cls.sergeant_role, "can_approve_suspect", "suspects")
+        _grant(cls.sergeant_role, "can_issue_arrest_warrant", "suspects")
 
         _grant(cls.chief_role, "can_assign_detective", "cases")
         _grant(cls.chief_role, "view_case", "cases")
@@ -193,6 +198,34 @@ class TestSuspectWorkflow(TestCase):
             msg=f"Suspect setup creation failed: {response.data}",
         )
         return response.data
+
+    def approve_suspect_as_sergeant(self, suspect_id: int) -> dict:
+        sergeant_token = self.login(self.sergeant_user, self.sergeant_password)
+        self.auth(sergeant_token)
+        approve_url = reverse("suspect-approve", kwargs={"pk": suspect_id})
+        response = self.client.post(approve_url, {"decision": "approve"}, format="json")
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+            msg=f"Suspect approval setup failed: {response.data}",
+        )
+        return response.data
+
+    def issue_warrant_as_sergeant(
+        self,
+        suspect_id: int,
+        *,
+        reason: str = "Strong forensic evidence links suspect to the case.",
+        priority: str = "high",
+    ):
+        sergeant_token = self.login(self.sergeant_user, self.sergeant_password)
+        self.auth(sergeant_token)
+        issue_url = reverse("suspect-issue-warrant", kwargs={"pk": suspect_id})
+        return self.client.post(
+            issue_url,
+            {"warrant_reason": reason, "priority": priority},
+            format="json",
+        )
 
     def test_detective_creates_suspect_successfully(self):
         self.assign_detective_to_case(self.case)
@@ -415,3 +448,95 @@ class TestSuspectWorkflow(TestCase):
             (status.HTTP_400_BAD_REQUEST, status.HTTP_409_CONFLICT),
             msg=f"Expected 400/409 for already-processed approval. Body: {second_response.data}",
         )
+
+    def test_sergeant_can_issue_warrant_for_approved_suspect(self):
+        suspect_id = self.create_suspect_as_detective(full_name="Warrant Candidate")["id"]
+        self.approve_suspect_as_sergeant(suspect_id)
+
+        response = self.issue_warrant_as_sergeant(
+            suspect_id,
+            reason="Witness statement and DNA evidence confirm probable cause.",
+            priority="critical",
+        )
+        self.assertIn(
+            response.status_code,
+            (status.HTTP_200_OK, status.HTTP_201_CREATED),
+            msg=f"Expected 200/201 for warrant issue. Body: {response.data}",
+        )
+        self.assertEqual(response.data["id"], suspect_id)
+        self.assertEqual(response.data["sergeant_approval_status"], "approved")
+
+        warrants = Warrant.objects.filter(suspect_id=suspect_id)
+        self.assertEqual(warrants.count(), 1)
+        warrant = warrants.first()
+        self.assertEqual(warrant.status, Warrant.WarrantStatus.ACTIVE)
+        self.assertEqual(warrant.priority, "critical")
+        self.assertEqual(
+            warrant.reason,
+            "Witness statement and DNA evidence confirm probable cause.",
+        )
+        self.assertEqual(warrant.issued_by_id, self.sergeant_user.id)
+
+    def test_duplicate_warrant_is_prevented_for_same_suspect(self):
+        suspect_id = self.create_suspect_as_detective(full_name="Duplicate Warrant Suspect")["id"]
+        self.approve_suspect_as_sergeant(suspect_id)
+
+        first_issue = self.issue_warrant_as_sergeant(suspect_id, priority="high")
+        self.assertIn(first_issue.status_code, (status.HTTP_200_OK, status.HTTP_201_CREATED))
+        self.assertEqual(
+            Warrant.objects.filter(
+                suspect_id=suspect_id,
+                status=Warrant.WarrantStatus.ACTIVE,
+            ).count(),
+            1,
+        )
+
+        second_issue = self.issue_warrant_as_sergeant(suspect_id, priority="high")
+        self.assertIn(
+            second_issue.status_code,
+            (status.HTTP_400_BAD_REQUEST, status.HTTP_409_CONFLICT),
+            msg=f"Expected 400/409 on duplicate warrant issue. Body: {second_issue.data}",
+        )
+        self.assertEqual(
+            Warrant.objects.filter(suspect_id=suspect_id).count(),
+            1,
+            msg="Duplicate warrant call must not create additional warrant rows.",
+        )
+
+    def test_issue_warrant_before_sergeant_approval_is_rejected(self):
+        suspect_id = self.create_suspect_as_detective(full_name="Unapproved Suspect")["id"]
+
+        response = self.issue_warrant_as_sergeant(
+            suspect_id,
+            reason="Attempting issue before approval should fail.",
+            priority="normal",
+        )
+        self.assertIn(
+            response.status_code,
+            (status.HTTP_400_BAD_REQUEST, status.HTTP_409_CONFLICT),
+            msg=f"Expected 400/409 when warrant issued before approval. Body: {response.data}",
+        )
+        self.assertEqual(
+            Warrant.objects.filter(suspect_id=suspect_id).count(),
+            0,
+            msg="No warrant should be created when suspect is not approved.",
+        )
+
+    def test_non_sergeant_cannot_issue_warrant(self):
+        suspect_id = self.create_suspect_as_detective(full_name="Permission Test Suspect")["id"]
+        self.approve_suspect_as_sergeant(suspect_id)
+
+        captain_token = self.login(self.captain_user, self.captain_password)
+        self.auth(captain_token)
+        issue_url = reverse("suspect-issue-warrant", kwargs={"pk": suspect_id})
+        response = self.client.post(
+            issue_url,
+            {"warrant_reason": "Captain tries to issue.", "priority": "high"},
+            format="json",
+        )
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+            msg=f"Expected 403 when non-sergeant issues warrant. Body: {response.data}",
+        )
+        self.assertEqual(Warrant.objects.filter(suspect_id=suspect_id).count(), 0)
