@@ -10,3 +10,14 @@ export {
   getErrorMessage,
   flattenErrors,
 } from "./errors";
+
+export {
+  STATUS_LABELS,
+  STATUS_COLORS,
+  CRIME_LEVEL_LABELS,
+  CRIME_LEVEL_COLORS,
+  STATUS_ACTIONS,
+  getAvailableActions,
+  isTerminalStatus,
+} from "./caseWorkflow";
+export type { WorkflowAction, StatusColor } from "./caseWorkflow";
