@@ -54,6 +54,7 @@ class TestSuspectWorkflow(TestCase):
         _grant(cls.detective_role, "can_identify_suspect", "suspects")
         _grant(cls.detective_role, "add_suspect", "suspects")
         _grant(cls.detective_role, "view_suspect", "suspects")
+        _grant(cls.sergeant_role, "can_approve_suspect", "suspects")
 
         _grant(cls.chief_role, "can_assign_detective", "cases")
         _grant(cls.chief_role, "view_case", "cases")
@@ -177,6 +178,22 @@ class TestSuspectWorkflow(TestCase):
         payload.update(overrides)
         return payload
 
+    def create_suspect_as_detective(self, *, case: Case | None = None, **payload_overrides) -> dict:
+        target_case = case or self.create_case()
+        self.assign_detective_to_case(target_case)
+
+        detective_token = self.login(self.detective_user, self.detective_password)
+        self.auth(detective_token)
+
+        payload = self._suspect_payload(case_id=target_case.id, **payload_overrides)
+        response = self.client.post(self.suspect_create_url, payload, format="json")
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_201_CREATED,
+            msg=f"Suspect setup creation failed: {response.data}",
+        )
+        return response.data
+
     def test_detective_creates_suspect_successfully(self):
         self.assign_detective_to_case(self.case)
 
@@ -260,3 +277,141 @@ class TestSuspectWorkflow(TestCase):
             msg=f"Expected 400 for invalid national_id. Body: {response.data}",
         )
         self.assertIn("national_id", response.data)
+
+    def test_sergeant_can_approve_suspect_successfully(self):
+        suspect_data = self.create_suspect_as_detective()
+        suspect_id = suspect_data["id"]
+
+        sergeant_token = self.login(self.sergeant_user, self.sergeant_password)
+        self.auth(sergeant_token)
+
+        approve_url = reverse("suspect-approve", kwargs={"pk": suspect_id})
+        response = self.client.post(approve_url, {"decision": "approve"}, format="json")
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+            msg=f"Expected 200 approving suspect. Body: {response.data}",
+        )
+        self.assertEqual(response.data["id"], suspect_id)
+        self.assertEqual(response.data["sergeant_approval_status"], "approved")
+        self.assertEqual(response.data["status"], SuspectStatus.WANTED)
+        self.assertEqual(response.data["approved_by_sergeant"], self.sergeant_user.id)
+
+        detail_url = reverse("suspect-detail", kwargs={"pk": suspect_id})
+        detail_response = self.client.get(detail_url, format="json")
+        self.assertEqual(
+            detail_response.status_code,
+            status.HTTP_200_OK,
+            msg=f"Expected 200 for detail after approve. Body: {detail_response.data}",
+        )
+        self.assertEqual(detail_response.data["sergeant_approval_status"], "approved")
+        self.assertEqual(detail_response.data["status"], SuspectStatus.WANTED)
+        self.assertEqual(detail_response.data["approved_by_sergeant"], self.sergeant_user.id)
+
+        suspect = Suspect.objects.get(pk=suspect_id)
+        self.assertEqual(suspect.sergeant_approval_status, "approved")
+        self.assertEqual(suspect.approved_by_sergeant_id, self.sergeant_user.id)
+        self.assertEqual(suspect.status, SuspectStatus.WANTED)
+
+    def test_sergeant_can_reject_suspect_with_message(self):
+        suspect_data = self.create_suspect_as_detective(full_name="Rejectable Suspect")
+        suspect_id = suspect_data["id"]
+        rejection_message = "Insufficient evidence linking suspect to the scene."
+
+        sergeant_token = self.login(self.sergeant_user, self.sergeant_password)
+        self.auth(sergeant_token)
+
+        approve_url = reverse("suspect-approve", kwargs={"pk": suspect_id})
+        response = self.client.post(
+            approve_url,
+            {"decision": "reject", "rejection_message": rejection_message},
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+            msg=f"Expected 200 rejecting suspect. Body: {response.data}",
+        )
+        self.assertEqual(response.data["sergeant_approval_status"], "rejected")
+        self.assertEqual(response.data["sergeant_rejection_message"], rejection_message)
+        self.assertEqual(response.data["approved_by_sergeant"], self.sergeant_user.id)
+
+        detail_url = reverse("suspect-detail", kwargs={"pk": suspect_id})
+        detail_response = self.client.get(detail_url, format="json")
+        self.assertEqual(detail_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(detail_response.data["sergeant_approval_status"], "rejected")
+        self.assertEqual(detail_response.data["sergeant_rejection_message"], rejection_message)
+
+        suspect = Suspect.objects.get(pk=suspect_id)
+        self.assertEqual(suspect.sergeant_approval_status, "rejected")
+        self.assertEqual(suspect.sergeant_rejection_message, rejection_message)
+
+    def test_non_sergeant_cannot_approve_or_reject_suspect(self):
+        suspect_id = self.create_suspect_as_detective(full_name="Protected Suspect")["id"]
+        approve_url = reverse("suspect-approve", kwargs={"pk": suspect_id})
+
+        captain_token = self.login(self.captain_user, self.captain_password)
+        self.auth(captain_token)
+
+        for payload in (
+            {"decision": "approve"},
+            {"decision": "reject", "rejection_message": "Should be forbidden."},
+        ):
+            with self.subTest(payload=payload):
+                response = self.client.post(approve_url, payload, format="json")
+                self.assertEqual(
+                    response.status_code,
+                    status.HTTP_403_FORBIDDEN,
+                    msg=f"Expected 403 for non-sergeant approval action. Body: {response.data}",
+                )
+
+    def test_sergeant_reject_without_message_returns_400(self):
+        suspect_id = self.create_suspect_as_detective(full_name="Missing Message Suspect")["id"]
+
+        sergeant_token = self.login(self.sergeant_user, self.sergeant_password)
+        self.auth(sergeant_token)
+
+        approve_url = reverse("suspect-approve", kwargs={"pk": suspect_id})
+        response = self.client.post(
+            approve_url,
+            {"decision": "reject"},
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+            msg=f"Expected 400 for reject without rejection_message. Body: {response.data}",
+        )
+        self.assertIn("rejection_message", response.data)
+
+    def test_cannot_approve_already_processed_suspect(self):
+        suspect_id = self.create_suspect_as_detective(full_name="Already Processed Suspect")["id"]
+
+        sergeant_token = self.login(self.sergeant_user, self.sergeant_password)
+        self.auth(sergeant_token)
+
+        approve_url = reverse("suspect-approve", kwargs={"pk": suspect_id})
+        first_response = self.client.post(
+            approve_url,
+            {"decision": "approve"},
+            format="json",
+        )
+        self.assertEqual(
+            first_response.status_code,
+            status.HTTP_200_OK,
+            msg=f"Initial approval should succeed. Body: {first_response.data}",
+        )
+
+        second_response = self.client.post(
+            approve_url,
+            {"decision": "approve"},
+            format="json",
+        )
+        self.assertIn(
+            second_response.status_code,
+            (status.HTTP_400_BAD_REQUEST, status.HTTP_409_CONFLICT),
+            msg=f"Expected 400/409 for already-processed approval. Body: {second_response.data}",
+        )
