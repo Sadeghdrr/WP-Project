@@ -1,0 +1,371 @@
+/* =========================================================================
+   DashboardPage — Modular Dashboard Styles
+   ========================================================================= */
+
+/* ── Page layout ─────────────────────────────────────────────────────────── */
+
+.page {
+  padding: var(--space-lg) var(--space-md);
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.pageHeader {
+  margin-bottom: var(--space-lg);
+}
+
+.pageTitle {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--color-text);
+  margin: 0 0 var(--space-xs);
+}
+
+.pageSubtitle {
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+  margin: 0;
+}
+
+/* ── Stats grid (top-level KPIs) ─────────────────────────────────────── */
+
+.statsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--space-md);
+  margin-bottom: var(--space-xl);
+}
+
+.statCard {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+  text-align: center;
+  transition: box-shadow var(--transition-fast);
+}
+
+.statCard:hover {
+  box-shadow: var(--shadow-md);
+}
+
+.statValue {
+  font-size: 1.75rem;
+  font-weight: 800;
+  color: var(--color-primary);
+  margin: 0;
+}
+
+.statLabel {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  margin: var(--space-xs) 0 0;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+/* Accent colors for stats */
+.statActive .statValue {
+  color: var(--color-warning);
+}
+
+.statClosed .statValue {
+  color: var(--color-success);
+}
+
+.statDanger .statValue {
+  color: var(--color-danger);
+}
+
+.statInfo .statValue {
+  color: var(--color-info);
+}
+
+/* ── Module grid (widget cards) ──────────────────────────────────────── */
+
+.moduleGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: var(--space-md);
+  margin-bottom: var(--space-lg);
+}
+
+/* ── Widget card ─────────────────────────────────────────────────────── */
+
+.widget {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.widgetHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-md);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.widgetTitle {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--color-text);
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.widgetIcon {
+  font-size: 1.125rem;
+}
+
+.widgetLink {
+  font-size: 0.8125rem;
+  color: var(--color-primary);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.widgetLink:hover {
+  text-decoration: underline;
+}
+
+.widgetBody {
+  padding: var(--space-md);
+  flex: 1;
+}
+
+/* ── Breakdown list (cases by status / crime level) ──────────────────── */
+
+.breakdownList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.breakdownItem {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-xs) 0;
+}
+
+.breakdownItem + .breakdownItem {
+  border-top: 1px solid var(--color-border);
+}
+
+.breakdownLabel {
+  font-size: 0.875rem;
+  color: var(--color-text);
+}
+
+.breakdownCount {
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--color-primary);
+  background: var(--color-primary-light);
+  padding: 2px 10px;
+  border-radius: var(--radius-full);
+}
+
+/* ── Top wanted table ────────────────────────────────────────────────── */
+
+.wantedTable {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.wantedTable th,
+.wantedTable td {
+  padding: var(--space-xs) var(--space-sm);
+  text-align: left;
+  font-size: 0.8125rem;
+}
+
+.wantedTable th {
+  color: var(--color-text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  border-bottom: 2px solid var(--color-border);
+}
+
+.wantedTable td {
+  color: var(--color-text);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.wantedTable tr:last-child td {
+  border-bottom: none;
+}
+
+.wantedName {
+  font-weight: 600;
+}
+
+.wantedScore {
+  font-weight: 700;
+  color: var(--color-danger);
+}
+
+/* ── Activity feed ───────────────────────────────────────────────────── */
+
+.activityList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.activityItem {
+  padding: var(--space-sm) 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.activityItem + .activityItem {
+  border-top: 1px solid var(--color-border);
+}
+
+.activityDesc {
+  font-size: 0.8125rem;
+  color: var(--color-text);
+}
+
+.activityMeta {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+/* ── Quick actions ───────────────────────────────────────────────────── */
+
+.quickActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.actionLink {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--color-primary-light);
+  color: var(--color-primary);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  transition: background var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.actionLink:hover {
+  background: var(--color-primary);
+  color: #fff;
+  box-shadow: var(--shadow-sm);
+}
+
+/* ── Skeleton states ─────────────────────────────────────────────────── */
+
+.skeletonGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--space-md);
+  margin-bottom: var(--space-xl);
+}
+
+.skeletonCard {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-lg);
+  position: relative;
+  overflow: hidden;
+}
+
+.skeletonCard::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.45) 50%,
+    transparent 100%
+  );
+  animation: dashShimmer 1.4s infinite;
+}
+
+@keyframes dashShimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/* ── Empty / no-permission ───────────────────────────────────────────── */
+
+.emptyDash {
+  text-align: center;
+  padding: var(--space-xl);
+}
+
+.emptyIcon {
+  font-size: 2.5rem;
+  margin-bottom: var(--space-sm);
+}
+
+.emptyTitle {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--color-text);
+  margin: 0 0 var(--space-xs);
+}
+
+.emptyDesc {
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+  margin: 0;
+}
+
+/* ── Responsive ──────────────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .moduleGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .statsGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .quickActions {
+    flex-direction: column;
+  }
+
+  .actionLink {
+    justify-content: center;
+  }
+}
+
+@media (max-width: 480px) {
+  .statsGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .pageTitle {
+    font-size: 1.25rem;
+  }
+
+  .wantedTable th:nth-child(3),
+  .wantedTable td:nth-child(3) {
+    display: none;
+  }
+}
