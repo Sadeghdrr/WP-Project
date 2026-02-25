@@ -27,6 +27,16 @@ Test map
          B  After adding a note the items and notes lists are non-empty and conform to schema
          C  After adding a connection the connections list is non-empty and conforms to schema
          D  Unrelated user (not assigned to the case) → 403 Forbidden
+
+  6.3  Add board item (pin) referencing an Evidence object
+         A  Detective pins an Evidence object → 201 with full item schema
+         B  Response content_object_summary has required discovery fields
+         C  Pinned item visible in GET /boards/{id}/full/ items list
+         D  Duplicate pin of the same object → 400 Bad Request
+         E  Invalid object_id (non-existent) → 400
+         F  Invalid content_type_id (non-existent) → 400
+         G  Disallowed content_type (e.g. accounts.user) → 400
+         H  Unrelated user (Cadet, not assigned) tries to pin → 403
 """
 
 from __future__ import annotations
@@ -38,9 +48,12 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from django.contrib.contenttypes.models import ContentType
+
 from accounts.models import Role
 from board.models import DetectiveBoard
 from cases.models import Case, CaseCreationType, CrimeLevel, CaseStatus
+from evidence.models import Evidence, EvidenceType
 
 User = get_user_model()
 
@@ -764,5 +777,327 @@ class TestBoardAndSuspectsFlow(TestCase):
             msg=(
                 f"Expected 403 Forbidden when an unrelated user accesses full board state, "
                 f"but got {response.status_code}: {response.data}"
+            ),
+        )
+
+    # ─────────────────────────────────────────────────────────────────
+    #  Scenario 6.3 helpers
+    # ─────────────────────────────────────────────────────────────────
+
+    def _add_item(self, board_id: int, content_type_id: int, object_id: int,
+                  position_x: float = 100.0, position_y: float = 200.0,
+                  ) -> "rest_framework.response.Response":  # type: ignore[name-defined]
+        """
+        POST /api/boards/{board_pk}/items/ — pin a content object to the board.
+
+        Payload schema (BoardItemCreateSerializer → GenericObjectRelatedField):
+            {
+              "content_object": {"content_type_id": <int>, "object_id": <int>},
+              "position_x": <float>,
+              "position_y": <float>
+            }
+
+        Reference: swagger_documentation_report.md §3.5
+                   BoardItemViewSet.create → POST /api/boards/{board_pk}/items/
+        """
+        return self.client.post(
+            reverse("board-item-list", kwargs={"board_pk": board_id}),
+            {
+                "content_object": {
+                    "content_type_id": content_type_id,
+                    "object_id": object_id,
+                },
+                "position_x": position_x,
+                "position_y": position_y,
+            },
+            format="json",
+        )
+
+    def _make_evidence(self) -> Evidence:
+        """
+        Create an Evidence (type OTHER) linked to ``cls.case`` directly in DB.
+
+        Direct DB creation is allowed for setup fixtures per the test constraints.
+        Using EvidenceType.OTHER requires only the base Evidence table — no
+        child sub-type is needed.
+        """
+        return Evidence.objects.create(
+            case=self.case,
+            evidence_type=EvidenceType.OTHER,
+            title="Bloodstained Jacket",
+            description="Found near the back entrance of the jazz club.",
+            registered_by=self.detective_user,
+        )
+
+    # ─────────────────────────────────────────────────────────────────
+    #  Scenario 6.3 — Add board item (pin) referencing an Evidence object
+    # ─────────────────────────────────────────────────────────────────
+
+    # ── 6.3-A: happy path — 201 and full item schema ─────────────────
+
+    def test_6_3_a_detective_pins_evidence_returns_201(self) -> None:
+        """
+        Scenario 6.3-A: POST /api/boards/{board_id}/items/ with a valid
+        evidence reference → HTTP 201 Created.
+
+        Payload: {"content_object": {"content_type_id": <ct>, "object_id": <ev>},
+                  "position_x": 150.0, "position_y": 250.0}
+
+        Reference:
+          - project-doc.md §4.4 — Detective places evidence on the board
+          - swagger_doc §3.5    — BoardItemViewSet.create → 201
+          - board/serializers.py — BoardItemCreateSerializer + GenericObjectRelatedField
+        """
+        self._login_as(self.detective_user.username, self.detective_password)
+        board_id = self._create_board().data["id"]
+        evidence = self._make_evidence()
+        ct = ContentType.objects.get(app_label="evidence", model="evidence")
+
+        response = self._add_item(board_id, ct.pk, evidence.pk, 150.0, 250.0)
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_201_CREATED,
+            msg=f"Expected 201 when pinning evidence, got {response.status_code}: {response.data}",
+        )
+
+    def test_6_3_a_pin_response_contains_required_fields(self) -> None:
+        """
+        Scenario 6.3-A (schema): BoardItemResponseSerializer fields:
+            id, board, content_type, object_id, content_object_summary,
+            position_x, position_y, created_at, updated_at
+
+        Reference: board/serializers.py — BoardItemResponseSerializer
+        """
+        self._login_as(self.detective_user.username, self.detective_password)
+        board_id = self._create_board().data["id"]
+        evidence = self._make_evidence()
+        ct = ContentType.objects.get(app_label="evidence", model="evidence")
+
+        response = self._add_item(board_id, ct.pk, evidence.pk, 150.0, 250.0)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        for field in ("id", "board", "content_type", "object_id",
+                      "content_object_summary", "position_x", "position_y",
+                      "created_at", "updated_at"):
+            self.assertIn(field, response.data,
+                          msg=f"BoardItem response missing field '{field}'.")
+
+        self.assertEqual(response.data["board"], board_id)
+        self.assertEqual(response.data["object_id"], evidence.pk)
+        self.assertAlmostEqual(float(response.data["position_x"]), 150.0)
+        self.assertAlmostEqual(float(response.data["position_y"]), 250.0)
+
+    # ── 6.3-B: content_object_summary discovery fields ───────────────
+
+    def test_6_3_b_content_object_summary_contains_discovery_fields(self) -> None:
+        """
+        Scenario 6.3-B: content_object_summary resolved by
+        GenericObjectRelatedField.to_representation must contain:
+            content_type_id, app_label, model, object_id, display_name, detail_url
+
+        These let the frontend render the correct icon and lazy-load the
+        full object if needed.
+
+        Reference: board/serializers.py — GenericObjectRelatedField.to_representation
+        """
+        self._login_as(self.detective_user.username, self.detective_password)
+        board_id = self._create_board().data["id"]
+        evidence = self._make_evidence()
+        ct = ContentType.objects.get(app_label="evidence", model="evidence")
+
+        response = self._add_item(board_id, ct.pk, evidence.pk)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        summary = response.data["content_object_summary"]
+        self.assertIsNotNone(summary, msg="content_object_summary must not be None.")
+
+        for field in ("content_type_id", "app_label", "model", "object_id",
+                      "display_name", "detail_url"):
+            self.assertIn(field, summary,
+                          msg=f"content_object_summary missing field '{field}'.")
+
+        self.assertEqual(summary["app_label"], "evidence")
+        self.assertEqual(summary["model"], "evidence")
+        self.assertEqual(summary["object_id"], evidence.pk)
+        self.assertIn("/api/evidence/", summary["detail_url"],
+                      msg="detail_url must point to /api/evidence/")
+        self.assertEqual(summary["display_name"], str(evidence))
+
+    # ── 6.3-C: pinned item visible in full board state ───────────────
+
+    def test_6_3_c_pinned_item_appears_in_full_state_items_list(self) -> None:
+        """
+        Scenario 6.3-C: After pinning, GET /api/boards/{id}/full/ items list
+        must contain the new item with matching object_id and position fields.
+
+        Reference:
+          - swagger_doc §3.5 — DetectiveBoardViewSet.full_state
+          - board/serializers.py — BoardItemInlineSerializer
+        """
+        self._login_as(self.detective_user.username, self.detective_password)
+        board_id = self._create_board().data["id"]
+        evidence = self._make_evidence()
+        ct = ContentType.objects.get(app_label="evidence", model="evidence")
+
+        pin_resp = self._add_item(board_id, ct.pk, evidence.pk, 111.0, 222.0)
+        self.assertEqual(pin_resp.status_code, status.HTTP_201_CREATED)
+        item_id = pin_resp.data["id"]
+
+        full_resp = self._get_full_state(board_id)
+        self.assertEqual(full_resp.status_code, status.HTTP_200_OK)
+
+        items = full_resp.data["items"]
+        self.assertEqual(len(items), 1, msg=f"Expected 1 item in full state, got {len(items)}.")
+
+        item = items[0]
+        self.assertEqual(item["id"], item_id)
+        self.assertEqual(item["object_id"], evidence.pk)
+        self.assertAlmostEqual(float(item["position_x"]), 111.0)
+        self.assertAlmostEqual(float(item["position_y"]), 222.0)
+
+    # ── 6.3-D: duplicate pin → 400 ───────────────────────────────────
+
+    def test_6_3_d_duplicate_pin_of_same_evidence_returns_400(self) -> None:
+        """
+        Scenario 6.3-D: Pinning the same evidence object twice on the same
+        board must fail with HTTP 400.
+
+        The service guard:
+            board/services.py — BoardItemService.add_item
+            → raises DomainError("This object is already pinned to the board.")
+
+        Reference: board/services.py — BoardItemService.add_item
+        """
+        self._login_as(self.detective_user.username, self.detective_password)
+        board_id = self._create_board().data["id"]
+        evidence = self._make_evidence()
+        ct = ContentType.objects.get(app_label="evidence", model="evidence")
+
+        first = self._add_item(board_id, ct.pk, evidence.pk)
+        self.assertEqual(first.status_code, status.HTTP_201_CREATED,
+                         msg=f"First pin must succeed: {first.data}")
+
+        second = self._add_item(board_id, ct.pk, evidence.pk)
+        self.assertEqual(
+            second.status_code,
+            status.HTTP_400_BAD_REQUEST,
+            msg=f"Expected 400 for duplicate pin, got {second.status_code}: {second.data}",
+        )
+
+    # ── 6.3-E: non-existent object_id → 400 ─────────────────────────
+
+    def test_6_3_e_invalid_object_id_returns_400(self) -> None:
+        """
+        Scenario 6.3-E: Supplying a valid content_type_id but a non-existent
+        object_id must return HTTP 400.
+
+        GenericObjectRelatedField.to_internal_value raises ValidationError:
+            "Object with id {object_id} does not exist for type '{key}'."
+
+        Reference: board/serializers.py — GenericObjectRelatedField.to_internal_value
+        """
+        self._login_as(self.detective_user.username, self.detective_password)
+        board_id = self._create_board().data["id"]
+        ct = ContentType.objects.get(app_label="evidence", model="evidence")
+
+        response = self._add_item(board_id, ct.pk, object_id=99999999)
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+            msg=f"Expected 400 for non-existent object_id, got {response.status_code}: {response.data}",
+        )
+
+    # ── 6.3-F: non-existent content_type_id → 400 ───────────────────
+
+    def test_6_3_f_invalid_content_type_id_returns_400(self) -> None:
+        """
+        Scenario 6.3-F: Supplying a content_type_id that does not exist in
+        the ContentType table must return HTTP 400.
+
+        GenericObjectRelatedField.to_internal_value raises ValidationError:
+            "ContentType with id {content_type_id} does not exist."
+
+        Reference: board/serializers.py — GenericObjectRelatedField.to_internal_value
+        """
+        self._login_as(self.detective_user.username, self.detective_password)
+        board_id = self._create_board().data["id"]
+
+        response = self._add_item(board_id, content_type_id=99999999, object_id=1)
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+            msg=f"Expected 400 for invalid content_type_id, got {response.status_code}: {response.data}",
+        )
+
+    # ── 6.3-G: disallowed content type → 400 ────────────────────────
+
+    def test_6_3_g_disallowed_content_type_returns_400(self) -> None:
+        """
+        Scenario 6.3-G: Supplying a content_type that exists in Django but is
+        NOT in GenericObjectRelatedField.ALLOWED_CONTENT_TYPES must return 400.
+
+        Example: accounts.user (auth_user) — valid ContentType but not on the
+        allowed list for detective board pins.
+
+        Allowed list (board/serializers.py — GenericObjectRelatedField):
+            cases.case, suspects.suspect, evidence.evidence,
+            evidence.testimonyevidence, evidence.biologicalevidence,
+            evidence.vehicleevidence, evidence.identityevidence,
+            board.boardnote
+
+        Reference: board/serializers.py — ALLOWED_CONTENT_TYPES
+        """
+        self._login_as(self.detective_user.username, self.detective_password)
+        board_id = self._create_board().data["id"]
+        # django.contrib.auth User model — exists in ContentType table but
+        # is deliberately excluded from the board's allowed pin types.
+        user_ct = ContentType.objects.get(app_label="accounts", model="user")
+
+        response = self._add_item(board_id, user_ct.pk, self.detective_user.pk)
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+            msg=(
+                f"Expected 400 for disallowed content type 'accounts.user', "
+                f"got {response.status_code}: {response.data}"
+            ),
+        )
+
+    # ── 6.3-H: unrelated user tries to pin → 403 ────────────────────
+
+    def test_6_3_h_unrelated_user_cannot_pin_item_returns_403(self) -> None:
+        """
+        Scenario 6.3-H: A user who has no edit rights on the board (not the
+        detective, not a supervisor assigned to the case, not admin) receives
+        HTTP 403 when attempting to pin an item.
+
+        Service permission check:
+            board/services.py — BoardItemService.add_item → _enforce_edit()
+            → raises PermissionDenied for users who fail _can_edit_board()
+
+        Reference:
+          - board/services.py    — _can_edit_board / _enforce_edit
+          - board_services_report.md §1 Write (Edit) Access table
+        """
+        # Detective creates the board
+        self._login_as(self.detective_user.username, self.detective_password)
+        board_id = self._create_board().data["id"]
+        evidence = self._make_evidence()
+        ct = ContentType.objects.get(app_label="evidence", model="evidence")
+
+        # Cadet (not assigned to the case) tries to pin
+        self._login_as(self.cadet_user.username, self.cadet_password)
+        response = self._add_item(board_id, ct.pk, evidence.pk)
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+            msg=(
+                f"Expected 403 Forbidden when an unrelated user pins an item, "
+                f"got {response.status_code}: {response.data}"
             ),
         )
