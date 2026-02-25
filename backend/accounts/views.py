@@ -24,6 +24,7 @@ from drf_spectacular.utils import (
     extend_schema,
     extend_schema_view,
 )
+from rest_framework.exceptions import PermissionDenied as DRFPermissionDenied
 from rest_framework import generics, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -517,6 +518,22 @@ class RoleViewSet(viewsets.ViewSet):
 
     permission_classes = [IsAuthenticated]
 
+    @staticmethod
+    def _require_system_admin(request: Request) -> None:
+        """
+        Enforce System Admin-only access for role management endpoints.
+
+        Accept either:
+        - Django superuser
+        - user.role.name == "System Admin"
+        """
+        user = request.user
+        if user.is_superuser:
+            return
+        if user.role is not None and user.role.name == "System Admin":
+            return
+        raise DRFPermissionDenied("Only System Administrators may manage roles.")
+
     # ── Standard CRUD ────────────────────────────────────────────
 
     @extend_schema(
@@ -543,6 +560,7 @@ class RoleViewSet(viewsets.ViewSet):
         2. Serialize with ``RoleListSerializer(many=True)``.
         3. Return ``Response(data, status=200)``.
         """
+        self._require_system_admin(request)
         roles = RoleManagementService.list_roles()
         serializer = RoleListSerializer(roles, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
@@ -576,6 +594,7 @@ class RoleViewSet(viewsets.ViewSet):
         2. Call ``RoleManagementService.create_role(serializer.validated_data)``.
         3. Re-serialize and return 201.
         """
+        self._require_system_admin(request)
         serializer = RoleDetailSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         role = RoleManagementService.create_role(serializer.validated_data)
@@ -606,6 +625,7 @@ class RoleViewSet(viewsets.ViewSet):
         2. Serialize with ``RoleDetailSerializer``.
         3. Return ``Response(data, status=200)``.
         """
+        self._require_system_admin(request)
         role = RoleManagementService.get_role(int(pk))
         serializer = RoleDetailSerializer(role)
         return Response(serializer.data, status=status.HTTP_200_OK)
@@ -636,6 +656,7 @@ class RoleViewSet(viewsets.ViewSet):
         2. Call ``RoleManagementService.update_role(int(pk), data)``.
         3. Re-serialize and return 200.
         """
+        self._require_system_admin(request)
         serializer = RoleDetailSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         role = RoleManagementService.update_role(int(pk), serializer.validated_data)
@@ -670,6 +691,7 @@ class RoleViewSet(viewsets.ViewSet):
         2. Call ``RoleManagementService.update_role(int(pk), data)``.
         3. Re-serialize and return 200.
         """
+        self._require_system_admin(request)
         serializer = RoleDetailSerializer(data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         role = RoleManagementService.update_role(int(pk), serializer.validated_data)
@@ -701,6 +723,7 @@ class RoleViewSet(viewsets.ViewSet):
         2. Return ``Response(status=204)``.
         3. On ``ValidationError`` (users still assigned) → 400.
         """
+        self._require_system_admin(request)
         RoleManagementService.delete_role(int(pk))
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -741,6 +764,7 @@ class RoleViewSet(viewsets.ViewSet):
            )``.
         3. Re-serialize the updated role and return 200.
         """
+        self._require_system_admin(request)
         serializer = RoleAssignPermissionsSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         role = RoleManagementService.assign_permissions_to_role(
