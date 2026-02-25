@@ -59,6 +59,13 @@ Test map
          C2 After failed PATCH, GET /boards/{id}/notes/{note_id}/ confirms content unchanged
          D  DELETE /boards/{id}/notes/{note_id}/ as creator → 204; note gone from full state
          E  DELETE /boards/{id}/notes/{note_id}/ as non-creator (Sergeant) → 403
+
+  6.7  Declare Suspects (case workflow)
+         A  POST /cases/{id}/declare-suspects/ as assigned Detective (INVESTIGATION) → 200
+         A2 Response status == "sergeant_review" (double transition: INVESTIGATION→SUSPECT_IDENTIFIED→SERGEANT_REVIEW)
+         B  CaseStatusLog records both intermediate transitions
+         C  Call declare-suspects on a case NOT in INVESTIGATION → 409 Conflict (InvalidTransition)
+         D  Call declare-suspects as a different Detective (not assigned) → 403
 """
 
 from __future__ import annotations
@@ -1877,6 +1884,252 @@ class TestBoardAndSuspectsFlow(TestCase):
             status.HTTP_403_FORBIDDEN,
             msg=(
                 f"Expected 403 Forbidden when non-creator deletes note, "
+                f"got {response.status_code}: {response.data}"
+            ),
+        )
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Scenario 6.7 — Declare Suspects (case workflow)
+    # ─────────────────────────────────────────────────────────────────────
+
+    # ── helpers ──────────────────────────────────────────────────────────
+
+    def _setup_investigation_case(self) -> int:
+        """
+        Arrange a case in INVESTIGATION status by:
+          1. Granting CAN_ASSIGN_DETECTIVE to sergeant_role (needed for the
+             assign-detective API; permission rolls back with the test).
+          2. Granting CAN_CHANGE_CASE_STATUS to detective_role (needed for
+             INVESTIGATION→SUSPECT_IDENTIFIED and SUSPECT_IDENTIFIED→
+             SERGEANT_REVIEW transitions inside declare_suspects_identified).
+          3. Creating a fresh OPEN case with NO assigned detective (via DB,
+             since no API exists to create a crime-scene case directly in OPEN
+             status in the test environment without a Police Chief user).
+          4. Calling POST /api/cases/{id}/assign-detective/ as Sergeant to
+             move the case to INVESTIGATION and set assigned_detective.
+
+        Returns the case PK.
+        """
+        # Grant workflow permissions to the existing roles (rolled back after test)
+        _assign_permission_to_role(self.sergeant_role, "can_assign_detective", "cases")
+        _assign_permission_to_role(self.detective_role, "can_change_case_status", "cases")
+
+        # Fresh OPEN case — no assigned detective so assign-detective API can act
+        case = Case.objects.create(
+            title="Red Lipstick Case — Scenario 6.7",
+            description="A homicide at Pershing Square.",
+            crime_level=CrimeLevel.LEVEL_1,
+            status=CaseStatus.OPEN,
+            creation_type=CaseCreationType.CRIME_SCENE,
+            location="Pershing Square, Downtown LA",
+            created_by=self.detective_user,
+            assigned_detective=None,
+        )
+
+        # Sergeant assigns the detective → OPEN → INVESTIGATION
+        self._login_as(self.sergeant_user.username, self.sergeant_password)
+        assign_url = reverse("case-assign-detective", kwargs={"pk": case.pk})
+        assign_resp = self.client.post(
+            assign_url,
+            {"user_id": self.detective_user.pk},
+            format="json",
+        )
+        self.assertEqual(
+            assign_resp.status_code,
+            status.HTTP_200_OK,
+            msg=f"assign-detective failed in _setup_investigation_case: {assign_resp.data}",
+        )
+        self.assertEqual(
+            assign_resp.data.get("status"),
+            "investigation",
+            msg="Case should be INVESTIGATION after assign-detective.",
+        )
+
+        return case.pk
+
+    def _declare_suspects(self, case_id: int) -> object:
+        """POST /api/cases/{id}/declare-suspects/ (no request body)."""
+        url = reverse("case-declare-suspects", kwargs={"pk": case_id})
+        return self.client.post(url, format="json")
+
+    def _get_case(self, case_id: int) -> object:
+        """GET /api/cases/{id}/."""
+        url = reverse("case-detail", kwargs={"pk": case_id})
+        return self.client.get(url)
+
+    # ── 6.7-A: assigned detective declares suspects → 200 ────────────────
+
+    def test_6_7_a_detective_declares_suspects_returns_200(self) -> None:
+        """
+        Scenario 6.7-A: POST /api/cases/{id}/declare-suspects/ as the
+        assigned detective on a case in INVESTIGATION status → HTTP 200.
+
+        Service: CaseWorkflowService.declare_suspects_identified
+          — checks case.status == INVESTIGATION
+          — checks requesting_user == case.assigned_detective
+          — transitions INVESTIGATION → SUSPECT_IDENTIFIED → SERGEANT_REVIEW
+
+        Reference: cases/services.py — declare_suspects_identified
+        """
+        case_id = self._setup_investigation_case()
+        self._login_as(self.detective_user.username, self.detective_password)
+
+        response = self._declare_suspects(case_id)
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+            msg=(
+                f"Expected 200 OK from declare-suspects, "
+                f"got {response.status_code}: {response.data}"
+            ),
+        )
+
+    def test_6_7_a2_response_status_is_sergeant_review(self) -> None:
+        """
+        Scenario 6.7-A2 (status check): The response body from
+        POST /api/cases/{id}/declare-suspects/ must contain
+        status == "sergeant_review".
+
+        The service performs TWO consecutive transitions:
+          INVESTIGATION → SUSPECT_IDENTIFIED → SERGEANT_REVIEW
+        and returns the final case state.
+
+        Reference: cases/services.py — declare_suspects_identified
+        Reference: cases/models.py — CaseStatus.SERGEANT_REVIEW = "sergeant_review"
+        """
+        case_id = self._setup_investigation_case()
+        self._login_as(self.detective_user.username, self.detective_password)
+
+        response = self._declare_suspects(case_id)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.assertEqual(
+            response.data.get("status"),
+            "sergeant_review",
+            msg=(
+                f"Expected case.status == 'sergeant_review' after declare-suspects, "
+                f"got: {response.data.get('status')!r}"
+            ),
+        )
+
+    # ── 6.7-B: status log records both transitions ───────────────────────
+
+    def test_6_7_b_status_log_records_both_transitions(self) -> None:
+        """
+        Scenario 6.7-B: After declare-suspects, GET /api/cases/{id}/ must
+        show CaseStatusLog entries for both transitions:
+          • INVESTIGATION → SUSPECT_IDENTIFIED
+          • SUSPECT_IDENTIFIED → SERGEANT_REVIEW
+
+        Confirms that CaseWorkflowService.transition_state creates a
+        CaseStatusLog on each hop.
+
+        Reference: cases/services.py — transition_state (step 6: CaseStatusLog.objects.create)
+        """
+        case_id = self._setup_investigation_case()
+        self._login_as(self.detective_user.username, self.detective_password)
+        declare_resp = self._declare_suspects(case_id)
+        self.assertEqual(declare_resp.status_code, status.HTTP_200_OK)
+
+        detail = self._get_case(case_id)
+        self.assertEqual(detail.status_code, status.HTTP_200_OK)
+
+        logs = detail.data.get("status_logs", [])
+        to_statuses = [log["to_status"] for log in logs]
+
+        self.assertIn(
+            "suspect_identified",
+            to_statuses,
+            msg="Expected a status log entry with to_status='suspect_identified'.",
+        )
+        self.assertIn(
+            "sergeant_review",
+            to_statuses,
+            msg="Expected a status log entry with to_status='sergeant_review'.",
+        )
+
+    # ── 6.7-C: case not in INVESTIGATION → 400 ───────────────────────────
+
+    def test_6_7_c_case_not_in_investigation_returns_400(self) -> None:
+        """
+        Scenario 6.7-C: Calling POST /api/cases/{id}/declare-suspects/ on a
+        case that is NOT in INVESTIGATION status (e.g. OPEN) must return
+        HTTP 400.
+
+        Service guard:
+            CaseWorkflowService.declare_suspects_identified
+            → InvalidTransition raised because case.status != INVESTIGATION
+            → view converts domain InvalidTransition to HTTP 409 Conflict
+
+        Reference: cases/services.py — declare_suspects_identified, line ~1043
+        """
+        # Ensure detective has CAN_CHANGE_CASE_STATUS so the guard
+        # reaches the status check (not the permission check)
+        _assign_permission_to_role(self.detective_role, "can_change_case_status", "cases")
+
+        # A fresh OPEN case assigned to detective already (via DB)
+        open_case = Case.objects.create(
+            title="Open Case — Not For Declaration",
+            description="Still open.",
+            crime_level=CrimeLevel.LEVEL_1,
+            status=CaseStatus.OPEN,
+            creation_type=CaseCreationType.CRIME_SCENE,
+            location="Downtown",
+            created_by=self.detective_user,
+            assigned_detective=self.detective_user,
+        )
+
+        self._login_as(self.detective_user.username, self.detective_password)
+        response = self._declare_suspects(open_case.pk)
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_409_CONFLICT,
+            msg=(
+                f"Expected 409 Conflict (InvalidTransition) when case is not in INVESTIGATION, "
+                f"got {response.status_code}: {response.data}"
+            ),
+        )
+
+    # ── 6.7-D: unassigned detective → 403 ────────────────────────────────
+
+    def test_6_7_d_unassigned_detective_cannot_declare_suspects_returns_403(self) -> None:
+        """
+        Scenario 6.7-D: A Detective who is authenticated but NOT the
+        case's assigned_detective is rejected with HTTP 403 when calling
+        POST /api/cases/{id}/declare-suspects/.
+
+        Service guard:
+            CaseWorkflowService.declare_suspects_identified
+            → PermissionDenied("Only the assigned detective can declare suspects.")
+              when requesting_user != case.assigned_detective
+
+        Reference: cases/services.py — declare_suspects_identified, line ~1051
+        """
+        case_id = self._setup_investigation_case()
+
+        # Create a second detective (has the right role but is NOT assigned)
+        other_det_password = "0therD3t!Pass7"
+        other_detective = User.objects.create_user(
+            username="other_detective_6_7",
+            password=other_det_password,
+            email="other_det_67@lapd.test",
+            phone_number="09139990067",
+            national_id="6700000099",
+            first_name="Jack",
+            last_name="Kelso",
+            role=self.detective_role,
+        )
+
+        self._login_as(other_detective.username, other_det_password)
+        response = self._declare_suspects(case_id)
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+            msg=(
+                f"Expected 403 Forbidden when unassigned detective declares suspects, "
                 f"got {response.status_code}: {response.data}"
             ),
         )
