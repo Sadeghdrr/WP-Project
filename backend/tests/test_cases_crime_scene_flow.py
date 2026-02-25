@@ -504,3 +504,283 @@ class TestCrimeSceneCaseFlow(TestCase):
             status.HTTP_401_UNAUTHORIZED,
             msg="Unauthenticated request must return 401.",
         )
+
+    # ────────────────────────────────────────────────────────────────
+    #  Scenario 4.2 — Approve pending_approval case (Captain / Chief)
+    # ────────────────────────────────────────────────────────────────
+    #
+    # Business rule (project-doc.md §4.2.2):
+    #   "In this scenario, only one superior rank needs to approve the
+    #    case; if the Police Chief registers it, no one's approval is needed."
+    #
+    # Implementation (cases/services.py ALLOWED_TRANSITIONS):
+    #   (PENDING_APPROVAL, OPEN): {CasesPerms.CAN_APPROVE_CASE}
+    #
+    # Endpoint: POST /api/cases/{id}/approve-crime-scene/
+    #   No request body required (request=None per swagger decorator).
+    #   Response: 200 + CaseDetailSerializer
+    #
+    # Approvers: Captain ✅  Chief ✅  (both have can_approve_case in setUpTestData)
+    # Blocked:   Officer ❌  (can_approve_case NOT assigned to officer role)
+    #
+    # Ref: swagger_documentation_report.md §3.2 — CaseViewSet.approve_crime_scene
+    # Ref: cases_services_crime_scene_flow_report.md §1 "Who Can Approve?"
+
+    def _create_pending_case_as_officer(self) -> int:
+        """
+        Helper: login as Officer, create a crime-scene case, confirm 201 +
+        pending_approval, and return the case's primary key.
+
+        Used by all 4.2 tests to obtain a fresh PENDING_APPROVAL case.
+        """
+        self._login_as(self.officer_user.username, self.officer_password)
+        response = self._create_crime_scene_case()
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_201_CREATED,
+            msg=f"Setup failed: could not create officer case: {response.data}",
+        )
+        self.assertEqual(
+            response.data["status"],
+            CaseStatus.PENDING_APPROVAL,
+            msg="Setup sanity-check: newly created officer case must be pending_approval.",
+        )
+        return response.data["id"]
+
+    def _approve_url(self, case_id: int) -> str:
+        """Return the reverse URL for POST /api/cases/{id}/approve-crime-scene/."""
+        return reverse("case-approve-crime-scene", kwargs={"pk": case_id})
+
+    # ── Test A: Captain approves ──────────────────────────────────
+
+    def test_captain_approves_pending_case_returns_200(self) -> None:
+        """
+        Scenario 4.2 — Test A (HTTP status): Captain POSTs to
+        /api/cases/{id}/approve-crime-scene/ and receives HTTP 200.
+
+        Reference:
+          - swagger_documentation_report.md §3.2 — approve_crime_scene → 200
+          - cases_services_crime_scene_flow_report.md §1 "Who Can Approve?"
+        """
+        case_id = self._create_pending_case_as_officer()
+
+        # Re-authenticate as Captain
+        self._login_as(self.captain_user.username, self.captain_password)
+        response = self.client.post(self._approve_url(case_id))
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+            msg=f"Captain approval must return 200, got {response.status_code}: {response.data}",
+        )
+
+    def test_captain_approves_pending_case_status_becomes_open(self) -> None:
+        """
+        Scenario 4.2 — Test A (core assertion): After Captain approval,
+        case status must be exactly "open".
+
+        Reference:
+          - cases/models.py CaseStatus.OPEN = "open"
+          - cases/services.py ALLOWED_TRANSITIONS: PENDING_APPROVAL → OPEN
+        """
+        case_id = self._create_pending_case_as_officer()
+
+        self._login_as(self.captain_user.username, self.captain_password)
+        response = self.client.post(self._approve_url(case_id))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.data.get("status"),
+            CaseStatus.OPEN,   # "open"
+            msg=f"Case status after Captain approval must be 'open', got '{response.data.get('status')}'.",
+        )
+
+    def test_captain_approves_pending_case_approved_by_is_set(self) -> None:
+        """
+        Scenario 4.2 — Test A (approved_by): After Captain approval,
+        approved_by in the response must be set to the Captain's user PK.
+
+        Reference:
+          - cases/services.py approve_crime_scene_case:
+            "case.approved_by = requesting_user" before transitioning
+          - cases/models.py Case.approved_by FK
+        """
+        case_id = self._create_pending_case_as_officer()
+
+        self._login_as(self.captain_user.username, self.captain_password)
+        response = self.client.post(self._approve_url(case_id))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.data.get("approved_by"),
+            self.captain_user.pk,
+            msg="approved_by must be set to the Captain's PK after approval.",
+        )
+
+    def test_captain_approves_pending_case_status_log_records_transition(self) -> None:
+        """
+        Scenario 4.2 — Test A (audit trail): GET /api/cases/{id}/status-log/
+        must contain an entry with from_status="pending_approval" and
+        to_status="open" after Captain approval.
+
+        Reference:
+          - cases/services.py transition_state: creates CaseStatusLog entry
+          - swagger_documentation_report.md §3.2 — CaseViewSet.status_log
+        """
+        case_id = self._create_pending_case_as_officer()
+
+        self._login_as(self.captain_user.username, self.captain_password)
+        self.client.post(self._approve_url(case_id))
+
+        # Re-authenticate as Officer to read the status log (has view_case perm)
+        self._login_as(self.officer_user.username, self.officer_password)
+        log_url = reverse("case-status-log", kwargs={"pk": case_id})
+        log_response = self.client.get(log_url)
+
+        self.assertEqual(log_response.status_code, status.HTTP_200_OK)
+
+        approval_entries = [
+            entry for entry in log_response.data
+            if entry.get("from_status") == CaseStatus.PENDING_APPROVAL
+            and entry.get("to_status") == CaseStatus.OPEN
+        ]
+        self.assertEqual(
+            len(approval_entries),
+            1,
+            msg=(
+                "Status log must contain exactly one PENDING_APPROVAL→OPEN entry "
+                f"after Captain approval. Found: {log_response.data}"
+            ),
+        )
+
+    def test_captain_approves_persisted_in_db(self) -> None:
+        """
+        Scenario 4.2 — Test A (persistence): GET /api/cases/{id}/ after
+        approval must reflect status="open" and approved_by=captain stored in DB.
+        """
+        case_id = self._create_pending_case_as_officer()
+
+        self._login_as(self.captain_user.username, self.captain_password)
+        self.client.post(self._approve_url(case_id))
+
+        # Read back via detail endpoint (Officer still has view_case)
+        self._login_as(self.officer_user.username, self.officer_password)
+        detail = self.client.get(reverse("case-detail", kwargs={"pk": case_id}))
+
+        self.assertEqual(detail.status_code, status.HTTP_200_OK)
+        self.assertEqual(detail.data["status"], CaseStatus.OPEN)
+        self.assertEqual(detail.data["approved_by"], self.captain_user.pk)
+
+    # ── Test B: Chief approves ────────────────────────────────────
+
+    def test_chief_approves_pending_case_returns_200_and_open(self) -> None:
+        """
+        Scenario 4.2 — Test B: Police Chief POSTs to approve-crime-scene/
+        on a PENDING_APPROVAL case created by an Officer; expects 200 and
+        status="open".
+
+        Note: This is different from the Chief *creating* a case (Scenario 4.3
+        where it auto-approves). Here the Chief is approving someone else's case.
+
+        Reference:
+          - cases_services_crime_scene_flow_report.md §1 "Who Can Approve?" → Chief ✅
+          - cases/services.py ALLOWED_TRANSITIONS: PENDING_APPROVAL → OPEN
+            requires CAN_APPROVE_CASE — Chief role has this in setUpTestData.
+        """
+        case_id = self._create_pending_case_as_officer()
+
+        self._login_as(self.chief_user.username, self.chief_password)
+        response = self.client.post(self._approve_url(case_id))
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+            msg=f"Chief approval must return 200, got {response.status_code}: {response.data}",
+        )
+        self.assertEqual(
+            response.data.get("status"),
+            CaseStatus.OPEN,
+            msg="Case status after Chief approval must be 'open'.",
+        )
+
+    def test_chief_approves_pending_case_approved_by_is_chief(self) -> None:
+        """
+        Scenario 4.2 — Test B (approved_by): After Chief approval,
+        approved_by must be the Chief's PK.
+
+        Reference:
+          - cases/services.py approve_crime_scene_case:
+            case.approved_by = requesting_user (Chief in this case)
+        """
+        case_id = self._create_pending_case_as_officer()
+
+        self._login_as(self.chief_user.username, self.chief_password)
+        response = self.client.post(self._approve_url(case_id))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.data.get("approved_by"),
+            self.chief_user.pk,
+            msg="approved_by must be set to the Chief's PK when Chief approves.",
+        )
+
+    # ── Negative test: Officer cannot approve ─────────────────────
+
+    def test_officer_cannot_approve_pending_case_returns_403(self) -> None:
+        """
+        Scenario 4.2 — Negative test: A Police Officer (who lacks
+        can_approve_case permission) tries to approve a PENDING_APPROVAL
+        case → must receive HTTP 403.
+
+        Business rule: Only roles with can_approve_case may approve.
+        Officer role was intentionally NOT granted can_approve_case in
+        setUpTestData (see cases_services_crime_scene_flow_report.md §1).
+
+        The domain PermissionDenied exception is mapped to 403 by the
+        registered exception handler in:
+          backend/backend/settings.py EXCEPTION_HANDLER →
+          core.domain.exception_handler.domain_exception_handler
+        """
+        case_id = self._create_pending_case_as_officer()
+
+        # Same Officer who created the case tries to approve it — not allowed
+        # (Officer role has add_case but not can_approve_case)
+        # Client is already authenticated as Officer from _create_pending_case_as_officer
+        response = self.client.post(self._approve_url(case_id))
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+            msg=(
+                f"Officer must receive 403 when attempting to approve a case. "
+                f"Got {response.status_code}: {response.data}"
+            ),
+        )
+
+    def test_approving_already_open_case_returns_error(self) -> None:
+        """
+        Scenario 4.2 — Negative test (idempotency): Attempting to approve
+        a case that is already OPEN must fail with a non-2xx status (409 or 400).
+
+        Reference:
+          - cases/services.py approve_crime_scene_case:
+              if case.status != PENDING_APPROVAL → raise InvalidTransition → 409
+          - core.domain.exception_handler: InvalidTransition → 409
+        """
+        case_id = self._create_pending_case_as_officer()
+
+        # First approval (valid — Captain)
+        self._login_as(self.captain_user.username, self.captain_password)
+        first = self.client.post(self._approve_url(case_id))
+        self.assertEqual(first.status_code, status.HTTP_200_OK)
+
+        # Second approval attempt on the now-OPEN case
+        second = self.client.post(self._approve_url(case_id))
+        self.assertIn(
+            second.status_code,
+            [status.HTTP_400_BAD_REQUEST, status.HTTP_409_CONFLICT],
+            msg=(
+                f"Approving an already-open case must return 400 or 409, "
+                f"got {second.status_code}: {second.data}"
+            ),
+        )
