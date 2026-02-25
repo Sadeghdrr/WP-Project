@@ -17,7 +17,7 @@ from rest_framework.test import APIClient
 
 from accounts.models import Role
 from cases.models import Case, CaseCreationType, CaseStatus, CrimeLevel
-from suspects.models import Suspect, SuspectStatus, Warrant
+from suspects.models import Suspect, SuspectStatus, SuspectStatusLog, Warrant
 
 User = get_user_model()
 
@@ -226,6 +226,31 @@ class TestSuspectWorkflow(TestCase):
             {"warrant_reason": reason, "priority": priority},
             format="json",
         )
+
+    def arrest_as_user(
+        self,
+        suspect_id: int,
+        *,
+        user: User | None = None,
+        password: str | None = None,
+        arrest_location: str = "742 S. Broadway, Los Angeles",
+        arrest_notes: str = "Arrested during coordinated operation.",
+        warrant_override_justification: str | None = None,
+    ):
+        actor = user or self.sergeant_user
+        actor_password = password or self.sergeant_password
+        token = self.login(actor, actor_password)
+        self.auth(token)
+
+        payload = {
+            "arrest_location": arrest_location,
+            "arrest_notes": arrest_notes,
+        }
+        if warrant_override_justification is not None:
+            payload["warrant_override_justification"] = warrant_override_justification
+
+        arrest_url = reverse("suspect-arrest", kwargs={"pk": suspect_id})
+        return self.client.post(arrest_url, payload, format="json")
 
     def test_detective_creates_suspect_successfully(self):
         self.assign_detective_to_case(self.case)
@@ -540,3 +565,147 @@ class TestSuspectWorkflow(TestCase):
             msg=f"Expected 403 when non-sergeant issues warrant. Body: {response.data}",
         )
         self.assertEqual(Warrant.objects.filter(suspect_id=suspect_id).count(), 0)
+
+    def test_arrest_with_warrant_succeeds(self):
+        suspect_id = self.create_suspect_as_detective(full_name="Arrest With Warrant")["id"]
+        self.approve_suspect_as_sergeant(suspect_id)
+        warrant_issue = self.issue_warrant_as_sergeant(
+            suspect_id,
+            reason="Probable cause confirmed by witness and forensic report.",
+            priority="high",
+        )
+        self.assertIn(
+            warrant_issue.status_code,
+            (status.HTTP_200_OK, status.HTTP_201_CREATED),
+            msg=f"Warrant issuance setup failed: {warrant_issue.data}",
+        )
+
+        arrest_response = self.arrest_as_user(
+            suspect_id,
+            arrest_location="Hollywood Blvd, Los Angeles",
+            arrest_notes="Suspect detained without resistance.",
+        )
+        self.assertIn(
+            arrest_response.status_code,
+            (status.HTTP_200_OK, status.HTTP_201_CREATED),
+            msg=f"Expected 200/201 for arrest with warrant. Body: {arrest_response.data}",
+        )
+        self.assertEqual(arrest_response.data["status"], SuspectStatus.ARRESTED)
+
+        detail_url = reverse("suspect-detail", kwargs={"pk": suspect_id})
+        detail_response = self.client.get(detail_url, format="json")
+        self.assertEqual(detail_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(detail_response.data["status"], SuspectStatus.ARRESTED)
+
+        suspect = Suspect.objects.get(pk=suspect_id)
+        self.assertEqual(suspect.status, SuspectStatus.ARRESTED)
+        self.assertIsNotNone(suspect.arrested_at)
+
+        warrant = Warrant.objects.get(suspect_id=suspect_id)
+        self.assertEqual(warrant.status, Warrant.WarrantStatus.EXECUTED)
+
+        arrest_log = SuspectStatusLog.objects.filter(
+            suspect_id=suspect_id,
+            to_status=SuspectStatus.ARRESTED,
+        ).latest("created_at")
+        self.assertIn("Arrest location: Hollywood Blvd, Los Angeles", arrest_log.notes)
+        self.assertIn("Warrant", arrest_log.notes)
+
+    def test_arrest_without_warrant_requires_justification_then_succeeds(self):
+        suspect_id = self.create_suspect_as_detective(full_name="Warrantless Arrest Candidate")["id"]
+        self.approve_suspect_as_sergeant(suspect_id)
+
+        missing_justification = self.arrest_as_user(
+            suspect_id,
+            arrest_location="Downtown LA",
+            arrest_notes="No warrant exists for this suspect yet.",
+        )
+        self.assertEqual(
+            missing_justification.status_code,
+            status.HTTP_400_BAD_REQUEST,
+            msg=f"Expected 400 without warrant justification. Body: {missing_justification.data}",
+        )
+        self.assertIn("detail", missing_justification.data)
+        self.assertIn(
+            "warrant_override_justification",
+            str(missing_justification.data["detail"]),
+        )
+        self.assertEqual(Warrant.objects.filter(suspect_id=suspect_id).count(), 0)
+        suspect = Suspect.objects.get(pk=suspect_id)
+        self.assertEqual(suspect.status, SuspectStatus.WANTED)
+        self.assertIsNone(suspect.arrested_at)
+
+        with_justification = self.arrest_as_user(
+            suspect_id,
+            arrest_location="Downtown LA",
+            arrest_notes="Suspect caught fleeing scene.",
+            warrant_override_justification="Suspect caught in the act; immediate arrest required.",
+        )
+        self.assertIn(
+            with_justification.status_code,
+            (status.HTTP_200_OK, status.HTTP_201_CREATED),
+            msg=f"Expected success with warrant override justification. Body: {with_justification.data}",
+        )
+        self.assertEqual(with_justification.data["status"], SuspectStatus.ARRESTED)
+
+        suspect.refresh_from_db()
+        self.assertEqual(suspect.status, SuspectStatus.ARRESTED)
+        self.assertIsNotNone(suspect.arrested_at)
+        arrest_log = SuspectStatusLog.objects.filter(
+            suspect_id=suspect_id,
+            to_status=SuspectStatus.ARRESTED,
+        ).latest("created_at")
+        self.assertIn("Warrantless arrest", arrest_log.notes)
+        self.assertIn("override", arrest_log.notes)
+
+    def test_non_authorized_role_cannot_arrest_suspect(self):
+        suspect_id = self.create_suspect_as_detective(full_name="Unauthorized Arrest Attempt")["id"]
+        self.approve_suspect_as_sergeant(suspect_id)
+        self.issue_warrant_as_sergeant(suspect_id, reason="Ready for arrest flow.", priority="high")
+
+        response = self.arrest_as_user(
+            suspect_id,
+            user=self.captain_user,
+            password=self.captain_password,
+            arrest_location="Sunset Blvd",
+            arrest_notes="Captain attempt should be forbidden.",
+        )
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+            msg=f"Expected 403 for unauthorized arrest role. Body: {response.data}",
+        )
+        suspect = Suspect.objects.get(pk=suspect_id)
+        self.assertEqual(suspect.status, SuspectStatus.WANTED)
+        self.assertIsNone(suspect.arrested_at)
+
+    def test_cannot_arrest_already_arrested_suspect(self):
+        suspect_id = self.create_suspect_as_detective(full_name="Double Arrest Candidate")["id"]
+        self.approve_suspect_as_sergeant(suspect_id)
+        self.issue_warrant_as_sergeant(suspect_id, reason="First arrest path.", priority="normal")
+
+        first_arrest = self.arrest_as_user(
+            suspect_id,
+            arrest_location="Main St",
+            arrest_notes="Initial arrest.",
+        )
+        self.assertIn(first_arrest.status_code, (status.HTTP_200_OK, status.HTTP_201_CREATED))
+
+        second_arrest = self.arrest_as_user(
+            suspect_id,
+            arrest_location="Main St",
+            arrest_notes="Second arrest should fail.",
+        )
+        self.assertIn(
+            second_arrest.status_code,
+            (status.HTTP_400_BAD_REQUEST, status.HTTP_409_CONFLICT),
+            msg=f"Expected 400/409 for already-arrested suspect. Body: {second_arrest.data}",
+        )
+        self.assertEqual(
+            SuspectStatusLog.objects.filter(
+                suspect_id=suspect_id,
+                to_status=SuspectStatus.ARRESTED,
+            ).count(),
+            1,
+            msg="Second arrest attempt must not create another arrested transition log.",
+        )
