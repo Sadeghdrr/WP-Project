@@ -17,7 +17,7 @@ from rest_framework.test import APIClient
 
 from accounts.models import Role
 from cases.models import Case, CaseCreationType, CaseStatus, CrimeLevel
-from suspects.models import Suspect, SuspectStatus, SuspectStatusLog, Warrant
+from suspects.models import Interrogation, Suspect, SuspectStatus, SuspectStatusLog, Warrant
 
 User = get_user_model()
 
@@ -60,6 +60,7 @@ class TestSuspectWorkflow(TestCase):
         _grant(cls.detective_role, "view_suspect", "suspects")
         _grant(cls.sergeant_role, "can_approve_suspect", "suspects")
         _grant(cls.sergeant_role, "can_issue_arrest_warrant", "suspects")
+        _grant(cls.sergeant_role, "can_conduct_interrogation", "suspects")
 
         _grant(cls.chief_role, "can_assign_detective", "cases")
         _grant(cls.chief_role, "view_case", "cases")
@@ -251,6 +252,31 @@ class TestSuspectWorkflow(TestCase):
 
         arrest_url = reverse("suspect-arrest", kwargs={"pk": suspect_id})
         return self.client.post(arrest_url, payload, format="json")
+
+    def create_arrested_suspect(self, *, full_name: str = "Interrogation Candidate") -> int:
+        suspect_id = self.create_suspect_as_detective(full_name=full_name)["id"]
+        self.approve_suspect_as_sergeant(suspect_id)
+        warrant_response = self.issue_warrant_as_sergeant(
+            suspect_id,
+            reason="Prepared for interrogation workflow.",
+            priority="high",
+        )
+        self.assertIn(
+            warrant_response.status_code,
+            (status.HTTP_200_OK, status.HTTP_201_CREATED),
+            msg=f"Warrant setup failed: {warrant_response.data}",
+        )
+        arrest_response = self.arrest_as_user(
+            suspect_id,
+            arrest_location="Central Station",
+            arrest_notes="Arrest completed for interrogation setup.",
+        )
+        self.assertIn(
+            arrest_response.status_code,
+            (status.HTTP_200_OK, status.HTTP_201_CREATED),
+            msg=f"Arrest setup failed: {arrest_response.data}",
+        )
+        return suspect_id
 
     def test_detective_creates_suspect_successfully(self):
         self.assign_detective_to_case(self.case)
@@ -709,3 +735,119 @@ class TestSuspectWorkflow(TestCase):
             1,
             msg="Second arrest attempt must not create another arrested transition log.",
         )
+
+    def test_create_interrogation_with_valid_scores_succeeds(self):
+        suspect_id = self.create_arrested_suspect(full_name="Valid Interrogation Suspect")
+
+        sergeant_token = self.login(self.sergeant_user, self.sergeant_password)
+        self.auth(sergeant_token)
+        interrogation_url = reverse("suspect-interrogation-list", kwargs={"suspect_pk": suspect_id})
+        payload = {
+            "detective_guilt_score": 7,
+            "sergeant_guilt_score": 6,
+            "notes": "Suspect statements conflicted with timeline.",
+        }
+        response = self.client.post(interrogation_url, payload, format="json")
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_201_CREATED,
+            msg=f"Expected 201 for valid interrogation creation. Body: {response.data}",
+        )
+        self.assertIn("id", response.data)
+        self.assertEqual(response.data["suspect"], suspect_id)
+        self.assertEqual(response.data["detective_guilt_score"], 7)
+        self.assertEqual(response.data["sergeant_guilt_score"], 6)
+
+        interrogation = Interrogation.objects.get(pk=response.data["id"])
+        self.assertEqual(interrogation.suspect_id, suspect_id)
+        self.assertEqual(interrogation.detective_guilt_score, 7)
+        self.assertEqual(interrogation.sergeant_guilt_score, 6)
+
+        suspect = Suspect.objects.get(pk=suspect_id)
+        self.assertEqual(suspect.status, SuspectStatus.UNDER_INTERROGATION)
+
+    def test_interrogation_rejects_out_of_range_detective_score(self):
+        suspect_id = self.create_arrested_suspect(full_name="Detective Score Out Of Range")
+
+        sergeant_token = self.login(self.sergeant_user, self.sergeant_password)
+        self.auth(sergeant_token)
+        interrogation_url = reverse("suspect-interrogation-list", kwargs={"suspect_pk": suspect_id})
+        payload = {
+            "detective_guilt_score": 0,
+            "sergeant_guilt_score": 6,
+            "notes": "Invalid detective score test.",
+        }
+        response = self.client.post(interrogation_url, payload, format="json")
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+            msg=f"Expected 400 for out-of-range detective score. Body: {response.data}",
+        )
+        self.assertIn("detective_guilt_score", response.data)
+        self.assertEqual(Interrogation.objects.filter(suspect_id=suspect_id).count(), 0)
+
+    def test_interrogation_rejects_out_of_range_sergeant_score(self):
+        suspect_id = self.create_arrested_suspect(full_name="Sergeant Score Out Of Range")
+
+        sergeant_token = self.login(self.sergeant_user, self.sergeant_password)
+        self.auth(sergeant_token)
+        interrogation_url = reverse("suspect-interrogation-list", kwargs={"suspect_pk": suspect_id})
+        payload = {
+            "detective_guilt_score": 7,
+            "sergeant_guilt_score": 11,
+            "notes": "Invalid sergeant score test.",
+        }
+        response = self.client.post(interrogation_url, payload, format="json")
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+            msg=f"Expected 400 for out-of-range sergeant score. Body: {response.data}",
+        )
+        self.assertIn("sergeant_guilt_score", response.data)
+        self.assertEqual(Interrogation.objects.filter(suspect_id=suspect_id).count(), 0)
+
+    def test_unauthorized_role_cannot_create_interrogation(self):
+        suspect_id = self.create_arrested_suspect(full_name="Unauthorized Interrogation")
+
+        captain_token = self.login(self.captain_user, self.captain_password)
+        self.auth(captain_token)
+        interrogation_url = reverse("suspect-interrogation-list", kwargs={"suspect_pk": suspect_id})
+        payload = {
+            "detective_guilt_score": 7,
+            "sergeant_guilt_score": 6,
+            "notes": "Captain should not be able to create this interrogation.",
+        }
+        response = self.client.post(interrogation_url, payload, format="json")
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+            msg=f"Expected 403 for unauthorized interrogation creation. Body: {response.data}",
+        )
+        self.assertEqual(Interrogation.objects.filter(suspect_id=suspect_id).count(), 0)
+
+    def test_cannot_create_interrogation_when_suspect_not_arrested(self):
+        suspect_id = self.create_suspect_as_detective(full_name="Not Arrested Interrogation")["id"]
+        self.approve_suspect_as_sergeant(suspect_id)
+
+        sergeant_token = self.login(self.sergeant_user, self.sergeant_password)
+        self.auth(sergeant_token)
+        interrogation_url = reverse("suspect-interrogation-list", kwargs={"suspect_pk": suspect_id})
+        payload = {
+            "detective_guilt_score": 7,
+            "sergeant_guilt_score": 6,
+            "notes": "Suspect is still wanted, not arrested.",
+        }
+        response = self.client.post(interrogation_url, payload, format="json")
+
+        self.assertIn(
+            response.status_code,
+            (status.HTTP_400_BAD_REQUEST, status.HTTP_409_CONFLICT),
+            msg=f"Expected 400/409 when suspect is not arrested. Body: {response.data}",
+        )
+        self.assertEqual(Interrogation.objects.filter(suspect_id=suspect_id).count(), 0)
+        suspect = Suspect.objects.get(pk=suspect_id)
+        self.assertEqual(suspect.status, SuspectStatus.WANTED)
