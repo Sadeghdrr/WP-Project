@@ -119,4 +119,6 @@ export type {
   SearchResultItem,
   SearchResponse,
   SystemConstants,
+  ChoiceItem,
+  RoleHierarchyItem,
 } from "./core";

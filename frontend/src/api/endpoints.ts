@@ -44,7 +44,7 @@ export const API = {
   board: (id: number) => `/board/boards/${id}/`,
 
   // Core
-  DASHBOARD_STATS: "/core/stats/",
+  DASHBOARD_STATS: "/core/dashboard/",
   SYSTEM_CONSTANTS: "/core/constants/",
   NOTIFICATIONS: "/core/notifications/",
 } as const;

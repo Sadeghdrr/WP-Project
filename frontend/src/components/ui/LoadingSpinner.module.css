@@ -1,0 +1,50 @@
+/* LoadingSpinner styles */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-md);
+  min-height: 30vh;
+  padding: var(--space-xl);
+}
+
+.inline {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+}
+
+/* ── Spinner circles ────────────────────────────────────────── */
+.spinnerLg,
+.spinnerSm {
+  border-style: solid;
+  border-color: var(--color-border);
+  border-top-color: var(--color-primary);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+.spinnerLg {
+  width: 40px;
+  height: 40px;
+  border-width: 4px;
+}
+
+.spinnerSm {
+  width: 16px;
+  height: 16px;
+  border-width: 2px;
+}
+
+.label {
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

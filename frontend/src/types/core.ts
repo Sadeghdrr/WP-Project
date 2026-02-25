@@ -59,13 +59,36 @@ export interface SearchResponse {
 }
 
 // ---------------------------------------------------------------------------
-// System Constants
+// System Constants (from GET /api/core/constants/)
 // ---------------------------------------------------------------------------
 
+/** Generic choice item returned by the constants endpoint. */
+export interface ChoiceItem {
+  value: string;
+  label: string;
+}
+
+/** Role hierarchy entry returned by the constants endpoint. */
+export interface RoleHierarchyItem {
+  id: number;
+  name: string;
+  hierarchy_level: number;
+}
+
+/**
+ * Full shape of GET /api/core/constants/ response.
+ *
+ * Matches `SystemConstantsService.get_constants()` output.
+ */
 export interface SystemConstants {
-  reward_multiplier: number; // 20_000_000 Rials
-  crime_levels: Array<{ value: number; label: string }>;
-  case_statuses: Array<{ value: string; label: string }>;
-  evidence_types: Array<{ value: string; label: string }>;
-  suspect_statuses: Array<{ value: string; label: string }>;
+  crime_levels: ChoiceItem[];
+  case_statuses: ChoiceItem[];
+  case_creation_types: ChoiceItem[];
+  evidence_types: ChoiceItem[];
+  evidence_file_types: ChoiceItem[];
+  suspect_statuses: ChoiceItem[];
+  verdict_choices: ChoiceItem[];
+  bounty_tip_statuses: ChoiceItem[];
+  complainant_statuses: ChoiceItem[];
+  role_hierarchy: RoleHierarchyItem[];
 }

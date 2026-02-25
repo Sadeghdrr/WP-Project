@@ -121,6 +121,13 @@ export function apiPost<T>(path: string, body?: unknown): Promise<ApiResponse<T>
   });
 }
 
+export function apiPut<T>(path: string, body?: unknown): Promise<ApiResponse<T>> {
+  return apiFetch<T>(path, {
+    method: "PUT",
+    body: body != null ? JSON.stringify(body) : undefined,
+  });
+}
+
 export function apiPatch<T>(path: string, body?: unknown): Promise<ApiResponse<T>> {
   return apiFetch<T>(path, {
     method: "PATCH",
@@ -130,6 +137,28 @@ export function apiPatch<T>(path: string, body?: unknown): Promise<ApiResponse<T
 
 export function apiDelete<T = void>(path: string): Promise<ApiResponse<T>> {
   return apiFetch<T>(path, { method: "DELETE" });
+}
+
+/**
+ * POST with multipart/form-data (e.g. file uploads).
+ * Do NOT set Content-Type — the browser sets the boundary automatically.
+ */
+export function apiPostForm<T>(path: string, formData: FormData): Promise<ApiResponse<T>> {
+  return apiFetch<T>(path, {
+    method: "POST",
+    body: formData,
+    // headers intentionally omitted so Content-Type is not set
+  });
+}
+
+/**
+ * PATCH with multipart/form-data.
+ */
+export function apiPatchForm<T>(path: string, formData: FormData): Promise<ApiResponse<T>> {
+  return apiFetch<T>(path, {
+    method: "PATCH",
+    body: formData,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -146,6 +175,7 @@ function normaliseError(body: unknown, status: number): ApiError {
     }
 
     // DRF validation: { field: ["error1", "error2"], ... }
+    // Also captures non_field_errors as a top-level message
     const fieldErrors: Record<string, string[]> = {};
     let hasFields = false;
     for (const [key, val] of Object.entries(obj)) {
@@ -155,10 +185,18 @@ function normaliseError(body: unknown, status: number): ApiError {
       }
     }
     if (hasFields) {
+      // Use non_field_errors as the main message if present
+      const nonField = fieldErrors["non_field_errors"];
+      const message = nonField?.[0] ?? "Validation error";
       return {
-        message: "Validation error",
+        message,
         fieldErrors,
       };
+    }
+
+    // DRF detail as array: { detail: ["err1", "err2"] }
+    if (Array.isArray(obj.detail) && obj.detail.length > 0) {
+      return { message: String(obj.detail[0]) };
     }
 
     // Custom backend error shape: { message: "..." }

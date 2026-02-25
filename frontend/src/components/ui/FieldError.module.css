@@ -1,0 +1,12 @@
+/* FieldError styles */
+
+.wrapper {
+  margin-top: var(--space-xs);
+}
+
+.message {
+  font-size: 0.75rem;
+  color: var(--color-danger);
+  margin: 0 0 2px;
+  line-height: 1.4;
+}
