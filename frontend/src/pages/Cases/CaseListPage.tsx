@@ -103,8 +103,11 @@ export default function CaseListPage() {
 
   const debouncedSearch = useDebounce(searchInput, 400);
 
+  // When searchInput is cleared (e.g. via clear button), bypass debounce delay
+  const effectiveSearch = searchInput ? debouncedSearch : "";
+
   const filters: CaseFilters = {};
-  if (debouncedSearch) filters.search = debouncedSearch;
+  if (effectiveSearch) filters.search = effectiveSearch;
   if (statusFilter) filters.status = statusFilter;
   if (crimeLevelFilter) filters.crime_level = Number(crimeLevelFilter);
   if (creationTypeFilter) filters.creation_type = creationTypeFilter;

@@ -8,6 +8,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useCaseDetail, useCaseActions } from "../../hooks/useCases";
+import { useEvidence } from "../../hooks/useEvidence";
 import { useAuth } from "../../auth/useAuth";
 import { Skeleton, ErrorState } from "../../components/ui";
 import {
@@ -196,9 +197,7 @@ export default function CaseDetailPage() {
                 {caseData.complainants.map((c) => (
                   <tr key={c.id}>
                     <td>
-                      {c.user
-                        ? `${(c.user as unknown as { first_name: string; last_name: string }).first_name} ${(c.user as unknown as { first_name: string; last_name: string }).last_name}`.trim() || `User #${(c.user as unknown as { id: number }).id}`
-                        : "—"}
+                      {c.user_display || `User #${c.user}`}
                     </td>
                     <td>{c.is_primary ? "Yes" : "No"}</td>
                     <td>
@@ -246,6 +245,9 @@ export default function CaseDetailPage() {
           </div>
         )}
 
+        {/* Evidence Section */}
+        <EvidenceSection caseId={caseData.id} />
+
         {/* Calculations */}
         {caseData.calculations && (
           <div className={styles.section}>
@@ -289,6 +291,70 @@ function MetaItem({ label, value }: { label: string; value: string }) {
 }
 
 // ---------------------------------------------------------------------------
+// Evidence Section (ثبت شواهد)
+// ---------------------------------------------------------------------------
+
+function EvidenceSection({ caseId }: { caseId: number }) {
+  const { data: evidenceList, isLoading } = useEvidence({ case: caseId });
+  const { permissionSet } = useAuth();
+
+  /** Allow evidence registration for users with relevant permission or detectives+ */
+  const canRegister =
+    permissionSet.has("evidence.add_evidence") ||
+    permissionSet.has("evidence.add_testimony") ||
+    permissionSet.has("evidence.add_biologicalevidence") ||
+    permissionSet.size > 0; // fallback: any authenticated user can navigate, backend enforces
+
+  const count = evidenceList?.length ?? 0;
+
+  return (
+    <div className={styles.section}>
+      <h2>Evidence ({isLoading ? "…" : count})</h2>
+      {isLoading ? (
+        <p style={{ color: "#6b7280", fontSize: "0.875rem" }}>Loading evidence…</p>
+      ) : count > 0 ? (
+        <table className={styles.subTable}>
+          <thead>
+            <tr>
+              <th>Title</th>
+              <th>Type</th>
+              <th>Registered</th>
+            </tr>
+          </thead>
+          <tbody>
+            {evidenceList!.slice(0, 5).map((ev) => (
+              <tr key={ev.id}>
+                <td>
+                  <Link to={`/cases/${caseId}/evidence/${ev.id}`} style={{ color: "var(--color-primary, #4f46e5)" }}>
+                    {ev.title}
+                  </Link>
+                </td>
+                <td>{ev.evidence_type_display || ev.evidence_type}</td>
+                <td>{new Date(ev.created_at).toLocaleDateString()}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : (
+        <p style={{ color: "#6b7280", fontSize: "0.875rem" }}>
+          No evidence registered for this case yet.
+        </p>
+      )}
+      <div style={{ display: "flex", gap: "0.75rem", marginTop: "0.75rem" }}>
+        {canRegister && (
+          <Link to={`/cases/${caseId}/evidence/new`} className={styles.btnPrimary}>
+            + Register Evidence
+          </Link>
+        )}
+        <Link to={`/cases/${caseId}/evidence`} className={styles.btnDefault}>
+          View All Evidence
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Status Timeline
 // ---------------------------------------------------------------------------
 
@@ -308,7 +374,7 @@ function StatusTimeline({ logs }: { logs: CaseStatusLog[] }) {
             </div>
             <div className={styles.timelineMeta}>
               {log.changed_by
-                ? `by ${(log.changed_by as unknown as { first_name: string; last_name: string }).first_name ?? ""} ${(log.changed_by as unknown as { first_name: string; last_name: string }).last_name ?? ""}`.trim() || `User #${(log.changed_by as unknown as { id: number }).id}`
+                ? `by ${log.changed_by_name || `User #${log.changed_by}`}`
                 : "System"}
               {" · "}
               {new Date(log.created_at).toLocaleString()}

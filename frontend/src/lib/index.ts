@@ -21,3 +21,13 @@ export {
   isTerminalStatus,
 } from "./caseWorkflow";
 export type { WorkflowAction, StatusColor } from "./caseWorkflow";
+
+export {
+  EVIDENCE_TYPE_LABELS,
+  EVIDENCE_TYPE_COLORS,
+  EVIDENCE_TYPE_ICONS,
+  FILE_TYPE_LABELS,
+  getVerificationLabel,
+  getVerificationColor,
+} from "./evidenceHelpers";
+export type { EvidenceColor } from "./evidenceHelpers";

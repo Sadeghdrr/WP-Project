@@ -70,8 +70,14 @@ export async function apiFetch<T>(
     headers.set("Authorization", `Bearer ${accessToken}`);
   }
 
-  // Auto-set JSON content-type for requests with body (unless already set)
-  if (options.body && !headers.has("Content-Type")) {
+  // Auto-set JSON content-type for requests with a non-FormData body.
+  // FormData bodies must NOT have Content-Type set manually — the browser
+  // must set it (with the multipart boundary) automatically.
+  if (
+    options.body &&
+    !(options.body instanceof FormData) &&
+    !headers.has("Content-Type")
+  ) {
     headers.set("Content-Type", "application/json");
   }
 

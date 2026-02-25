@@ -51,6 +51,11 @@ export const API = {
   // Evidence — backend mounts at api/ + router prefix "evidence" → /api/evidence/
   EVIDENCE: "/evidence/",
   evidence: (id: number) => `/evidence/${id}/`,
+  EVIDENCE_VERIFY: (id: number) => `/evidence/${id}/verify/`,
+  EVIDENCE_LINK_CASE: (id: number) => `/evidence/${id}/link-case/`,
+  EVIDENCE_UNLINK_CASE: (id: number) => `/evidence/${id}/unlink-case/`,
+  EVIDENCE_FILES: (id: number) => `/evidence/${id}/files/`,
+  EVIDENCE_CHAIN_OF_CUSTODY: (id: number) => `/evidence/${id}/chain-of-custody/`,
 
   // Suspects (note: double-prefix bug in backend URL config)
   SUSPECTS: "/suspects/suspects/",

@@ -21,3 +21,5 @@ export { globalSearchApi } from "./search";
 export type { SearchParams } from "./search";
 export * as casesApi from "./cases";
 export type { CaseFilters } from "./cases";
+export * as evidenceApi from "./evidence";
+export type { EvidenceFilters } from "./evidence";

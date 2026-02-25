@@ -81,10 +81,11 @@ export interface CaseRef {
 export interface CaseComplainant extends TimeStamped {
   id: number;
   case: number;
-  user: UserRef;
+  user: number;
+  user_display: string;
   is_primary: boolean;
   status: ComplainantStatus;
-  reviewed_by: UserRef | null;
+  reviewed_by: number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -108,7 +109,8 @@ export interface CaseStatusLog extends TimeStamped {
   case: number;
   from_status: CaseStatus;
   to_status: CaseStatus;
-  changed_by: UserRef | null;
+  changed_by: number | null;
+  changed_by_name: string | null;
   message: string;
 }
 

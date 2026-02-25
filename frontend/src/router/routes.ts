@@ -151,6 +151,12 @@ export const routes: RouteConfig[] = [
             lazy: true,
           },
           {
+            path: "evidence/:evidenceId",
+            title: "Evidence Detail",
+            authRequired: true,
+            lazy: true,
+          },
+          {
             path: "suspects",
             title: "Case Suspects",
             authRequired: true,

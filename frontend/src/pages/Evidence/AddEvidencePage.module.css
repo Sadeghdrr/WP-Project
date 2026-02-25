@@ -1,0 +1,247 @@
+/* Add evidence page styles */
+
+.container {
+  max-width: 700px;
+  margin: 0 auto;
+  padding: 1.5rem;
+}
+
+.backLink {
+  font-size: 0.85rem;
+  color: var(--accent, #c8a96e);
+  text-decoration: none;
+  display: inline-block;
+  margin-bottom: 0.5rem;
+}
+
+.backLink:hover {
+  text-decoration: underline;
+}
+
+.container h1 {
+  font-size: 1.4rem;
+  font-weight: 700;
+  margin: 0 0 1.25rem 0;
+  color: var(--text-primary, #1a1a2e);
+}
+
+/* ── Form ───────────────────────────────────────────────────── */
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.fieldGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.fieldGroup label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-secondary, #6b6b80);
+}
+
+.fieldGroup input,
+.fieldGroup textarea,
+.fieldGroup select {
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--border, #d0c8b8);
+  border-radius: 6px;
+  font-size: 0.9rem;
+  background: var(--surface, #faf8f4);
+  color: var(--text-primary, #1a1a2e);
+  font-family: inherit;
+}
+
+.fieldGroup input:focus,
+.fieldGroup textarea:focus,
+.fieldGroup select:focus {
+  outline: 2px solid var(--accent, #c8a96e);
+  border-color: transparent;
+}
+
+.fieldGroup textarea {
+  min-height: 80px;
+  resize: vertical;
+}
+
+.fieldError {
+  font-size: 0.75rem;
+  color: #dc2626;
+  margin-top: 0.1rem;
+}
+
+/* ── Type selector cards ────────────────────────────────────── */
+
+.typeCards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 0.75rem;
+}
+
+.typeCard {
+  border: 2px solid var(--border, #d0c8b8);
+  border-radius: 8px;
+  padding: 0.75rem;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+  background: var(--surface, #faf8f4);
+}
+
+.typeCard:hover {
+  background: var(--surface-hover, #f0ece4);
+}
+
+.typeCardActive {
+  border-color: var(--accent, #c8a96e);
+  background: #fef9ee;
+}
+
+.typeIcon {
+  font-size: 1.5rem;
+  display: block;
+  margin-bottom: 0.25rem;
+}
+
+.typeLabel {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-primary, #1a1a2e);
+}
+
+/* ── XOR radio group (vehicle plate vs serial) ──────────────── */
+
+.xorGroup {
+  background: var(--surface, #faf8f4);
+  border: 1px solid var(--border, #d0c8b8);
+  border-radius: 8px;
+  padding: 0.75rem;
+}
+
+.radioRow {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.radioRow label {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--text-primary, #1a1a2e);
+}
+
+/* ── Key-value pairs (identity) ─────────────────────────────── */
+
+.kvPairs {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.kvRow {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.kvRow input {
+  flex: 1;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--border, #d0c8b8);
+  border-radius: 6px;
+  font-size: 0.85rem;
+  background: var(--surface, #faf8f4);
+}
+
+.kvRemoveBtn {
+  padding: 0.3rem 0.5rem;
+  background: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.kvAddBtn {
+  padding: 0.4rem 0.75rem;
+  background: transparent;
+  border: 1px dashed var(--border, #d0c8b8);
+  border-radius: 6px;
+  font-size: 0.8rem;
+  color: var(--text-secondary, #6b6b80);
+  cursor: pointer;
+  transition: background 0.2s;
+  align-self: flex-start;
+}
+
+.kvAddBtn:hover {
+  background: var(--surface-hover, #f0ece4);
+}
+
+/* ── Buttons ────────────────────────────────────────────────── */
+
+.actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.submitBtn {
+  padding: 0.6rem 1.5rem;
+  background: var(--accent, #c8a96e);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.submitBtn:hover {
+  background: var(--accent-hover, #b8994e);
+}
+
+.submitBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.cancelBtn {
+  padding: 0.6rem 1.5rem;
+  background: transparent;
+  color: var(--text-secondary, #6b6b80);
+  border: 1px solid var(--border, #d0c8b8);
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+}
+
+.cancelBtn:hover {
+  background: var(--surface-hover, #f0ece4);
+}
+
+/* ── General error ──────────────────────────────────────────── */
+
+.generalError {
+  padding: 0.75rem 1rem;
+  background: #fee2e2;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  color: #991b1b;
+  font-size: 0.85rem;
+}

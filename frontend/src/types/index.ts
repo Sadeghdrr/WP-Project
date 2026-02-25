@@ -57,6 +57,7 @@ export type { CrimeLevel, CaseStatus, CaseCreationType, ComplainantStatus } from
 // Evidence
 export type {
   Evidence,
+  EvidenceListItem,
   TestimonyEvidence,
   BiologicalEvidence,
   VehicleEvidence,
@@ -64,13 +65,15 @@ export type {
   OtherEvidence,
   EvidenceFile,
   EvidenceCustodyLog,
+  EvidenceCreateRequest,
   TestimonyCreateRequest,
   BiologicalCreateRequest,
   VehicleCreateRequest,
   IdentityCreateRequest,
   OtherEvidenceCreateRequest,
-  ForensicResultRequest,
   VerifyEvidenceRequest,
+  LinkCaseRequest,
+  UnlinkCaseRequest,
   FileUploadMeta,
 } from "./evidence";
 export type { EvidenceType, FileType, CustodyAction } from "./evidence";

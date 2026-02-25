@@ -30,6 +30,9 @@ const EvidenceListPage = lazy(
 const AddEvidencePage = lazy(
   () => import("../pages/Evidence/AddEvidencePage"),
 );
+const EvidenceDetailPage = lazy(
+  () => import("../pages/Evidence/EvidenceDetailPage"),
+);
 
 const SuspectsPage = lazy(() => import("../pages/Suspects/SuspectsPage"));
 const SuspectDetailPage = lazy(
@@ -119,6 +122,7 @@ function s(Component: React.LazyExoticComponent<React.ComponentType>) {
  *         :caseId         → CaseDetailPage
  *           evidence      → EvidenceListPage
  *           evidence/new  → AddEvidencePage
+ *           evidence/:evidenceId → EvidenceDetailPage
  *           suspects      → SuspectsPage
  *           suspects/:id  → SuspectDetailPage
  *           interrogations→ InterrogationsPage
@@ -173,6 +177,7 @@ const router = createBrowserRouter([
                   { index: true, element: s(CaseDetailPage) },
                   { path: "evidence", element: s(EvidenceListPage) },
                   { path: "evidence/new", element: s(AddEvidencePage) },
+                  { path: "evidence/:evidenceId", element: s(EvidenceDetailPage) },
                   { path: "suspects", element: s(SuspectsPage) },
                   { path: "suspects/:suspectId", element: s(SuspectDetailPage) },
                   { path: "interrogations", element: s(InterrogationsPage) },

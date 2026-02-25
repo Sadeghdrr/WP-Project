@@ -1,0 +1,453 @@
+/* Evidence detail page styles */
+
+.container {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 1.5rem;
+}
+
+/* ── Back / Header ──────────────────────────────────────────── */
+
+.backLink {
+  font-size: 0.85rem;
+  color: var(--accent, #c8a96e);
+  text-decoration: none;
+  display: inline-block;
+  margin-bottom: 0.5rem;
+}
+
+.backLink:hover {
+  text-decoration: underline;
+}
+
+.headerRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.25rem;
+}
+
+.headerRow h1 {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--text-primary, #1a1a2e);
+  margin: 0;
+}
+
+.badges {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.badge {
+  display: inline-block;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.badgeBlue { background: #dbeafe; color: #1e40af; }
+.badgeRed { background: #fee2e2; color: #991b1b; }
+.badgeAmber { background: #fef3c7; color: #92400e; }
+.badgePurple { background: #f3e8ff; color: #6b21a8; }
+.badgeGray { background: #f1f5f9; color: #475569; }
+.badgeGreen { background: #dcfce7; color: #166534; }
+
+/* ── Sections ───────────────────────────────────────────────── */
+
+.section {
+  background: var(--surface, #faf8f4);
+  border: 1px solid var(--border, #d0c8b8);
+  border-radius: 8px;
+  padding: 1.25rem;
+  margin-bottom: 1.25rem;
+}
+
+.section h2 {
+  font-size: 1rem;
+  font-weight: 700;
+  margin: 0 0 0.75rem 0;
+  color: var(--text-primary, #1a1a2e);
+}
+
+.section h3 {
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin: 1rem 0 0.5rem 0;
+  color: var(--text-primary, #1a1a2e);
+}
+
+/* ── Meta grid ──────────────────────────────────────────────── */
+
+.metaGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0.75rem;
+}
+
+.metaItem {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.metaLabel {
+  font-size: 0.75rem;
+  color: var(--text-secondary, #6b6b80);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  font-weight: 600;
+}
+
+.metaValue {
+  font-size: 0.9rem;
+  color: var(--text-primary, #1a1a2e);
+}
+
+/* ── Description ────────────────────────────────────────────── */
+
+.description {
+  white-space: pre-wrap;
+  font-size: 0.9rem;
+  color: var(--text-primary, #1a1a2e);
+  line-height: 1.6;
+}
+
+/* ── Key-value pairs (identity documents) ───────────────────── */
+
+.kvTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.kvTable td {
+  padding: 0.4rem 0.75rem;
+  border-bottom: 1px solid var(--border-light, #e8e4dc);
+}
+
+.kvTable td:first-child {
+  font-weight: 600;
+  width: 40%;
+  color: var(--text-secondary, #6b6b80);
+}
+
+/* ── Files ──────────────────────────────────────────────────── */
+
+.fileGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 0.75rem;
+}
+
+.fileCard {
+  border: 1px solid var(--border, #d0c8b8);
+  border-radius: 8px;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.fileThumb {
+  width: 100%;
+  height: 100px;
+  object-fit: cover;
+  border-radius: 4px;
+  background: #e8e4dc;
+}
+
+.filePlaceholder {
+  width: 100%;
+  height: 100px;
+  border-radius: 4px;
+  background: #e8e4dc;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2rem;
+  color: var(--text-secondary, #6b6b80);
+}
+
+.fileInfo {
+  font-size: 0.8rem;
+  color: var(--text-secondary, #6b6b80);
+}
+
+.fileLink {
+  font-size: 0.8rem;
+  color: var(--accent, #c8a96e);
+  text-decoration: none;
+}
+
+.fileLink:hover {
+  text-decoration: underline;
+}
+
+/* ── Upload form ────────────────────────────────────────────── */
+
+.uploadForm {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border-light, #e8e4dc);
+}
+
+.uploadField {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.uploadField label {
+  font-size: 0.75rem;
+  color: var(--text-secondary, #6b6b80);
+  font-weight: 600;
+}
+
+.uploadField input,
+.uploadField select {
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--border, #d0c8b8);
+  border-radius: 6px;
+  font-size: 0.8rem;
+  background: var(--surface, #faf8f4);
+}
+
+.uploadBtn {
+  padding: 0.5rem 1rem;
+  background: var(--accent, #c8a96e);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.uploadBtn:hover {
+  background: var(--accent-hover, #b8994e);
+}
+
+.uploadBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Chain of custody timeline ──────────────────────────────── */
+
+.timeline {
+  position: relative;
+  padding-left: 1.5rem;
+}
+
+.timeline::before {
+  content: "";
+  position: absolute;
+  left: 0.5rem;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--border, #d0c8b8);
+}
+
+.timelineItem {
+  position: relative;
+  padding-bottom: 1rem;
+  padding-left: 0.5rem;
+}
+
+.timelineItem::before {
+  content: "";
+  position: absolute;
+  left: -1.25rem;
+  top: 0.35rem;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent, #c8a96e);
+  border: 2px solid var(--surface, #faf8f4);
+}
+
+.timelineAction {
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: var(--text-primary, #1a1a2e);
+}
+
+.timelineMeta {
+  font-size: 0.75rem;
+  color: var(--text-secondary, #6b6b80);
+  margin-top: 0.15rem;
+}
+
+.timelineNotes {
+  font-size: 0.8rem;
+  color: var(--text-primary, #1a1a2e);
+  margin-top: 0.25rem;
+  font-style: italic;
+}
+
+/* ── Verify panel ───────────────────────────────────────────── */
+
+.verifyPanel {
+  background: #fef9ee;
+  border: 1px solid #e5d9b6;
+  border-radius: 8px;
+  padding: 1.25rem;
+  margin-bottom: 1.25rem;
+}
+
+.verifyPanel h2 {
+  font-size: 1rem;
+  font-weight: 700;
+  margin: 0 0 0.75rem 0;
+}
+
+.verifyForm {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.verifyField label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-secondary, #6b6b80);
+  display: block;
+  margin-bottom: 0.2rem;
+}
+
+.verifyField textarea,
+.verifyField input {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border, #d0c8b8);
+  border-radius: 6px;
+  font-size: 0.85rem;
+  background: var(--surface, #faf8f4);
+  font-family: inherit;
+}
+
+.verifyField textarea {
+  min-height: 80px;
+  resize: vertical;
+}
+
+.verifyActions {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.btnApprove {
+  padding: 0.5rem 1rem;
+  background: #16a34a;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.btnApprove:hover {
+  background: #15803d;
+}
+
+.btnApprove:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btnReject {
+  padding: 0.5rem 1rem;
+  background: #dc2626;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.btnReject:hover {
+  background: #b91c1c;
+}
+
+.btnReject:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.deleteBtn {
+  padding: 0.5rem 1rem;
+  background: #dc2626;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.deleteBtn:hover {
+  background: #b91c1c;
+}
+
+/* ── Toast ──────────────────────────────────────────────────── */
+
+.toast {
+  position: fixed;
+  bottom: 1.5rem;
+  right: 1.5rem;
+  padding: 0.75rem 1.25rem;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #fff;
+  z-index: 1000;
+  animation: slideIn 0.3s ease-out;
+}
+
+.toastSuccess {
+  background: #16a34a;
+}
+
+.toastError {
+  background: #dc2626;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateY(1rem);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* ── Responsive ─────────────────────────────────────────────── */
+
+@media (max-width: 640px) {
+  .metaGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .fileGrid {
+    grid-template-columns: 1fr;
+  }
+}
