@@ -37,6 +37,13 @@ Test map
          F  Invalid content_type_id (non-existent) → 400
          G  Disallowed content_type (e.g. accounts.user) → 400
          H  Unrelated user (Cadet, not assigned) tries to pin → 403
+
+  6.4  Create a connection (red string) between two board items
+         A  POST /boards/{id}/connections/ → 201 with id, from_item, to_item, label
+         B  Created connection visible in GET /boards/{id}/full/ connections list
+         C  Self-loop connection (from_item == to_item) → 400
+         D  Item belonging to a different board → 400 (cross-board guard)
+         E  Unrelated user tries to create connection → 403
 """
 
 from __future__ import annotations
@@ -1098,6 +1105,242 @@ class TestBoardAndSuspectsFlow(TestCase):
             status.HTTP_403_FORBIDDEN,
             msg=(
                 f"Expected 403 Forbidden when an unrelated user pins an item, "
+                f"got {response.status_code}: {response.data}"
+            ),
+        )
+
+    # ─────────────────────────────────────────────────────────────────
+    #  Scenario 6.4 helpers
+    # ─────────────────────────────────────────────────────────────────
+
+    def _setup_board_with_two_items(self) -> tuple[int, int, int]:
+        """
+        Create a board (on cls.case) with two evidence items pinned and
+        return (board_id, item1_id, item2_id).
+
+        Used as arrange step for 6.4 tests; reuses existing helpers.
+        The detective is already authenticated when this is called.
+        """
+        board_id = self._create_board().data["id"]
+        ct = ContentType.objects.get(app_label="evidence", model="evidence")
+
+        # Pin two distinct Evidence objects
+        ev1 = Evidence.objects.create(
+            case=self.case,
+            evidence_type=EvidenceType.OTHER,
+            title="Matchbook from the Blue Room",
+            description="Found under the bar.",
+            registered_by=self.detective_user,
+        )
+        ev2 = Evidence.objects.create(
+            case=self.case,
+            evidence_type=EvidenceType.OTHER,
+            title="Lipstick-stained cigarette",
+            description="On the victim's ashtray.",
+            registered_by=self.detective_user,
+        )
+
+        item1_id = self._add_item(board_id, ct.pk, ev1.pk, 0.0, 0.0).data["id"]
+        item2_id = self._add_item(board_id, ct.pk, ev2.pk, 100.0, 100.0).data["id"]
+        return board_id, item1_id, item2_id
+
+    # ─────────────────────────────────────────────────────────────────
+    #  Scenario 6.4 — Create a connection (red string) between items
+    # ─────────────────────────────────────────────────────────────────
+
+    # ── 6.4-A: happy path — 201 and correct response schema ──────────
+
+    def test_6_4_a_detective_creates_connection_returns_201(self) -> None:
+        """
+        Scenario 6.4-A: POST /api/boards/{id}/connections/ as Detective
+        → HTTP 201 Created.
+
+        Payload: {from_item: <int>, to_item: <int>, label: <str>}
+
+        Reference:
+          - project-doc.md §4.4 — 'connect related documents with a red line'
+          - swagger_doc §3.5    — BoardConnectionViewSet.create → 201
+          - board/serializers.py — BoardConnectionCreateSerializer
+        """
+        self._login_as(self.detective_user.username, self.detective_password)
+        board_id, item1_id, item2_id = self._setup_board_with_two_items()
+
+        response = self._add_connection(board_id, item1_id, item2_id, label="shared timeline")
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_201_CREATED,
+            msg=f"Expected 201 when creating connection, got {response.status_code}: {response.data}",
+        )
+
+    def test_6_4_a_connection_response_contains_required_fields(self) -> None:
+        """
+        Scenario 6.4-A (schema): BoardConnectionResponseSerializer fields:
+            id, board, from_item, to_item, label, created_at, updated_at
+
+        Reference: board/serializers.py — BoardConnectionResponseSerializer
+        """
+        self._login_as(self.detective_user.username, self.detective_password)
+        board_id, item1_id, item2_id = self._setup_board_with_two_items()
+
+        response = self._add_connection(board_id, item1_id, item2_id, label="motive link")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        for field in ("id", "board", "from_item", "to_item", "label",
+                      "created_at", "updated_at"):
+            self.assertIn(field, response.data,
+                          msg=f"Connection response missing field '{field}'.")
+
+        self.assertEqual(response.data["board"], board_id)
+        self.assertEqual(response.data["from_item"], item1_id)
+        self.assertEqual(response.data["to_item"], item2_id)
+        self.assertEqual(response.data["label"], "motive link")
+
+    # ── 6.4-B: connection visible in full board state ─────────────────
+
+    def test_6_4_b_connection_appears_in_full_state_connections_list(self) -> None:
+        """
+        Scenario 6.4-B: After creating a connection,
+        GET /api/boards/{id}/full/ connections list must contain it.
+
+        BoardConnectionInlineSerializer fields:
+            id, from_item, to_item, label, created_at, updated_at
+
+        Reference:
+          - swagger_doc §3.5 — DetectiveBoardViewSet.full_state
+          - board/serializers.py — BoardConnectionInlineSerializer
+        """
+        self._login_as(self.detective_user.username, self.detective_password)
+        board_id, item1_id, item2_id = self._setup_board_with_two_items()
+
+        conn_resp = self._add_connection(board_id, item1_id, item2_id, label="red string")
+        self.assertEqual(conn_resp.status_code, status.HTTP_201_CREATED)
+        conn_id = conn_resp.data["id"]
+
+        full_resp = self._get_full_state(board_id)
+        self.assertEqual(full_resp.status_code, status.HTTP_200_OK)
+
+        connections = full_resp.data["connections"]
+        self.assertEqual(len(connections), 1,
+                         msg=f"Expected 1 connection in full state, got {len(connections)}.")
+
+        conn = connections[0]
+        self.assertEqual(conn["id"], conn_id)
+        self.assertEqual(conn["from_item"], item1_id)
+        self.assertEqual(conn["to_item"], item2_id)
+        self.assertEqual(conn["label"], "red string")
+
+        # Full state must still show both items alongside the connection
+        self.assertEqual(len(full_resp.data["items"]), 2)
+
+    # ── 6.4-C: self-loop connection → 400 ────────────────────────────
+
+    def test_6_4_c_self_loop_connection_returns_400(self) -> None:
+        """
+        Scenario 6.4-C: A connection where from_item == to_item must be
+        rejected with HTTP 400.
+
+        Serializer-level guard:
+            board/serializers.py — BoardConnectionCreateSerializer.validate
+            → "A BoardItem cannot be connected to itself."
+
+        Service-level guard (also):
+            board/services.py — BoardConnectionService.create_connection
+            → "A board item cannot be connected to itself."
+
+        Reference: board/serializers.py — BoardConnectionCreateSerializer
+        """
+        self._login_as(self.detective_user.username, self.detective_password)
+        board_id, item1_id, _ = self._setup_board_with_two_items()
+
+        response = self._add_connection(board_id, item1_id, item1_id, label="self loop")
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+            msg=f"Expected 400 for self-loop connection, got {response.status_code}: {response.data}",
+        )
+
+    # ── 6.4-D: item from another board → 400 ─────────────────────────
+
+    def test_6_4_d_item_from_different_board_returns_400(self) -> None:
+        """
+        Scenario 6.4-D: Providing a to_item that belongs to a **different**
+        board must fail with HTTP 400.
+
+        Service guard:
+            board/services.py — BoardConnectionService.create_connection
+            → "Both items must belong to the same board."
+
+        Setup: create a second case + board, pin one item on it, then try
+        to connect board-A's item with board-B's item via board-A's endpoint.
+        """
+        self._login_as(self.detective_user.username, self.detective_password)
+        board_a_id, item_a_id, _ = self._setup_board_with_two_items()
+
+        # Create a second independent case and board
+        case_b = Case.objects.create(
+            title="The Naked City Heist",
+            description="A second independent case.",
+            crime_level=CrimeLevel.LEVEL_2,
+            status=CaseStatus.OPEN,
+            creation_type=CaseCreationType.CRIME_SCENE,
+            location="Bunker Hill, LA",
+            created_by=self.detective_user,
+            assigned_detective=self.detective_user,
+        )
+        board_b_id = self._create_board(case_pk=case_b.pk).data["id"]
+
+        ct = ContentType.objects.get(app_label="evidence", model="evidence")
+        ev_b = Evidence.objects.create(
+            case=case_b,
+            evidence_type=EvidenceType.OTHER,
+            title="Foreign item from board B",
+            description="Should not be connectable on board A.",
+            registered_by=self.detective_user,
+        )
+        item_b_id = self._add_item(board_b_id, ct.pk, ev_b.pk).data["id"]
+
+        # Try to connect board-A's item → board-B's item via board-A's endpoint
+        response = self._add_connection(board_a_id, item_a_id, item_b_id, label="cross-board")
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+            msg=(
+                f"Expected 400 when to_item belongs to a different board, "
+                f"got {response.status_code}: {response.data}"
+            ),
+        )
+
+    # ── 6.4-E: unrelated user tries to connect → 403 ─────────────────
+
+    def test_6_4_e_unrelated_user_cannot_create_connection_returns_403(self) -> None:
+        """
+        Scenario 6.4-E: A user without edit access on the board (not the
+        detective, not an assigned supervisor, not admin) receives HTTP 403
+        when posting to the connections endpoint.
+
+        Service check:
+            board/services.py — BoardConnectionService.create_connection
+            → _enforce_edit() → PermissionDenied
+
+        Reference:
+          - board/services.py — _can_edit_board / _enforce_edit
+          - board_services_report.md §1 Write (Edit) Access table
+        """
+        self._login_as(self.detective_user.username, self.detective_password)
+        board_id, item1_id, item2_id = self._setup_board_with_two_items()
+
+        # Switch to Cadet — no access to this board
+        self._login_as(self.cadet_user.username, self.cadet_password)
+        response = self._add_connection(board_id, item1_id, item2_id, label="unauthorized")
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+            msg=(
+                f"Expected 403 Forbidden when unrelated user creates connection, "
                 f"got {response.status_code}: {response.data}"
             ),
         )
