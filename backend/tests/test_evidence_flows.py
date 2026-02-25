@@ -17,7 +17,8 @@ Test map
   5.1  Create Testimony evidence → 201 + DB persistence + negative tests
   5.2  Biological evidence + file upload + chain-of-custody + Coroner verify (approve/reject)
   5.3  Vehicle evidence XOR constraint (license_plate ⊕ serial_number)
-  5.4 – 5.6  (appended by subsequent prompts)
+  5.4  Identity document evidence + document_details key-value metadata
+  5.5 – 5.6  (appended by subsequent prompts)
 """
 
 from __future__ import annotations
@@ -32,7 +33,13 @@ from rest_framework.test import APIClient
 
 from accounts.models import Role
 from cases.models import Case, CaseCreationType, CaseStatus, CrimeLevel
-from evidence.models import BiologicalEvidence, EvidenceType, TestimonyEvidence, VehicleEvidence
+from evidence.models import (
+    BiologicalEvidence,
+    EvidenceType,
+    IdentityEvidence,
+    TestimonyEvidence,
+    VehicleEvidence,
+)
 
 User = get_user_model()
 
@@ -122,6 +129,8 @@ class TestEvidenceFlows(TestCase):
             "view_evidencefile",
             "add_vehicleevidence",
             "view_vehicleevidence",
+            "add_identityevidence",
+            "view_identityevidence",
         ):
             _grant(cls.detective_role, codename, app_label="evidence")
 
@@ -1318,6 +1327,327 @@ class TestEvidenceFlows(TestCase):
             response.data,
             msg=(
                 "XOR validation error must be reported under 'non_field_errors'. "
+                f"Got keys: {list(response.data.keys())}"
+            ),
+        )
+
+    # ════════════════════════════════════════════════════════════════════════
+    #  Scenario 5.4 — Identity Document Evidence + document_details Metadata
+    # ════════════════════════════════════════════════════════════════════════
+
+    # ── Payload helper ───────────────────────────────────────────────────
+
+    def _identity_payload(self, **overrides) -> dict:
+        """
+        Return a valid identity-evidence creation payload.
+
+        Fields come from IdentityEvidenceCreateSerializer:
+            evidence/serializers.py  IdentityEvidenceCreateSerializer
+            → required: evidence_type (discriminator), case, title,
+              owner_full_name
+            → optional: description, document_details (JSON dict, default {})
+
+        document_details rules (from serializer + service):
+            - Must be a flat JSON object (dict).
+            - All keys AND values must be strings.
+            - Zero pairs ({}) is valid — project-doc §4.3.4:
+              "The quantity and keys are not fixed — even zero pairs is valid."
+            - A list or primitive type raises HTTP 400.
+
+        Reference:
+            evidence/serializers.py  IdentityEvidenceCreateSerializer
+                .validate_document_details()
+            evidence/services.py  EvidenceProcessingService._validate_identity()
+            project-doc.md §4.3.4
+        """
+        base = {
+            "evidence_type": "identity",
+            "case": self.case.pk,
+            "title": "Victim ID Card — Downtown Homicide",
+            "description": "ID card found in victim's jacket pocket.",
+            "owner_full_name": "James Donnelly",
+            "document_details": {
+                "nationality": "US",
+                "birth_year": "1972",
+                "id_number": "A-123456",
+            },
+        }
+        base.update(overrides)
+        return base
+
+    # ── Test A: identity evidence with filled document_details → 201 ─────
+
+    def test_create_identity_evidence_with_metadata_returns_201(self) -> None:
+        """
+        Scenario 5.4 — Test A: Detective creates identity evidence with a
+        non-empty document_details dict.  All K/V pairs are strings.
+
+        Asserts:
+        - HTTP 201
+        - evidence_type == "identity"
+        - case PK matches
+        - owner_full_name echoed
+        - document_details response equals the submitted dict
+        - GET /api/evidence/{id}/ also returns the same document_details
+        - IdentityEvidence DB row exists with correct document_details
+        - Fields from other types (statement_text, forensic_result,
+          vehicle_model) are absent
+
+        Reference:
+            evidence/serializers.py  IdentityEvidenceDetailSerializer
+            evidence/serializers.py  IdentityEvidenceCreateSerializer
+        """
+        self._login_as(self.detective_user.username, self.detective_password)
+
+        metadata = {
+            "nationality": "US",
+            "birth_year": "1972",
+            "id_number": "A-123456",
+        }
+        payload = self._identity_payload(
+            title="Identity Evidence — Metadata Test",
+            document_details=metadata,
+        )
+
+        url = reverse("evidence-list")
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_201_CREATED,
+            msg=f"Expected 201 for identity evidence, got {response.status_code}: {response.data}",
+        )
+
+        data = response.data
+
+        # Required schema fields
+        for field in ("id", "evidence_type", "case", "title", "description",
+                      "owner_full_name", "document_details", "registered_by",
+                      "created_at"):
+            self.assertIn(field, data, msg=f"Field '{field}' missing from identity response")
+
+        self.assertEqual(data["evidence_type"], EvidenceType.IDENTITY)
+        self.assertEqual(data["case"], self.case.pk)
+        self.assertEqual(data["owner_full_name"], "James Donnelly")
+        self.assertEqual(
+            data["document_details"],
+            metadata,
+            msg="document_details response must match the submitted dict exactly",
+        )
+        self.assertEqual(data["registered_by"], self.detective_user.pk)
+
+        # Fields from other evidence types must be absent
+        self.assertNotIn("statement_text", data)
+        self.assertNotIn("forensic_result", data)
+        self.assertNotIn("vehicle_model", data)
+
+        # GET /api/evidence/{id}/ must also return document_details correctly
+        detail_url = reverse("evidence-detail", kwargs={"pk": data["id"]})
+        get_resp = self.client.get(detail_url)
+        self.assertEqual(get_resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            get_resp.data["document_details"],
+            metadata,
+            msg="GET detail endpoint must return the same document_details dict",
+        )
+
+        # DB verification
+        self.assertTrue(
+            IdentityEvidence.objects.filter(pk=data["id"]).exists(),
+            msg="IdentityEvidence DB row not found after creation.",
+        )
+        db_obj = IdentityEvidence.objects.get(pk=data["id"])
+        self.assertEqual(db_obj.owner_full_name, "James Donnelly")
+        self.assertEqual(db_obj.document_details, metadata)
+
+    # ── Test B: identity evidence with document_details omitted → 201 ────
+
+    def test_create_identity_evidence_without_metadata_returns_201(self) -> None:
+        """
+        Scenario 5.4 — Test B: Detective creates identity evidence without
+        providing document_details (the field is optional).
+
+        The serializer defaults document_details to {} when not provided:
+            extra_kwargs = {"document_details": {"required": False, "default": dict}}
+
+        Asserts:
+        - HTTP 201
+        - document_details in response is {} (empty dict, not null)
+        - DB row has document_details == {}
+
+        Reference:
+            evidence/serializers.py  IdentityEvidenceCreateSerializer
+                → "document_details": {"required": False, "default": dict}
+            project-doc.md §4.3.4 — "even zero pairs is valid"
+        """
+        self._login_as(self.detective_user.username, self.detective_password)
+
+        payload = {
+            "evidence_type": "identity",
+            "case": self.case.pk,
+            "title": "Identity Evidence — No Metadata",
+            "description": "Damaged ID — no readable details.",
+            "owner_full_name": "Jane Doe",
+            # document_details intentionally absent
+        }
+
+        url = reverse("evidence-list")
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_201_CREATED,
+            msg=(
+                f"Expected 201 for identity evidence without document_details, "
+                f"got {response.status_code}: {response.data}"
+            ),
+        )
+
+        data = response.data
+        self.assertIn("document_details", data)
+        self.assertEqual(
+            data["document_details"],
+            {},
+            msg=(
+                "document_details must default to an empty dict {} when not "
+                f"provided. Got: {data['document_details']}"
+            ),
+        )
+
+        # DB row must also have empty dict
+        db_obj = IdentityEvidence.objects.get(pk=data["id"])
+        self.assertEqual(
+            db_obj.document_details,
+            {},
+            msg="IdentityEvidence.document_details must be {} when omitted on creation.",
+        )
+
+    # ── Test B2: identity evidence with document_details={} → 201 ────────
+
+    def test_create_identity_evidence_with_empty_metadata_returns_201(self) -> None:
+        """
+        Scenario 5.4 — Test B2: Explicitly passing document_details={} must
+        also succeed (semantically identical to omitting the field).
+
+        Asserts:
+        - HTTP 201
+        - document_details == {}
+
+        Reference:
+            project-doc.md §4.3.4 — "even zero pairs is valid"
+            evidence/serializers.py  IdentityEvidenceCreateSerializer
+                .validate_document_details
+        """
+        self._login_as(self.detective_user.username, self.detective_password)
+
+        payload = self._identity_payload(
+            title="Identity Evidence — Empty Metadata Dict",
+            document_details={},
+        )
+
+        url = reverse("evidence-list")
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_201_CREATED,
+            msg=(
+                f"Expected 201 for identity evidence with document_details={{}}, "
+                f"got {response.status_code}: {response.data}"
+            ),
+        )
+        self.assertEqual(response.data["document_details"], {})
+
+    # ── Test C: document_details as a list → 400 ─────────────────────────
+
+    def test_create_identity_evidence_metadata_as_list_returns_400(self) -> None:
+        """
+        Scenario 5.4 — Test C: Providing document_details as a JSON array
+        instead of an object must be rejected with HTTP 400.
+
+        Validation fires in:
+            IdentityEvidenceCreateSerializer.validate_document_details()
+            → "document_details must be a JSON object."
+            → serializers.ValidationError → HTTP 400
+               keyed to the field: {"document_details": [...]}
+
+        Asserts:
+        - HTTP 400
+        - Error references "document_details" field
+
+        Reference:
+            evidence/serializers.py  IdentityEvidenceCreateSerializer
+                .validate_document_details:
+                    if not isinstance(value, dict):
+                        raise ValidationError("document_details must be a JSON object.")
+        """
+        self._login_as(self.detective_user.username, self.detective_password)
+
+        payload = self._identity_payload(
+            title="Identity Evidence — List Metadata (invalid)",
+            document_details=["nationality", "US"],  # list, not dict
+        )
+
+        url = reverse("evidence-list")
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+            msg=(
+                f"Expected 400 when document_details is a list, "
+                f"got {response.status_code}: {response.data}"
+            ),
+        )
+
+        self.assertIn(
+            "document_details",
+            response.data,
+            msg=(
+                "Error must be keyed to 'document_details' when the field is "
+                f"the wrong type. Got keys: {list(response.data.keys())}"
+            ),
+        )
+
+    # ── Test C2: document_details as a string → 400 ───────────────────────
+
+    def test_create_identity_evidence_metadata_as_string_returns_400(self) -> None:
+        """
+        Scenario 5.4 — Test C2: Providing document_details as a plain string
+        instead of a JSON object must also be rejected with HTTP 400.
+
+        Asserts:
+        - HTTP 400
+        - Error references "document_details" field
+
+        Reference:
+            evidence/serializers.py  IdentityEvidenceCreateSerializer
+                .validate_document_details
+        """
+        self._login_as(self.detective_user.username, self.detective_password)
+
+        payload = self._identity_payload(
+            title="Identity Evidence — String Metadata (invalid)",
+            document_details="nationality=US;birth_year=1972",  # string, not dict
+        )
+
+        url = reverse("evidence-list")
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+            msg=(
+                f"Expected 400 when document_details is a string, "
+                f"got {response.status_code}: {response.data}"
+            ),
+        )
+
+        self.assertIn(
+            "document_details",
+            response.data,
+            msg=(
+                "Error must be keyed to 'document_details'. "
                 f"Got keys: {list(response.data.keys())}"
             ),
         )
