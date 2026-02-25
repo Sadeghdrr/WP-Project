@@ -1,34 +1,83 @@
 /**
  * Detective Board domain types.
  * Maps to: board app models (DetectiveBoard, BoardNote, BoardItem, BoardConnection).
+ *
+ * Payload shapes verified against backend/board/serializers.py
+ * (FullBoardStateSerializer, BoardItemResponseSerializer, etc.)
  */
 
 import type { TimeStamped } from "./common";
-import type { UserRef } from "./auth";
 
 // ---------------------------------------------------------------------------
-// DetectiveBoard
+// DetectiveBoard (list response — DetectiveBoardListSerializer)
 // ---------------------------------------------------------------------------
 
-export interface DetectiveBoard extends TimeStamped {
+export interface DetectiveBoardListItem extends TimeStamped {
   id: number;
-  case: number; // OneToOne with Case
-  detective: UserRef;
-  notes: BoardNote[];
-  items: BoardItem[];
-  connections: BoardConnection[];
+  case: number;
+  detective: number;
+  item_count: number;
+  connection_count: number;
 }
 
 // ---------------------------------------------------------------------------
-// BoardNote
+// GenericForeignKey summary (GenericObjectRelatedField.to_representation)
+// ---------------------------------------------------------------------------
+
+export interface ContentObjectSummary {
+  content_type_id: number;
+  app_label: string;
+  model: string;
+  object_id: number;
+  display_name: string;
+  detail_url: string;
+}
+
+// ---------------------------------------------------------------------------
+// BoardItem (BoardItemInlineSerializer / BoardItemResponseSerializer)
+// ---------------------------------------------------------------------------
+
+export interface BoardItem extends TimeStamped {
+  id: number;
+  content_type: number;
+  object_id: number;
+  content_object_summary: ContentObjectSummary | null;
+  position_x: number;
+  position_y: number;
+}
+
+export interface BoardItemWithBoard extends BoardItem {
+  board: number;
+}
+
+export interface BoardItemCreateRequest {
+  content_object: {
+    content_type_id: number;
+    object_id: number;
+  };
+  position_x?: number;
+  position_y?: number;
+}
+
+export interface BoardItemPositionUpdate {
+  id: number;
+  position_x: number;
+  position_y: number;
+}
+
+// ---------------------------------------------------------------------------
+// BoardNote (BoardNoteInlineSerializer / BoardNoteResponseSerializer)
 // ---------------------------------------------------------------------------
 
 export interface BoardNote extends TimeStamped {
   id: number;
-  board: number;
   title: string;
   content: string;
-  created_by: UserRef;
+  created_by: number;
+}
+
+export interface BoardNoteWithBoard extends BoardNote {
+  board: number;
 }
 
 export interface BoardNoteCreateRequest {
@@ -37,44 +86,43 @@ export interface BoardNoteCreateRequest {
 }
 
 // ---------------------------------------------------------------------------
-// BoardItem
-// ---------------------------------------------------------------------------
-
-export interface BoardItem extends TimeStamped {
-  id: number;
-  board: number;
-  content_type: number; // Django ContentType FK
-  object_id: number; // Generic FK target ID
-  position_x: number;
-  position_y: number;
-}
-
-export interface BoardItemCreateRequest {
-  content_type: number;
-  object_id: number;
-  position_x?: number;
-  position_y?: number;
-}
-
-export interface BoardItemPositionUpdate {
-  position_x: number;
-  position_y: number;
-}
-
-// ---------------------------------------------------------------------------
-// BoardConnection
+// BoardConnection (BoardConnectionInlineSerializer / BoardConnectionResponseSerializer)
 // ---------------------------------------------------------------------------
 
 export interface BoardConnection extends TimeStamped {
   id: number;
-  board: number;
-  from_item: number; // FK → BoardItem
-  to_item: number; // FK → BoardItem
+  from_item: number;
+  to_item: number;
   label: string;
+}
+
+export interface BoardConnectionWithBoard extends BoardConnection {
+  board: number;
 }
 
 export interface BoardConnectionCreateRequest {
   from_item: number;
   to_item: number;
   label?: string;
+}
+
+// ---------------------------------------------------------------------------
+// FullBoardState (FullBoardStateSerializer) — the main read payload
+// ---------------------------------------------------------------------------
+
+export interface FullBoardState extends TimeStamped {
+  id: number;
+  case: number;
+  detective: number;
+  items: BoardItem[];
+  connections: BoardConnection[];
+  notes: BoardNote[];
+}
+
+// ---------------------------------------------------------------------------
+// Batch coordinate update payload (BatchCoordinateUpdateSerializer)
+// ---------------------------------------------------------------------------
+
+export interface BatchCoordinateUpdateRequest {
+  items: BoardItemPositionUpdate[];
 }

@@ -100,14 +100,20 @@ export type {
 
 // Board
 export type {
-  DetectiveBoard,
+  FullBoardState,
+  DetectiveBoardListItem,
+  ContentObjectSummary,
   BoardNote,
+  BoardNoteWithBoard,
   BoardNoteCreateRequest,
   BoardItem,
+  BoardItemWithBoard,
   BoardItemCreateRequest,
   BoardItemPositionUpdate,
   BoardConnection,
+  BoardConnectionWithBoard,
   BoardConnectionCreateRequest,
+  BatchCoordinateUpdateRequest,
 } from "./board";
 
 // Core

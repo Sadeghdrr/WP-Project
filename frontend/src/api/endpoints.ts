@@ -42,6 +42,19 @@ export const API = {
   // Board
   BOARDS: "/board/boards/",
   board: (id: number) => `/board/boards/${id}/`,
+  boardFull: (id: number) => `/board/boards/${id}/full/`,
+  boardItems: (boardId: number) => `/board/boards/${boardId}/items/`,
+  boardItem: (boardId: number, itemId: number) =>
+    `/board/boards/${boardId}/items/${itemId}/`,
+  boardItemsBatchCoordinates: (boardId: number) =>
+    `/board/boards/${boardId}/items/batch-coordinates/`,
+  boardConnections: (boardId: number) =>
+    `/board/boards/${boardId}/connections/`,
+  boardConnection: (boardId: number, connId: number) =>
+    `/board/boards/${boardId}/connections/${connId}/`,
+  boardNotes: (boardId: number) => `/board/boards/${boardId}/notes/`,
+  boardNote: (boardId: number, noteId: number) =>
+    `/board/boards/${boardId}/notes/${noteId}/`,
 
   // Core
   DASHBOARD_STATS: "/core/dashboard/",
