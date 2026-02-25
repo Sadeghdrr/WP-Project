@@ -268,7 +268,7 @@ Authorization: Bearer <police_jwt>
 | GET    | `/api/bounty-tips/{id}/`          | Any authenticated user | `IsAuthenticated`   |
 | POST   | `/api/bounty-tips/{id}/review/`   | Officer        | `can_review_bounty_tip`    |
 | POST   | `/api/bounty-tips/{id}/verify/`   | Detective      | `can_verify_bounty_tip`    |
-| POST   | `/api/bounty-tips/lookup-reward/` | Any authenticated user | `IsAuthenticated`   |
+| POST   | `/api/bounty-tips/lookup-reward/` | Police ranks (authenticated) | `IsAuthenticated` + police-rank role check |
 
 ## Notifications Dispatched
 

@@ -2459,6 +2459,24 @@ class BountyTipService:
         national_id and the exact unique_code. Returns the reward status
         and details. If not found, raises NotFound.
         """
+        allowed_lookup_roles = {
+            "cadet",
+            "police_officer",
+            "patrol_officer",
+            "detective",
+            "sergeant",
+            "captain",
+            "police_chief",
+            "coroner",
+            "system_admin",
+            "admin",
+        }
+        role_name = get_user_role_name(requesting_user)
+        if role_name not in allowed_lookup_roles:
+            raise PermissionDenied(
+                "Only police ranks can look up bounty rewards.",
+            )
+
         tip = BountyTip.objects.select_related(
             "suspect", "case", "informant",
         ).filter(

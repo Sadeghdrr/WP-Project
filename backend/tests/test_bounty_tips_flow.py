@@ -5,6 +5,7 @@ Current scope in this file:
 - Scenario 10.1: Citizen submits a bounty tip.
 - Scenario 10.2: Officer reviews (accept/reject) a tip.
 - Scenario 10.3: Detective verifies an accepted tip.
+- Scenario 10.4: Police-rank reward lookup via national_id + unique_code.
 """
 
 from __future__ import annotations
@@ -226,6 +227,58 @@ class TestBountyTipsFlow(TestCase):
             payload,
             format="json",
         )
+
+    def lookup_reward(self, *, national_id: str, unique_code: str):
+        return self.client.post(
+            reverse("bounty-tip-lookup-reward"),
+            {"national_id": national_id, "unique_code": unique_code},
+            format="json",
+        )
+
+    def create_verified_tip_end_to_end(self) -> dict:
+        # Keep reward > 0 for stable lookup assertions.
+        self.wanted_suspect.wanted_since = timezone.now() - timedelta(days=35)
+        self.wanted_suspect.save(update_fields=["wanted_since"])
+
+        tip_id = self.create_tip_as_citizen(
+            information="End-to-end tip for lookup scenario.",
+        )
+
+        officer_token = self.login(self.officer_user)
+        self.auth(officer_token)
+        accept_response = self.review_tip(
+            tip_id=tip_id,
+            decision="accept",
+            review_notes="Forwarding to detective for verification.",
+        )
+        self.assertEqual(
+            accept_response.status_code,
+            status.HTTP_200_OK,
+            msg=f"Officer accept setup failed: {accept_response.data}",
+        )
+
+        detective_token = self.login(self.detective_user)
+        self.auth(detective_token)
+        verify_response = self.verify_tip(
+            tip_id=tip_id,
+            decision="verify",
+            verification_notes="Verified for reward lookup flow.",
+        )
+        self.assertEqual(
+            verify_response.status_code,
+            status.HTTP_200_OK,
+            msg=f"Detective verify setup failed: {verify_response.data}",
+        )
+
+        return {
+            "tip_id": tip_id,
+            "national_id": self.citizen_user.national_id,
+            "unique_code": verify_response.data["unique_code"],
+            "reward_amount": int(verify_response.data["reward_amount"]),
+            "case_id": self.open_case.id,
+            "suspect_name": self.wanted_suspect.full_name,
+            "informant_name": self.citizen_user.get_full_name(),
+        }
 
     def test_citizen_submits_tip_successfully_with_pending_status_and_no_unique_code(self):
         token = self.login(self.citizen_user)
@@ -615,4 +668,107 @@ class TestBountyTipsFlow(TestCase):
             second_verify.status_code,
             (status.HTTP_400_BAD_REQUEST, status.HTTP_409_CONFLICT),
             msg=f"Expected already-verified rejection: {second_verify.data}",
+        )
+
+    def test_lookup_reward_success_for_officer_and_detective(self):
+        fixture = self.create_verified_tip_end_to_end()
+
+        # Lookup as Officer
+        officer_token = self.login(self.officer_user)
+        self.auth(officer_token)
+        officer_lookup = self.lookup_reward(
+            national_id=fixture["national_id"],
+            unique_code=fixture["unique_code"],
+        )
+        self.assertEqual(
+            officer_lookup.status_code,
+            status.HTTP_200_OK,
+            msg=f"Officer lookup failed: {officer_lookup.data}",
+        )
+        self.assertEqual(officer_lookup.data["tip_id"], fixture["tip_id"])
+        self.assertEqual(
+            officer_lookup.data["informant_national_id"], fixture["national_id"]
+        )
+        self.assertEqual(int(officer_lookup.data["reward_amount"]), fixture["reward_amount"])
+        self.assertEqual(officer_lookup.data["case_id"], fixture["case_id"])
+        self.assertEqual(officer_lookup.data["suspect_name"], fixture["suspect_name"])
+
+        # Lookup as Detective
+        detective_token = self.login(self.detective_user)
+        self.auth(detective_token)
+        detective_lookup = self.lookup_reward(
+            national_id=fixture["national_id"],
+            unique_code=fixture["unique_code"],
+        )
+        self.assertEqual(
+            detective_lookup.status_code,
+            status.HTTP_200_OK,
+            msg=f"Detective lookup failed: {detective_lookup.data}",
+        )
+        self.assertEqual(detective_lookup.data["tip_id"], fixture["tip_id"])
+        self.assertEqual(
+            detective_lookup.data["informant_national_id"], fixture["national_id"]
+        )
+        self.assertEqual(
+            int(detective_lookup.data["reward_amount"]), fixture["reward_amount"]
+        )
+        self.assertEqual(detective_lookup.data["case_id"], fixture["case_id"])
+
+    def test_lookup_reward_wrong_unique_code_returns_404(self):
+        fixture = self.create_verified_tip_end_to_end()
+
+        officer_token = self.login(self.officer_user)
+        self.auth(officer_token)
+        response = self.lookup_reward(
+            national_id=fixture["national_id"],
+            unique_code="ABCDEF1234567890ABCDEF1234567890",
+        )
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_404_NOT_FOUND,
+            msg=f"Expected 404 for wrong unique_code: {response.data}",
+        )
+
+    def test_lookup_reward_wrong_national_id_returns_404(self):
+        fixture = self.create_verified_tip_end_to_end()
+
+        officer_token = self.login(self.officer_user)
+        self.auth(officer_token)
+        response = self.lookup_reward(
+            national_id="9999999999",
+            unique_code=fixture["unique_code"],
+        )
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_404_NOT_FOUND,
+            msg=f"Expected 404 for wrong national_id: {response.data}",
+        )
+
+    def test_unauthenticated_lookup_reward_returns_401(self):
+        fixture = self.create_verified_tip_end_to_end()
+        self.client.credentials()
+
+        response = self.lookup_reward(
+            national_id=fixture["national_id"],
+            unique_code=fixture["unique_code"],
+        )
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_401_UNAUTHORIZED,
+            msg=f"Expected 401 for unauthenticated lookup: {response.data}",
+        )
+
+    def test_citizen_lookup_reward_is_forbidden(self):
+        fixture = self.create_verified_tip_end_to_end()
+
+        citizen_token = self.login(self.citizen_user)
+        self.auth(citizen_token)
+        response = self.lookup_reward(
+            national_id=fixture["national_id"],
+            unique_code=fixture["unique_code"],
+        )
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+            msg=f"Expected 403 for citizen lookup: {response.data}",
         )

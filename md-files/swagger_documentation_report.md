@@ -124,6 +124,10 @@ Validation note for `BountyTipViewSet.review` request body:
 - `decision` accepts `accept` or `reject`.
 - `review_notes` is required when `decision=reject`.
 
+Access note for `BountyTipViewSet.lookup_reward`:
+- Allowed for authenticated police-rank users only.
+- Requires both `national_id` and `unique_code`.
+
 ### 3.4 `evidence` app — Tag: **Evidence**
 
 | View / Method                      | HTTP     | Path                                   | Tag      |
