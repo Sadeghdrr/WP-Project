@@ -20,7 +20,7 @@ urlpatterns = [
     path('api/', include('board.urls')),
     path('api/core/', include('core.urls')),
     path('api/', include('cases.urls')),
-    path('api/suspects/', include('suspects.urls')),
+    path('api/', include('suspects.urls')),
 
     # ── Swagger / OpenAPI schema ─────────────────────────────────────
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
