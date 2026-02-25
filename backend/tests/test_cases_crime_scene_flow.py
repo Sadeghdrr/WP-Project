@@ -1134,3 +1134,284 @@ class TestCrimeSceneCaseFlow(TestCase):
                 f"got: {detail!r}"
             ),
         )
+
+    # ────────────────────────────────────────────────────────────────
+    #  Scenario 4.5 — Witness field validation at creation time
+    # ────────────────────────────────────────────────────────────────
+    #
+    #  CaseWitnessCreateSerializer rules (cases/serializers.py L327-L368):
+    #    - full_name:    required
+    #    - phone_number: required; must match ^\+?\d{7,15}$
+    #    - national_id:  required; exactly 10 digits
+    #
+    #  Validation runs inside CrimeSceneCaseCreateSerializer.is_valid() which
+    #  is called BEFORE any service or DB call.  Any error produces HTTP 400
+    #  with no Case row written.
+    #
+    #  DRF nested error shape:
+    #    {"witnesses": [{"<field>": ["<message>"]}]}
+    #
+    #  All tests in this scenario authenticate as Police Officer (the most
+    #  common caller) so that role is never the failure reason.
+    # ────────────────────────────────────────────────────────────────
+
+    def _witness_payload(self, suffix: str, **overrides) -> dict:
+        """
+        Build a fully-valid crime-scene creation payload containing one witness.
+
+        Pass keyword arguments to override individual witness fields.
+        Pass ``None`` as a value to *remove* that key from the witness dict
+        (simulates a missing required field).
+
+        ``suffix`` is appended to the title to make every test's title unique,
+        which simplifies DB-count assertions.
+        """
+        witness: dict = {
+            "full_name": "Alice Witness",
+            "phone_number": "+12025559999",
+            "national_id": "9876543210",  # 10 digits, valid
+        }
+        for key, val in overrides.items():
+            if val is None:
+                witness.pop(key, None)
+            else:
+                witness[key] = val
+        return {
+            "creation_type": "crime_scene",
+            "title": f"Witness validation test — {suffix}",
+            "description": "Automated scenario-4.5 test case.",
+            "crime_level": 2,
+            "incident_date": "2026-02-23T14:30:00Z",
+            "location": "Test Location",
+            "witnesses": [witness],
+        }
+
+    # ── Helpers shared across 4.5 assertions ──────────────────────────
+
+    def _assert_400_with_witness_error(
+        self,
+        response: "rest_framework.response.Response",  # type: ignore[name-defined]
+        field: str,
+    ) -> None:
+        """
+        Assert:
+          1. HTTP status is 400.
+          2. The response body has a ``witnesses`` key (error is witness-scoped).
+          3. The first element in that list has ``field`` as an error key.
+        """
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+            msg=f"Expected 400, got {response.status_code}: {response.data}",
+        )
+        self.assertIn(
+            "witnesses",
+            response.data,
+            msg=f"Response must contain a 'witnesses' error key; got: {list(response.data.keys())}",
+        )
+        witness_errors = response.data["witnesses"]
+        # DRF returns a list of ErrorDetail dicts, one per submitted witness.
+        self.assertTrue(
+            len(witness_errors) > 0,
+            msg="witnesses error list must be non-empty",
+        )
+        self.assertIn(
+            field,
+            witness_errors[0],
+            msg=f"Expected error on field '{field}' inside witnesses[0]; got keys: {list(witness_errors[0].keys())}",
+        )
+
+    def _assert_no_case_created(self, title: str) -> None:
+        """Assert that no Case with the given title was written to the DB."""
+        from cases.models import Case as CaseModel
+        count = CaseModel.objects.filter(title=title).count()
+        self.assertEqual(
+            count,
+            0,
+            msg=f"No Case row should have been created for title {title!r}; found {count}",
+        )
+
+    # ── national_id validation ─────────────────────────────────────────
+
+    def test_witness_national_id_too_short_returns_400(self) -> None:
+        """
+        Scenario 4.5: A witness national_id with fewer than 10 digits fails
+        serializer validation → HTTP 400, error inside witnesses[0].national_id,
+        no Case persisted.
+
+        Reference: cases/serializers.py CaseWitnessCreateSerializer.validate_national_id
+          "National ID must be exactly 10 digits."
+        """
+        suffix = "national_id_too_short"
+        payload = self._witness_payload(suffix, national_id="123456789")  # 9 digits
+
+        self._login_as(self.officer_user.username, self.officer_password)
+        response = self._create_crime_scene_case(payload)
+
+        self._assert_400_with_witness_error(response, "national_id")
+        self._assert_no_case_created(payload["title"])
+
+    def test_witness_national_id_too_long_returns_400(self) -> None:
+        """
+        Scenario 4.5: A witness national_id with more than 10 digits is rejected.
+        """
+        suffix = "national_id_too_long"
+        payload = self._witness_payload(suffix, national_id="12345678901")  # 11 digits
+
+        self._login_as(self.officer_user.username, self.officer_password)
+        response = self._create_crime_scene_case(payload)
+
+        self._assert_400_with_witness_error(response, "national_id")
+        self._assert_no_case_created(payload["title"])
+
+    def test_witness_national_id_with_letters_returns_400(self) -> None:
+        """
+        Scenario 4.5: A witness national_id containing non-digit characters is
+        rejected even when the total length is 10.
+
+        Reference: validate_national_id checks value.isdigit().
+        """
+        suffix = "national_id_has_letters"
+        payload = self._witness_payload(suffix, national_id="12345A7890")  # letter in middle
+
+        self._login_as(self.officer_user.username, self.officer_password)
+        response = self._create_crime_scene_case(payload)
+
+        self._assert_400_with_witness_error(response, "national_id")
+        self._assert_no_case_created(payload["title"])
+
+    def test_witness_national_id_missing_returns_400(self) -> None:
+        """
+        Scenario 4.5: Omitting the required national_id field returns 400.
+        """
+        suffix = "national_id_missing"
+        payload = self._witness_payload(suffix, national_id=None)  # key removed
+
+        self._login_as(self.officer_user.username, self.officer_password)
+        response = self._create_crime_scene_case(payload)
+
+        self._assert_400_with_witness_error(response, "national_id")
+        self._assert_no_case_created(payload["title"])
+
+    # ── phone_number validation ────────────────────────────────────────
+
+    def test_witness_phone_too_short_returns_400(self) -> None:
+        """
+        Scenario 4.5: A phone_number shorter than 7 digits fails regex
+        validation → HTTP 400.
+
+        Reference: cases/serializers.py _PHONE_REGEX = r'^\\+?\\d{7,15}$'
+          "Phone number must be 7-15 digits, optionally prefixed with '+'."
+        """
+        suffix = "phone_too_short"
+        payload = self._witness_payload(suffix, phone_number="12345")  # 5 digits
+
+        self._login_as(self.officer_user.username, self.officer_password)
+        response = self._create_crime_scene_case(payload)
+
+        self._assert_400_with_witness_error(response, "phone_number")
+        self._assert_no_case_created(payload["title"])
+
+    def test_witness_phone_too_long_returns_400(self) -> None:
+        """
+        Scenario 4.5: A phone_number longer than 15 digits is rejected.
+        """
+        suffix = "phone_too_long"
+        payload = self._witness_payload(suffix, phone_number="1234567890123456")  # 16 digits
+
+        self._login_as(self.officer_user.username, self.officer_password)
+        response = self._create_crime_scene_case(payload)
+
+        self._assert_400_with_witness_error(response, "phone_number")
+        self._assert_no_case_created(payload["title"])
+
+    def test_witness_phone_missing_returns_400(self) -> None:
+        """
+        Scenario 4.5: Omitting the required phone_number field returns 400.
+        """
+        suffix = "phone_missing"
+        payload = self._witness_payload(suffix, phone_number=None)  # key removed
+
+        self._login_as(self.officer_user.username, self.officer_password)
+        response = self._create_crime_scene_case(payload)
+
+        self._assert_400_with_witness_error(response, "phone_number")
+        self._assert_no_case_created(payload["title"])
+
+    # ── full_name validation ───────────────────────────────────────────
+
+    def test_witness_full_name_missing_returns_400(self) -> None:
+        """
+        Scenario 4.5: Omitting the required full_name field returns 400.
+        """
+        suffix = "full_name_missing"
+        payload = self._witness_payload(suffix, full_name=None)  # key removed
+
+        self._login_as(self.officer_user.username, self.officer_password)
+        response = self._create_crime_scene_case(payload)
+
+        self._assert_400_with_witness_error(response, "full_name")
+        self._assert_no_case_created(payload["title"])
+
+    # ── Positive: multiple valid witnesses ────────────────────────────
+
+    def test_multiple_valid_witnesses_all_persisted(self) -> None:
+        """
+        Scenario 4.5 (positive): When two valid witness objects are included in
+        the creation payload, both must be persisted and retrievable via
+        GET /api/cases/{id}/.
+
+        This complements test_officer_crime_scene_case_witness_persisted (4.1)
+        which only checks a single witness.
+
+        Reference:
+          - cases/serializers.py CrimeSceneCaseCreateSerializer: witnesses many=True
+          - cases/services.py CaseCreationService.create_crime_scene_case:
+              calls CaseWitnessService.add_witness() for each entry
+          - cases/serializers.py CaseDetailSerializer includes witnesses (read)
+        """
+        self._login_as(self.officer_user.username, self.officer_password)
+
+        payload = {
+            "creation_type": "crime_scene",
+            "title": "Witness validation test — two valid witnesses",
+            "description": "Testing that two witnesses are both persisted.",
+            "crime_level": 1,
+            "incident_date": "2026-02-23T10:00:00Z",
+            "location": "Central Park",
+            "witnesses": [
+                {
+                    "full_name": "Bob First",
+                    "phone_number": "0912345678",
+                    "national_id": "1111111111",
+                },
+                {
+                    "full_name": "Carol Second",
+                    "phone_number": "+441234567",
+                    "national_id": "2222222222",
+                },
+            ],
+        }
+
+        create_response = self._create_crime_scene_case(payload)
+        self.assertEqual(
+            create_response.status_code,
+            status.HTTP_201_CREATED,
+            msg=f"Expected 201 for two-witness case; got {create_response.status_code}: {create_response.data}",
+        )
+
+        case_id = create_response.data["id"]
+        detail_url = reverse("case-detail", kwargs={"pk": case_id})
+        detail_response = self.client.get(detail_url)
+        self.assertEqual(detail_response.status_code, status.HTTP_200_OK)
+
+        persisted_witnesses = detail_response.data.get("witnesses", [])
+        self.assertEqual(
+            len(persisted_witnesses),
+            2,
+            msg=f"Expected 2 witnesses persisted, got {len(persisted_witnesses)}: {persisted_witnesses}",
+        )
+
+        persisted_names = {w["full_name"] for w in persisted_witnesses}
+        self.assertIn("Bob First", persisted_names)
+        self.assertIn("Carol Second", persisted_names)
