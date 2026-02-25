@@ -51,6 +51,14 @@ Test map
          C  Payload includes item from a different board → 400
          D  Duplicate item IDs in same batch → 400 (serializer guard)
          E  Unrelated user (Cadet) → 403
+
+  6.6  Sticky note CRUD + ownership rules
+         A  POST /boards/{id}/notes/ as Detective → 201 with full schema
+         B  PATCH /boards/{id}/notes/{note_id}/ as creator → 200; content updated
+         C  PATCH /boards/{id}/notes/{note_id}/ as non-creator (Sergeant) → 403
+         C2 After failed PATCH, GET /boards/{id}/notes/{note_id}/ confirms content unchanged
+         D  DELETE /boards/{id}/notes/{note_id}/ as creator → 204; note gone from full state
+         E  DELETE /boards/{id}/notes/{note_id}/ as non-creator (Sergeant) → 403
 """
 
 from __future__ import annotations
@@ -1592,6 +1600,283 @@ class TestBoardAndSuspectsFlow(TestCase):
             status.HTTP_403_FORBIDDEN,
             msg=(
                 f"Expected 403 Forbidden for unrelated user on batch-coordinates, "
+                f"got {response.status_code}: {response.data}"
+            ),
+        )
+
+    # ─────────────────────────────────────────────────────────────────
+    # Scenario 6.6 — Sticky note CRUD + ownership rules
+    # ─────────────────────────────────────────────────────────────────
+
+    # ── helpers ───────────────────────────────────────────────────────
+
+    def _create_note(self, board_id: int, title: str, content: str) -> object:
+        """
+        POST /api/boards/{board_id}/notes/
+
+        Payload: {"title": <str>, "content": <str>}
+        Returns the raw APIClient response.
+        """
+        url = reverse("board-note-list", kwargs={"board_pk": board_id})
+        return self.client.post(
+            url, {"title": title, "content": content}, format="json"
+        )
+
+    def _get_note(self, board_id: int, note_id: int) -> object:
+        """GET /api/boards/{board_id}/notes/{note_id}/."""
+        url = reverse(
+            "board-note-detail",
+            kwargs={"board_pk": board_id, "pk": note_id},
+        )
+        return self.client.get(url)
+
+    def _patch_note(
+        self, board_id: int, note_id: int, **fields
+    ) -> object:
+        """PATCH /api/boards/{board_id}/notes/{note_id}/."""
+        url = reverse(
+            "board-note-detail",
+            kwargs={"board_pk": board_id, "pk": note_id},
+        )
+        return self.client.patch(url, fields, format="json")
+
+    def _delete_note(self, board_id: int, note_id: int) -> object:
+        """DELETE /api/boards/{board_id}/notes/{note_id}/."""
+        url = reverse(
+            "board-note-detail",
+            kwargs={"board_pk": board_id, "pk": note_id},
+        )
+        return self.client.delete(url)
+
+    # ── 6.6-A: create note → 201 ──────────────────────────────────────
+
+    def test_6_6_a_detective_creates_note_returns_201(self) -> None:
+        """
+        Scenario 6.6-A: POST /api/boards/{id}/notes/ as the board's detective
+        must return HTTP 201 Created.
+
+        Service: BoardNoteService.create_note (sets created_by = request.user,
+        auto-pins a BoardItem for the note).
+
+        Reference: board/services.py — BoardNoteService.create_note
+        """
+        self._login_as(self.detective_user.username, self.detective_password)
+        board_id = self._create_board().data["id"]
+
+        response = self._create_note(board_id, title="Clue #1", content="Red lipstick found at scene.")
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_201_CREATED,
+            msg=(
+                f"Expected 201 Created when detective creates note, "
+                f"got {response.status_code}: {response.data}"
+            ),
+        )
+
+    def test_6_6_a_note_response_contains_required_fields(self) -> None:
+        """
+        Scenario 6.6-A (schema): Response must include
+        id, board, title, content, created_by, created_at, updated_at.
+        'created_by' must equal the requesting detective's PK.
+
+        Reference: board/serializers.py — BoardNoteResponseSerializer
+        """
+        self._login_as(self.detective_user.username, self.detective_password)
+        board_id = self._create_board().data["id"]
+
+        response = self._create_note(board_id, title="Clue #1", content="Red lipstick found at scene.")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        data = response.data
+        for field in ("id", "board", "title", "content", "created_by", "created_at", "updated_at"):
+            self.assertIn(field, data, msg=f"Field '{field}' missing from note response.")
+
+        self.assertEqual(data["title"], "Clue #1")
+        self.assertEqual(data["content"], "Red lipstick found at scene.")
+        self.assertEqual(
+            data["created_by"],
+            self.detective_user.pk,
+            msg="created_by must be the requesting user's PK.",
+        )
+
+    # ── 6.6-B: creator updates own note → 200 ────────────────────────
+
+    def test_6_6_b_creator_can_update_own_note_returns_200(self) -> None:
+        """
+        Scenario 6.6-B: The note's creator (detective) PATCH-updates the note's
+        content.  Must return HTTP 200 and the response must reflect the new
+        content.
+
+        Service: BoardNoteService.update_note
+            — passes because note.created_by_id == requesting_user.pk
+
+        Reference: board/services.py — update_note (ownership check)
+        """
+        self._login_as(self.detective_user.username, self.detective_password)
+        board_id = self._create_board().data["id"]
+        note_id = self._create_note(
+            board_id, title="Original", content="Original content"
+        ).data["id"]
+
+        response = self._patch_note(board_id, note_id, content="Updated content")
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+            msg=(
+                f"Expected 200 OK when creator updates own note, "
+                f"got {response.status_code}: {response.data}"
+            ),
+        )
+        self.assertEqual(
+            response.data["content"],
+            "Updated content",
+            msg="Response must reflect the new content after PATCH.",
+        )
+
+    # ── 6.6-C: non-creator tries to update → 403 ─────────────────────
+
+    def test_6_6_c_non_creator_cannot_update_note_returns_403(self) -> None:
+        """
+        Scenario 6.6-C: A Sergeant (board supervisor — can edit the board in
+        general) attempts to PATCH a note created by the Detective.  Must be
+        rejected with HTTP 403 because ownership is per-note, not per-board.
+
+        Service guard:
+            BoardNoteService.update_note
+            → PermissionDenied("You do not have permission to update this note.")
+              when note.created_by_id != requesting_user.pk and not _is_admin(user)
+
+        Reference: board/services.py — update_note
+        """
+        # Detective creates board and note
+        self._login_as(self.detective_user.username, self.detective_password)
+        board_id = self._create_board().data["id"]
+        note_id = self._create_note(
+            board_id, title="Detective Note", content="Original content"
+        ).data["id"]
+
+        # Sergeant (can generally edit this board) tries to update the note
+        self._login_as(self.sergeant_user.username, self.sergeant_password)
+        response = self._patch_note(board_id, note_id, content="Tampered content")
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+            msg=(
+                f"Expected 403 Forbidden when non-creator updates note, "
+                f"got {response.status_code}: {response.data}"
+            ),
+        )
+
+    def test_6_6_c2_note_content_unchanged_after_failed_update(self) -> None:
+        """
+        Scenario 6.6-C2: After the non-creator's PATCH is rejected (6.6-C),
+        a GET to the note detail endpoint must confirm the content is still
+        the original — i.e., no partial write occurred.
+
+        Reference: board/views.py — BoardNoteViewSet.retrieve
+        """
+        # Detective creates board and note
+        self._login_as(self.detective_user.username, self.detective_password)
+        board_id = self._create_board().data["id"]
+        note_id = self._create_note(
+            board_id, title="Detective Note", content="Original content"
+        ).data["id"]
+
+        # Sergeant fails to update
+        self._login_as(self.sergeant_user.username, self.sergeant_password)
+        self._patch_note(board_id, note_id, content="Tampered content")
+
+        # Re-fetch as detective to confirm content is unchanged
+        self._login_as(self.detective_user.username, self.detective_password)
+        get_response = self._get_note(board_id, note_id)
+        self.assertEqual(get_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            get_response.data["content"],
+            "Original content",
+            msg="Note content must be unchanged after rejected PATCH by non-creator.",
+        )
+
+    # ── 6.6-D: creator deletes own note → 204 ────────────────────────
+
+    def test_6_6_d_creator_can_delete_own_note_returns_204(self) -> None:
+        """
+        Scenario 6.6-D: The note's creator deletes the note.  Must return
+        HTTP 204 No Content, and the note must disappear from the full-board
+        state (notes list AND items list — because auto-pin is also cleaned).
+
+        Service: BoardNoteService.delete_note
+            — passes ownership check
+            — also deletes the associated BoardItem GFK pin
+
+        Reference: board/services.py — delete_note
+        """
+        self._login_as(self.detective_user.username, self.detective_password)
+        board_id = self._create_board().data["id"]
+        note_id = self._create_note(
+            board_id, title="Temporary", content="Will be deleted"
+        ).data["id"]
+
+        delete_response = self._delete_note(board_id, note_id)
+
+        self.assertEqual(
+            delete_response.status_code,
+            status.HTTP_204_NO_CONTENT,
+            msg=(
+                f"Expected 204 No Content when creator deletes own note, "
+                f"got {delete_response.status_code}: {delete_response.data}"
+            ),
+        )
+
+        # Confirm gone from full state
+        full = self._get_full_state(board_id)
+        note_ids_in_full = [n["id"] for n in full.data["notes"]]
+        self.assertNotIn(
+            note_id,
+            note_ids_in_full,
+            msg="Deleted note must not appear in full-state notes list.",
+        )
+        item_obj_ids = [
+            item.get("object_id") for item in full.data["items"]
+        ]
+        self.assertNotIn(
+            note_id,
+            item_obj_ids,
+            msg="Auto-pin BoardItem for the deleted note must also be removed.",
+        )
+
+    # ── 6.6-E: non-creator tries to delete → 403 ─────────────────────
+
+    def test_6_6_e_non_creator_cannot_delete_note_returns_403(self) -> None:
+        """
+        Scenario 6.6-E: A Sergeant attempts to DELETE a note created by the
+        Detective.  Must receive HTTP 403.
+
+        Service guard:
+            BoardNoteService.delete_note
+            → PermissionDenied("You do not have permission to delete this note.")
+              when note.created_by_id != requesting_user.pk and not _is_admin(user)
+
+        Reference: board/services.py — delete_note
+        """
+        # Detective creates board and note
+        self._login_as(self.detective_user.username, self.detective_password)
+        board_id = self._create_board().data["id"]
+        note_id = self._create_note(
+            board_id, title="Detective Note", content="Sensitive clue"
+        ).data["id"]
+
+        # Sergeant tries to delete
+        self._login_as(self.sergeant_user.username, self.sergeant_password)
+        response = self._delete_note(board_id, note_id)
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+            msg=(
+                f"Expected 403 Forbidden when non-creator deletes note, "
                 f"got {response.status_code}: {response.data}"
             ),
         )
