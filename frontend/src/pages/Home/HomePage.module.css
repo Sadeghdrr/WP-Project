@@ -1,40 +1,106 @@
+/* ── Layout ────────────────────────────────────────────────────────────── */
+
 .home {
-  max-width: 800px;
+  max-width: 860px;
   margin: 0 auto;
-  text-align: center;
-  padding: var(--space-xl) var(--space-md);
+  padding: var(--space-xl) var(--space-md) var(--space-2xl);
 }
 
+/* ── Hero ──────────────────────────────────────────────────────────────── */
+
 .hero {
-  margin-bottom: var(--space-xl);
+  text-align: center;
+  margin-bottom: var(--space-2xl);
 }
 
 .heroTitle {
-  font-size: 2rem;
+  font-size: 2.25rem;
   font-weight: 800;
   color: var(--color-text);
   margin: 0 0 var(--space-sm);
 }
 
 .heroSubtitle {
-  font-size: 1rem;
+  font-size: 1.05rem;
   color: var(--color-text-muted);
-  margin: 0;
+  margin: 0 auto;
+  max-width: 600px;
+  line-height: 1.7;
+}
+
+/* ── Intro / About ─────────────────────────────────────────────────────── */
+
+.intro {
+  margin-bottom: var(--space-xl);
+}
+
+.sectionTitle {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--color-text);
+  margin: 0 0 var(--space-sm);
+}
+
+.introText {
+  font-size: 0.9375rem;
+  color: var(--color-text-muted);
+  line-height: 1.7;
+  margin: 0 0 var(--space-sm);
+}
+
+/* ── Duties ────────────────────────────────────────────────────────────── */
+
+.duties {
+  margin-bottom: var(--space-xl);
+}
+
+.dutyList {
+  list-style: none;
+  padding: 0;
+  margin: var(--space-sm) 0 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-sm);
+}
+
+.dutyItem {
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
   line-height: 1.6;
+}
+
+.dutyItem strong {
+  color: var(--color-text);
+}
+
+/* ── Stats ─────────────────────────────────────────────────────────────── */
+
+.statsSection {
+  margin-bottom: var(--space-xl);
 }
 
 .stats {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: var(--space-md);
-  margin-top: var(--space-xl);
+  margin-top: var(--space-md);
 }
 
 .statCard {
   background-color: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  padding: var(--space-lg);
+  padding: var(--space-lg) var(--space-md);
+  text-align: center;
+  transition: box-shadow var(--transition-fast);
+}
+
+.statCard:hover {
+  box-shadow: var(--shadow-md);
 }
 
 .statValue {
@@ -48,4 +114,82 @@
   font-size: 0.8125rem;
   color: var(--color-text-muted);
   margin: var(--space-xs) 0 0;
+}
+
+/* ── Accent variants ──────────────────────────────────────────────────── */
+
+.accent_success .statValue {
+  color: var(--color-success, #22c55e);
+}
+
+.accent_warning .statValue {
+  color: var(--color-warning, #f59e0b);
+}
+
+/* ── Skeleton loading ─────────────────────────────────────────────────── */
+
+.skeleton {
+  position: relative;
+  overflow: hidden;
+}
+
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255 255 255 / 0.4) 50%,
+    transparent 100%
+  );
+  animation: shimmer 1.4s infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/* ── Auth hint & error ─────────────────────────────────────────────────── */
+
+.authHint {
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+  margin: var(--space-sm) 0 var(--space-md);
+  font-style: italic;
+}
+
+.errorMsg {
+  font-size: 0.875rem;
+  color: var(--color-danger, #ef4444);
+  margin: var(--space-sm) 0 var(--space-md);
+}
+
+/* ── Responsive ────────────────────────────────────────────────────────── */
+
+@media (max-width: 640px) {
+  .heroTitle {
+    font-size: 1.625rem;
+  }
+
+  .heroSubtitle {
+    font-size: 0.9375rem;
+  }
+
+  .dutyList {
+    grid-template-columns: 1fr;
+  }
+
+  .stats {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .statValue {
+    font-size: 1.5rem;
+  }
 }
