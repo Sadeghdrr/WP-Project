@@ -92,9 +92,18 @@ class CaseViewSet(viewsets.ViewSet):
     The base permission is ``IsAuthenticated``.  Fine-grained permission
     checks (role based, ownership based) are enforced exclusively inside
     the service layer — never in the view.
+
+    Routing Note
+    ------------
+    ``lookup_value_regex`` restricts the ``{pk}`` URL segment to digits only.
+    This ensures that a request like ``GET /api/cases/cases/`` does NOT match
+    the detail route (which would otherwise route with ``pk='cases'`` and raise
+    an unhandled ``ValueError`` → HTTP 500 from the ORM integer cast).
+    Non-integer pk values return HTTP 404 at the router level.
     """
 
     permission_classes = [IsAuthenticated]
+    lookup_value_regex = r'\d+'
 
     # ── Helpers ──────────────────────────────────────────────────────
 
