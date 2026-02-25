@@ -43,8 +43,12 @@ export interface TopWantedSuspect {
   id: number;
   full_name: string;
   national_id: string;
-  status: string;
-  danger_level: number;
+  photo_url: string | null;
+  most_wanted_score: number;
+  reward_amount: number;
+  days_wanted: number;
+  case_id: number;
+  case_title: string;
 }
 
 export interface RecentActivityEntry {
