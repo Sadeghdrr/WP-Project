@@ -16,7 +16,8 @@ Test map
 --------
   5.1  Create Testimony evidence → 201 + DB persistence + negative tests
   5.2  Biological evidence + file upload + chain-of-custody + Coroner verify (approve/reject)
-  5.3 – 5.6  (appended by subsequent prompts)
+  5.3  Vehicle evidence XOR constraint (license_plate ⊕ serial_number)
+  5.4 – 5.6  (appended by subsequent prompts)
 """
 
 from __future__ import annotations
@@ -31,7 +32,7 @@ from rest_framework.test import APIClient
 
 from accounts.models import Role
 from cases.models import Case, CaseCreationType, CaseStatus, CrimeLevel
-from evidence.models import BiologicalEvidence, EvidenceType, TestimonyEvidence
+from evidence.models import BiologicalEvidence, EvidenceType, TestimonyEvidence, VehicleEvidence
 
 User = get_user_model()
 
@@ -119,6 +120,8 @@ class TestEvidenceFlows(TestCase):
             "view_biologicalevidence",
             "add_evidencefile",
             "view_evidencefile",
+            "add_vehicleevidence",
+            "view_vehicleevidence",
         ):
             _grant(cls.detective_role, codename, app_label="evidence")
 
@@ -1017,5 +1020,304 @@ class TestEvidenceFlows(TestCase):
             msg=(
                 f"Expected 400 when rejecting without notes, "
                 f"got {resp.status_code}: {resp.data}"
+            ),
+        )
+
+    # ════════════════════════════════════════════════════════════════════════
+    #  Scenario 5.3 — Vehicle Evidence XOR Constraint
+    #  (license_plate ⊕ serial_number — exactly one must be provided)
+    # ════════════════════════════════════════════════════════════════════════
+
+    # ── Payload helper ───────────────────────────────────────────────────
+
+    def _vehicle_payload(self, **overrides) -> dict:
+        """
+        Return a valid vehicle-evidence creation payload with license_plate
+        set and serial_number absent (the most common valid case).
+
+        Fields come from VehicleEvidenceCreateSerializer:
+            evidence/serializers.py  VehicleEvidenceCreateSerializer
+            → required: evidence_type, case, title, vehicle_model, color
+            → optional (mutually exclusive): license_plate, serial_number
+
+        XOR enforcement layers (project-doc §4.3.3):
+            1. Serializer: VehicleEvidenceCreateSerializer.validate()
+               → raises serializers.ValidationError → HTTP 400
+                   non_field_errors: "Provide either a license plate or a
+                   serial number, not both." / "Either a license plate or a
+                   serial number must be provided."
+            2. Service: EvidenceProcessingService._validate_vehicle()
+               → raises DomainError → HTTP 400
+            3. DB: VehicleEvidence.Meta.constraints  vehicle_plate_xor_serial
+        """
+        base = {
+            "evidence_type": "vehicle",
+            "case": self.case.pk,
+            "title": "Blue Sedan — Vehicle Evidence Test",
+            "description": "Suspicious vehicle spotted near the alley at midnight.",
+            "vehicle_model": "Ford Sedan 1947",
+            "color": "Midnight Blue",
+            "license_plate": "LA-4521",
+        }
+        base.update(overrides)
+        return base
+
+    # ── Test A: license_plate provided, serial_number absent → 201 ───────
+
+    def test_create_vehicle_evidence_with_license_plate_returns_201(self) -> None:
+        """
+        Scenario 5.3 — Test A: Detective creates vehicle evidence with only
+        license_plate provided (serial_number omitted).
+
+        XOR constraint satisfied: exactly one identifier present.
+
+        Asserts:
+        - HTTP 201
+        - evidence_type == "vehicle"
+        - case PK matches
+        - license_plate is echoed back
+        - serial_number is present in response and is empty string
+        - Vehicle-specific fields (vehicle_model, color) are present
+        - Non-vehicle fields (statement_text, forensic_result,
+          owner_full_name) are absent
+
+        Reference:
+            evidence/serializers.py  VehicleEvidenceCreateSerializer
+            evidence/serializers.py  VehicleEvidenceDetailSerializer (response)
+            project-doc.md §4.3.3
+        """
+        self._login_as(self.detective_user.username, self.detective_password)
+
+        payload = self._vehicle_payload(
+            title="Vehicle Evidence — License Plate Only",
+            license_plate="LA-4521",
+            # serial_number intentionally omitted → defaults to ""
+        )
+
+        url = reverse("evidence-list")
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_201_CREATED,
+            msg=(
+                f"Expected 201 for vehicle evidence with license_plate only, "
+                f"got {response.status_code}: {response.data}"
+            ),
+        )
+
+        data = response.data
+
+        # Required schema fields must be present
+        for field in ("id", "evidence_type", "case", "title", "description",
+                      "vehicle_model", "color", "license_plate", "serial_number",
+                      "registered_by", "created_at"):
+            self.assertIn(field, data, msg=f"Field '{field}' missing from vehicle response")
+
+        self.assertEqual(data["evidence_type"], EvidenceType.VEHICLE)
+        self.assertEqual(data["case"], self.case.pk)
+        self.assertEqual(data["license_plate"], "LA-4521")
+        self.assertEqual(data["serial_number"], "", msg="serial_number must be empty when not supplied")
+        self.assertEqual(data["vehicle_model"], "Ford Sedan 1947")
+        self.assertEqual(data["color"], "Midnight Blue")
+        self.assertEqual(data["registered_by"], self.detective_user.pk)
+
+        # Fields belonging to other evidence types must not appear
+        self.assertNotIn("statement_text", data)
+        self.assertNotIn("forensic_result", data)
+        self.assertNotIn("owner_full_name", data)
+
+        # DB: VehicleEvidence child row must exist
+        self.assertTrue(
+            VehicleEvidence.objects.filter(pk=data["id"]).exists(),
+            msg="VehicleEvidence DB row not found after creation.",
+        )
+        db_obj = VehicleEvidence.objects.get(pk=data["id"])
+        self.assertEqual(db_obj.license_plate, "LA-4521")
+        self.assertEqual(db_obj.serial_number, "")
+
+    # ── Test B: serial_number provided, license_plate absent → 201 ───────
+
+    def test_create_vehicle_evidence_with_serial_number_returns_201(self) -> None:
+        """
+        Scenario 5.3 — Test B: Detective creates vehicle evidence with only
+        serial_number provided (license_plate omitted / empty).
+
+        This covers the case where a vehicle has no visible license plate
+        (e.g., stolen plates, burnt vehicle) — project-doc §4.3.3:
+        "If a vehicle lacks a license plate, its serial number must be entered."
+
+        Asserts:
+        - HTTP 201
+        - serial_number is echoed back with the submitted value
+        - license_plate is present in response and is empty string
+
+        Reference:
+            project-doc.md §4.3.3
+            evidence/serializers.py  VehicleEvidenceCreateSerializer
+        """
+        self._login_as(self.detective_user.username, self.detective_password)
+
+        payload = self._vehicle_payload(
+            title="Vehicle Evidence — Serial Number Only",
+            license_plate="",          # explicitly empty
+            serial_number="CHV-19470812-0042",
+        )
+
+        url = reverse("evidence-list")
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_201_CREATED,
+            msg=(
+                f"Expected 201 for vehicle evidence with serial_number only, "
+                f"got {response.status_code}: {response.data}"
+            ),
+        )
+
+        data = response.data
+        self.assertEqual(data["evidence_type"], EvidenceType.VEHICLE)
+        self.assertEqual(data["serial_number"], "CHV-19470812-0042")
+        self.assertEqual(
+            data["license_plate"], "",
+            msg="license_plate must be empty when serial_number is the identifier",
+        )
+
+        # DB verification
+        db_obj = VehicleEvidence.objects.get(pk=data["id"])
+        self.assertEqual(db_obj.serial_number, "CHV-19470812-0042")
+        self.assertEqual(db_obj.license_plate, "")
+
+    # ── Test C: Both license_plate AND serial_number → 400 ───────────────
+
+    def test_create_vehicle_evidence_both_identifiers_returns_400(self) -> None:
+        """
+        Scenario 5.3 — Test C: Providing both license_plate and serial_number
+        simultaneously violates the XOR constraint.
+
+        The serializer's validate() rejects the payload before it reaches
+        the service layer:
+            VehicleEvidenceCreateSerializer.validate()
+            → "Provide either a license plate or a serial number, not both."
+            → serializers.ValidationError → HTTP 400
+
+        The error is keyed to non_field_errors because validate() raises
+        a plain ValidationError (not a field-level one).
+
+        Asserts:
+        - HTTP 400
+        - Response body contains non_field_errors or detail key
+        - The error text mentions the XOR violation
+          ("not both" in the message)
+
+        Reference:
+            evidence/serializers.py  VehicleEvidenceCreateSerializer.validate
+            evidence/services.py  EvidenceProcessingService._validate_vehicle
+            project-doc.md §4.3.3 — "cannot both have a value at the same time"
+        """
+        self._login_as(self.detective_user.username, self.detective_password)
+
+        payload = self._vehicle_payload(
+            title="Vehicle Evidence — Both Identifiers (invalid)",
+            license_plate="LA-4521",
+            serial_number="CHV-19470812-0042",  # BOTH provided → XOR violation
+        )
+
+        url = reverse("evidence-list")
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+            msg=(
+                f"Expected 400 when both license_plate and serial_number are provided, "
+                f"got {response.status_code}: {response.data}"
+            ),
+        )
+
+        # The error body must reference the XOR violation
+        error_str = str(response.data).lower()
+        self.assertIn(
+            "not both",
+            error_str,
+            msg=(
+                "Error response should contain 'not both' (from the XOR message "
+                "'Provide either a license plate or a serial number, not both.'). "
+                f"Got: {response.data}"
+            ),
+        )
+
+        # non_field_errors is the expected key when validate() raises
+        # a plain ValidationError (not tied to a specific field)
+        self.assertIn(
+            "non_field_errors",
+            response.data,
+            msg=(
+                "XOR validation error must be reported under 'non_field_errors'. "
+                f"Got keys: {list(response.data.keys())}"
+            ),
+        )
+
+    # ── Test D: Neither license_plate NOR serial_number → 400 ────────────
+
+    def test_create_vehicle_evidence_no_identifier_returns_400(self) -> None:
+        """
+        Scenario 5.3 — Test D: Providing neither license_plate nor
+        serial_number violates the XOR constraint (the other direction).
+
+        The serializer's validate() rejects the payload:
+            VehicleEvidenceCreateSerializer.validate()
+            → "Either a license plate or a serial number must be provided."
+            → serializers.ValidationError → HTTP 400
+
+        All other fields (vehicle_model, color, title, description) must be
+        valid so that only the missing identifier triggers the error.
+
+        Asserts:
+        - HTTP 400
+        - Error text references the missing identifier requirement
+
+        Reference:
+            evidence/serializers.py  VehicleEvidenceCreateSerializer.validate
+            project-doc.md §4.3.3 — "license plate … serial number must be entered"
+        """
+        self._login_as(self.detective_user.username, self.detective_password)
+
+        payload = self._vehicle_payload(
+            title="Vehicle Evidence — No Identifier (invalid)",
+            license_plate="",   # explicitly empty
+            serial_number="",   # explicitly empty → NEITHER provided
+        )
+
+        url = reverse("evidence-list")
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+            msg=(
+                f"Expected 400 when neither license_plate nor serial_number is provided, "
+                f"got {response.status_code}: {response.data}"
+            ),
+        )
+
+        # The error body must reference the requirement to provide an identifier
+        error_str = str(response.data).lower()
+        self.assertIn(
+            "serial number",
+            error_str,
+            msg=(
+                "Error response should mention 'serial number' (from 'Either a license "
+                "plate or a serial number must be provided.'). "
+                f"Got: {response.data}"
+            ),
+        )
+        self.assertIn(
+            "non_field_errors",
+            response.data,
+            msg=(
+                "XOR validation error must be reported under 'non_field_errors'. "
+                f"Got keys: {list(response.data.keys())}"
             ),
         )
