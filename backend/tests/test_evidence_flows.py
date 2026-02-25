@@ -19,7 +19,7 @@ Test map
   5.3  Vehicle evidence XOR constraint (license_plate ⊕ serial_number)
   5.4  Identity document evidence + document_details key-value metadata
   5.5  "Other" evidence — minimal fields + unknown-field behaviour
-  5.6  (appended by subsequent prompts)
+  5.6  Link-case / Unlink-case — reassign evidence across cases + auth
 """
 
 from __future__ import annotations
@@ -132,6 +132,7 @@ class TestEvidenceFlows(TestCase):
             "view_vehicleevidence",
             "add_identityevidence",
             "view_identityevidence",
+            "change_evidence",
         ):
             _grant(cls.detective_role, codename, app_label="evidence")
 
@@ -1940,4 +1941,351 @@ class TestEvidenceFlows(TestCase):
             "vehicle_model",
             data,
             msg="vehicle_model must not appear in 'other' evidence response (not stored)",
+        )
+
+    # ════════════════════════════════════════════════════════════════════════
+    #  Scenario 5.6 — Link-Case / Unlink-Case
+    #  (Reassign evidence between cases; permission and unlink-invariant tests)
+    # ════════════════════════════════════════════════════════════════════════
+
+    # ── Internal helper: create a second Case via the DB layer ────────────
+
+    def _create_extra_case(self, title: str) -> "Case":
+        """
+        Create and return a fresh Case tied to the seeded detective.
+
+        DB creation is permitted here (it sets up preconditions for the
+        test, not the behaviour being tested).
+        """
+        return Case.objects.create(
+            title=title,
+            description="Auxiliary test case for link/unlink scenario.",
+            crime_level=CrimeLevel.LEVEL_1,
+            creation_type=CaseCreationType.CRIME_SCENE,
+            status=CaseStatus.OPEN,
+            created_by=self.detective_user,
+            assigned_detective=self.detective_user,
+        )
+
+    # ── Test A: link evidence from Case A to Case B → 200 ─────────────────
+
+    def test_link_evidence_to_case_b_returns_200(self) -> None:
+        """
+        Scenario 5.6 — Test A: Detective re-links an evidence item from
+        Case A (the seeded case) to a newly created Case B.
+
+        Endpoint: POST /api/evidence/{id}/link-case/
+        Payload:  {"case_id": <case_b_pk>}
+
+        Permission required: evidence.change_evidence
+        Service:  EvidenceProcessingService.link_evidence_to_case()
+            → evidence.case = target_case ; evidence.save()
+
+        Asserts:
+        - HTTP 200
+        - Response `case` field == Case B PK
+        - GET /api/evidence/{id}/ confirms case == Case B
+        - DB Evidence instance has case_id == Case B PK
+
+        Reference:
+            evidence/views.py   EvidenceViewSet.link_case
+            evidence/services.py EvidenceProcessingService.link_evidence_to_case
+            swagger_documentation_report.md §3.4 — link-case action
+        """
+        self._login_as(self.detective_user.username, self.detective_password)
+
+        # Create Case B via DB (setup only)
+        case_b = self._create_extra_case("Case B — Link Target")
+
+        # Create evidence attached to Case A (the seeded self.case)
+        evid_resp = self.client.post(
+            reverse("evidence-list"),
+            self._other_payload(title="Evidence for Link-Case Test"),
+            format="json",
+        )
+        self.assertEqual(evid_resp.status_code, status.HTTP_201_CREATED)
+        evid_id = evid_resp.data["id"]
+        self.assertEqual(evid_resp.data["case"], self.case.pk)
+
+        # Link to Case B
+        link_url = reverse("evidence-link-case", kwargs={"pk": evid_id})
+        link_resp = self.client.post(
+            link_url,
+            {"case_id": case_b.pk},
+            format="json",
+        )
+        self.assertEqual(
+            link_resp.status_code,
+            status.HTTP_200_OK,
+            msg=f"Expected 200 from link-case, got {link_resp.status_code}: {link_resp.data}",
+        )
+
+        # Response must reflect Case B
+        self.assertEqual(
+            link_resp.data["case"],
+            case_b.pk,
+            msg="Response 'case' must equal Case B PK after link",
+        )
+
+        # GET detail must also return Case B
+        get_resp = self.client.get(reverse("evidence-detail", kwargs={"pk": evid_id}))
+        self.assertEqual(get_resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            get_resp.data["case"],
+            case_b.pk,
+            msg="GET detail must reflect the new case assignment",
+        )
+
+        # DB confirmation
+        from evidence.models import Evidence as EvidenceModel
+        db_obj = EvidenceModel.objects.get(pk=evid_id)
+        self.assertEqual(
+            db_obj.case_id,
+            case_b.pk,
+            msg="DB Evidence.case_id must be updated to Case B",
+        )
+
+    # ── Test A2: link then move back to Case A → 200 ──────────────────────
+
+    def test_link_evidence_back_to_case_a_returns_200(self) -> None:
+        """
+        Scenario 5.6 — Test A2: After linking evidence to Case B, re-link it
+        back to Case A via the same endpoint.
+
+        This confirms the link-case endpoint is idempotent in direction and
+        works as the project's reassignment mechanism.
+
+        Asserts:
+        - Both link calls return HTTP 200
+        - Evidence ends up on Case A after the second call
+
+        Reference:
+            evidence/services.py EvidenceProcessingService.link_evidence_to_case
+                "Use link-case to reassign instead."
+        """
+        self._login_as(self.detective_user.username, self.detective_password)
+
+        case_b = self._create_extra_case("Case B — Roundtrip Target")
+
+        evid_resp = self.client.post(
+            reverse("evidence-list"),
+            self._other_payload(title="Evidence for Roundtrip Link Test"),
+            format="json",
+        )
+        self.assertEqual(evid_resp.status_code, status.HTTP_201_CREATED)
+        evid_id = evid_resp.data["id"]
+
+        # Link to Case B
+        resp_b = self.client.post(
+            reverse("evidence-link-case", kwargs={"pk": evid_id}),
+            {"case_id": case_b.pk},
+            format="json",
+        )
+        self.assertEqual(resp_b.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp_b.data["case"], case_b.pk)
+
+        # Link back to Case A
+        resp_a = self.client.post(
+            reverse("evidence-link-case", kwargs={"pk": evid_id}),
+            {"case_id": self.case.pk},
+            format="json",
+        )
+        self.assertEqual(
+            resp_a.status_code,
+            status.HTTP_200_OK,
+            msg=f"Expected 200 re-linking back to Case A, got {resp_a.status_code}: {resp_a.data}",
+        )
+        self.assertEqual(resp_a.data["case"], self.case.pk)
+
+        from evidence.models import Evidence as EvidenceModel
+        self.assertEqual(EvidenceModel.objects.get(pk=evid_id).case_id, self.case.pk)
+
+    # ── Test B: unlink-case always raises DomainError → 400 ───────────────
+
+    def test_unlink_evidence_from_case_returns_400(self) -> None:
+        """
+        Scenario 5.6 — Test B: The unlink-case endpoint always returns HTTP
+        400 because the `case` FK is non-nullable and the service enforces
+        this invariant unconditionally:
+
+            # evidence/services.py  EvidenceProcessingService.unlink_evidence_from_case
+            raise DomainError(
+                "Evidence must be linked to a case. "
+                "Use link-case to reassign instead."
+            )
+
+        This documents the intended behaviour: "unlinking" (setting case=null)
+        is architecturally forbidden; use link-case to reassign instead.
+
+        Asserts:
+        - HTTP 400
+        - Error message contains "link-case" (directing the caller to reassign)
+        - Evidence still belongs to the original case (DB unchanged)
+
+        Reference:
+            evidence/services.py EvidenceProcessingService.unlink_evidence_from_case
+        """
+        self._login_as(self.detective_user.username, self.detective_password)
+
+        evid_resp = self.client.post(
+            reverse("evidence-list"),
+            self._other_payload(title="Evidence for Unlink-Invariant Test"),
+            format="json",
+        )
+        self.assertEqual(evid_resp.status_code, status.HTTP_201_CREATED)
+        evid_id = evid_resp.data["id"]
+
+        unlink_url = reverse("evidence-unlink-case", kwargs={"pk": evid_id})
+        resp = self.client.post(
+            unlink_url,
+            {"case_id": self.case.pk},
+            format="json",
+        )
+        self.assertEqual(
+            resp.status_code,
+            status.HTTP_400_BAD_REQUEST,
+            msg=(
+                "Unlink-case must always return 400 because the FK is "
+                f"non-nullable. Got {resp.status_code}: {resp.data}"
+            ),
+        )
+
+        # Error must point the caller toward link-case
+        error_str = str(resp.data).lower()
+        self.assertIn(
+            "link-case",
+            error_str,
+            msg=(
+                "Error message must mention 'link-case' as the reassignment "
+                f"alternative. Got: {resp.data}"
+            ),
+        )
+
+        # DB must be unchanged — evidence still attached to original case
+        from evidence.models import Evidence as EvidenceModel
+        self.assertEqual(
+            EvidenceModel.objects.get(pk=evid_id).case_id,
+            self.case.pk,
+            msg="Evidence case_id must not change after a failed unlink",
+        )
+
+    # ── Test C: Cadet (no change_evidence) cannot link → 403 ─────────────
+
+    def test_link_case_without_permission_returns_403(self) -> None:
+        """
+        Scenario 5.6 — Test C: A user without the `evidence.change_evidence`
+        permission (e.g. Cadet) attempting link-case must receive HTTP 403.
+
+        Service guard:
+            EvidenceProcessingService.link_evidence_to_case()
+            → if not requesting_user.has_perm("evidence.change_evidence"):
+                  raise PermissionDenied("You do not have permission to re-link evidence.")
+
+        DomainError → HTTP 403 via domain_exception_handler.
+
+        The DB must remain unchanged.
+
+        Asserts:
+        - HTTP 403
+        - Evidence still attached to Case A
+
+        Reference:
+            evidence/services.py EvidenceProcessingService.link_evidence_to_case
+        """
+        # Detective creates the evidence
+        self._login_as(self.detective_user.username, self.detective_password)
+
+        case_b = self._create_extra_case("Case B — Permission Test")
+
+        evid_resp = self.client.post(
+            reverse("evidence-list"),
+            self._other_payload(title="Evidence for Link-Permission 403 Test"),
+            format="json",
+        )
+        self.assertEqual(evid_resp.status_code, status.HTTP_201_CREATED)
+        evid_id = evid_resp.data["id"]
+
+        # Switch to Cadet (no change_evidence)
+        self._login_as(self.cadet_user.username, self.cadet_password)
+
+        link_url = reverse("evidence-link-case", kwargs={"pk": evid_id})
+        resp = self.client.post(
+            link_url,
+            {"case_id": case_b.pk},
+            format="json",
+        )
+        self.assertEqual(
+            resp.status_code,
+            status.HTTP_403_FORBIDDEN,
+            msg=(
+                f"Expected 403 for Cadet (no change_evidence), "
+                f"got {resp.status_code}: {resp.data}"
+            ),
+        )
+
+        # DB must be unchanged — case still points to Case A
+        from evidence.models import Evidence as EvidenceModel
+        self.assertEqual(
+            EvidenceModel.objects.get(pk=evid_id).case_id,
+            self.case.pk,
+            msg="Evidence case_id must not change after unauthorised link attempt",
+        )
+
+    # ── Test D: link to non-existent case_id → 400 ────────────────────────
+
+    def test_link_case_nonexistent_case_returns_400(self) -> None:
+        """
+        Scenario 5.6 — Test D: Passing a case_id that does not correspond to
+        any existing Case must return HTTP 400.
+
+        Service guard:
+            EvidenceProcessingService.link_evidence_to_case()
+            try:
+                target_case = Case.objects.get(pk=case_id)
+            except Case.DoesNotExist:
+                raise DomainError(f"Case with id {case_id} does not exist.")
+
+        DomainError → HTTP 400 via domain_exception_handler.
+
+        Asserts:
+        - HTTP 400
+        - Evidence case_id unchanged in DB
+
+        Reference:
+            evidence/services.py EvidenceProcessingService.link_evidence_to_case
+        """
+        self._login_as(self.detective_user.username, self.detective_password)
+
+        evid_resp = self.client.post(
+            reverse("evidence-list"),
+            self._other_payload(title="Evidence for Link-NonExistent-Case 400 Test"),
+            format="json",
+        )
+        self.assertEqual(evid_resp.status_code, status.HTTP_201_CREATED)
+        evid_id = evid_resp.data["id"]
+
+        # Use an ID that cannot exist
+        nonexistent_id = 999999
+
+        link_url = reverse("evidence-link-case", kwargs={"pk": evid_id})
+        resp = self.client.post(
+            link_url,
+            {"case_id": nonexistent_id},
+            format="json",
+        )
+        self.assertEqual(
+            resp.status_code,
+            status.HTTP_400_BAD_REQUEST,
+            msg=(
+                f"Expected 400 for non-existent case_id, "
+                f"got {resp.status_code}: {resp.data}"
+            ),
+        )
+
+        # Evidence must still be attached to the original case
+        from evidence.models import Evidence as EvidenceModel
+        self.assertEqual(
+            EvidenceModel.objects.get(pk=evid_id).case_id,
+            self.case.pk,
+            msg="Evidence case_id must not change after a failed link to a non-existent case",
         )
