@@ -215,9 +215,19 @@ class TestRBACScopes(TestCase):
         )
 
         # Supervisory assignments for board-access checks.
+        # Keep Chief related to this case via approved_by so chain-based
+        # supervisor access is deterministic in integration tests.
         cls.case_c2.assigned_sergeant = cls.sergeant_user
         cls.case_c2.assigned_captain = cls.captain_user
-        cls.case_c2.save(update_fields=["assigned_sergeant", "assigned_captain", "updated_at"])
+        cls.case_c2.approved_by = cls.chief_user
+        cls.case_c2.save(
+            update_fields=[
+                "assigned_sergeant",
+                "assigned_captain",
+                "approved_by",
+                "updated_at",
+            ]
+        )
 
         # Assignment helpers are exercised through real endpoints.
         setup_client = APIClient()
@@ -579,6 +589,58 @@ class TestRBACScopes(TestCase):
     # ---------------------------------------------------------------------
     # Board scope tests
     # ---------------------------------------------------------------------
+
+    def test_board_owner_access_for_detail_and_full_endpoints(self):
+        self.login_as(self.detective_a)
+
+        detail_response = self.client.get(
+            reverse("detective-board-detail", kwargs={"pk": self.board_c2_id}),
+            format="json",
+        )
+        self.assertEqual(detail_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(detail_response.data["id"], self.board_c2_id)
+
+        full_response = self.client.get(
+            reverse("detective-board-full-state", kwargs={"pk": self.board_c2_id}),
+            format="json",
+        )
+        self.assertEqual(full_response.status_code, status.HTTP_200_OK)
+
+    def test_board_related_supervisor_access_for_full_endpoint(self):
+        self.login_as(self.captain_user)
+        captain_detail = self.client.get(
+            reverse("detective-board-detail", kwargs={"pk": self.board_c2_id}),
+            format="json",
+        )
+        self.assertEqual(captain_detail.status_code, status.HTTP_200_OK)
+
+        captain_full = self.client.get(
+            reverse("detective-board-full-state", kwargs={"pk": self.board_c2_id}),
+            format="json",
+        )
+        self.assertEqual(captain_full.status_code, status.HTTP_200_OK)
+
+        self.login_as(self.chief_user)
+        chief_full = self.client.get(
+            reverse("detective-board-full-state", kwargs={"pk": self.board_c2_id}),
+            format="json",
+        )
+        self.assertEqual(chief_full.status_code, status.HTTP_200_OK)
+
+    def test_board_full_endpoint_is_forbidden_for_unrelated_users(self):
+        self.login_as(self.detective_b)
+        det_b_full = self.client.get(
+            reverse("detective-board-full-state", kwargs={"pk": self.board_c2_id}),
+            format="json",
+        )
+        self.assertEqual(det_b_full.status_code, status.HTTP_403_FORBIDDEN)
+
+        self.login_as(self.complainant_a)
+        citizen_full = self.client.get(
+            reverse("detective-board-full-state", kwargs={"pk": self.board_c2_id}),
+            format="json",
+        )
+        self.assertEqual(citizen_full.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_board_access_owner_and_assigned_supervisors(self):
         self.login_as(self.detective_a)
