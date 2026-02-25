@@ -20,10 +20,7 @@ Test map
          C  GET /api/boards/{id}/ re-asserts ownership and linkage
          D  Unauthenticated POST → 401 Unauthorized
          E  Duplicate board for same case → 400 Bad Request
-         F  Cadet creates board — documents current IsAuthenticated-only enforcement
-            (NOTE: project-doc §4.4 says boards belong to Detectives; the service
-             layer currently performs no role check on creation,  meaning any
-             authenticated user receives 201.  This test documents that behaviour.)
+         F  Cadet (non-detective role) attempts to create board → 403 Forbidden
 """
 
 from __future__ import annotations
@@ -458,44 +455,25 @@ class TestBoardAndSuspectsFlow(TestCase):
 
     # ── 6.1-F: non-detective (Cadet) creates board ───────────────────
 
-    def test_6_1_f_cadet_creates_board_current_behaviour(self) -> None:
+    def test_6_1_f_cadet_creates_board_returns_403(self) -> None:
         """
-        Scenario 6.1-F: Cadet (low-privilege role) attempts POST /api/boards/.
+        Scenario 6.1-F: Cadet (low-privilege role) attempts POST /api/boards/
+        → HTTP 403 Forbidden.
 
-        SPECIFICATION (project-doc.md §4.4):
-            Boards belong to the Detective.  Only a Detective should be able
-            to create one → expected HTTP 403 Forbidden.
-
-        CURRENT IMPLEMENTATION (board/views.py + board/services.py):
-            The view uses ``permission_classes = [IsAuthenticated]`` only.
-            The service layer performs no role-name check on creation.
-            Therefore, any authenticated user currently receives HTTP 201,
-            and the board's ``detective`` field is set to the Cadet user.
-
-        This test explicitly asserts the *current* implementation behaviour
-        (201) and documents the gap between spec and implementation.
-        If role-based enforcement is added in the future, update this test
-        to assert HTTP 403 instead.
+        Reference:
+          - project-doc.md §4.4 — boards belong to the Detective; only
+            Detectives (and supervisory ranks) may open one.
+          - board/services.py   — BoardWorkspaceService.create_board calls
+            _can_create_board() and raises PermissionDenied for ineligible roles.
         """
         self._login_as(self.cadet_user.username, self.cadet_password)
         response = self._create_board()
 
-        # Current implementation: IsAuthenticated only → Cadet gets 201
-        # TODO: enforce Detective-only creation and change assertion to 403
         self.assertEqual(
             response.status_code,
-            status.HTTP_201_CREATED,
+            status.HTTP_403_FORBIDDEN,
             msg=(
-                "Current implementation allows any authenticated user to create a board. "
-                f"Got {response.status_code}: {response.data}. "
-                "If role enforcement is added, this should become 403."
+                f"Expected 403 Forbidden when a Cadet attempts to create a board, "
+                f"but got {response.status_code}: {response.data}"
             ),
         )
-
-        # Verify the board's detective field is the Cadet (documents ownership gap)
-        if response.status_code == status.HTTP_201_CREATED:
-            self.assertEqual(
-                response.data["detective"],
-                self.cadet_user.pk,
-                msg="When Cadet creates a board, detective FK must be set to the Cadet's pk.",
-            )

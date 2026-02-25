@@ -49,10 +49,28 @@ from .models import BoardConnection, BoardItem, BoardNote, DetectiveBoard
 _SUPERVISOR_ROLES = frozenset({"Sergeant", "Captain", "Police Chief"})
 _ADMIN_ROLE = "System Admin"
 
+# Roles that are allowed to *create* a detective board.
+# project-doc.md §4.4: boards belong to the Detective;
+# supervisors who are assigned to the case may also open one.
+_BOARD_CREATOR_ROLES = frozenset({"Detective"}) | _SUPERVISOR_ROLES
+
 
 def _is_admin(user: Any) -> bool:
     """Return True if the user is a superuser or has the System Admin role."""
     return user.is_superuser or (user.role is not None and user.role.name == _ADMIN_ROLE)
+
+
+def _can_create_board(user: Any) -> bool:
+    """
+    Creation access — project-doc.md §4.4.
+
+    Only Detectives, supervisory ranks (Sergeant / Captain / Police Chief),
+    and System Admins / superusers may open a new detective board.
+    All other roles (Cadet, Officer, Coroner, Base User, etc.) are denied.
+    """
+    if _is_admin(user):
+        return True
+    return user.role is not None and user.role.name in _BOARD_CREATOR_ROLES
 
 
 def _can_view_board(user: Any, board: DetectiveBoard) -> bool:
@@ -178,7 +196,18 @@ class BoardWorkspaceService:
     @staticmethod
     @transaction.atomic
     def create_board(validated_data: dict[str, Any], requesting_user: Any) -> DetectiveBoard:
-        """Create a new ``DetectiveBoard`` for a given case."""
+        """
+        Create a new ``DetectiveBoard`` for a given case.
+
+        Permission: only Detectives, supervisory ranks, and admins may create
+        a board (project-doc.md §4.4).  All other roles receive
+        ``PermissionDenied`` → HTTP 403.
+        """
+        if not _can_create_board(requesting_user):
+            raise PermissionDenied(
+                "Only a Detective or a supervisory rank may create a detective board."
+            )
+
         case = validated_data["case"]
         if DetectiveBoard.objects.filter(case=case).exists():
             raise DomainError("A board already exists for this case.")

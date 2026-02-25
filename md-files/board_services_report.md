@@ -1,7 +1,15 @@
 # Board Services Implementation Report
 
 ## 1. Permission Rules
+### Create Access (`_can_create_board`)
+| Actor | Condition |
+|-------|----------|
+| **Detective** | `user.role.name == "Detective"` |
+| **Supervisor** (Sergeant / Captain / Police Chief) | `user.role.name` in `_SUPERVISOR_ROLES` |
+| **System Admin / Superuser** | Always granted |
+| **All other roles** (Cadet, Officer, Coroner, Base User, …) | **Denied → HTTP 403** |
 
+Enforced in `BoardWorkspaceService.create_board` via `_can_create_board(requesting_user)` before any DB write.  Raises `PermissionDenied` (→ 403) for ineligible roles.
 ### Read Access (`_can_view_board`)
 | Actor | Condition |
 |-------|-----------|
