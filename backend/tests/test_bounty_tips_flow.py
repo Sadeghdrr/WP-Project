@@ -3,14 +3,20 @@ Integration tests — Bounty Tips flow scenarios 10.1–10.4 (shared file).
 
 Current scope in this file:
 - Scenario 10.1: Citizen submits a bounty tip.
+- Scenario 10.2: Officer reviews (accept/reject) a tip.
+- Scenario 10.3: Detective verifies an accepted tip.
 """
 
 from __future__ import annotations
+
+import re
+from datetime import timedelta
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
 from django.test import TestCase
 from django.urls import reverse
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -201,6 +207,22 @@ class TestBountyTipsFlow(TestCase):
             payload["review_notes"] = review_notes
         return self.client.post(
             reverse("bounty-tip-review", kwargs={"pk": tip_id}),
+            payload,
+            format="json",
+        )
+
+    def verify_tip(
+        self,
+        *,
+        tip_id: int,
+        decision: str,
+        verification_notes: str | None = None,
+    ):
+        payload = {"decision": decision}
+        if verification_notes is not None:
+            payload["verification_notes"] = verification_notes
+        return self.client.post(
+            reverse("bounty-tip-verify", kwargs={"pk": tip_id}),
             payload,
             format="json",
         )
@@ -435,4 +457,162 @@ class TestBountyTipsFlow(TestCase):
             second_review.status_code,
             (status.HTTP_409_CONFLICT, status.HTTP_400_BAD_REQUEST),
             msg=f"Expected rejection for non-pending review: {second_review.data}",
+        )
+
+    def test_detective_verifies_accepted_tip_generates_unique_code_and_reward(self):
+        # Ensure reward formula yields a positive deterministic value.
+        self.wanted_suspect.wanted_since = timezone.now() - timedelta(days=35)
+        self.wanted_suspect.save(update_fields=["wanted_since"])
+
+        tip_id = self.create_tip_as_citizen(
+            information="Verification path: actionable tip details.",
+        )
+
+        officer_token = self.login(self.officer_user)
+        self.auth(officer_token)
+        accept_response = self.review_tip(
+            tip_id=tip_id,
+            decision="accept",
+            review_notes="Officer accepted and forwarded to detective.",
+        )
+        self.assertEqual(
+            accept_response.status_code,
+            status.HTTP_200_OK,
+            msg=f"Officer accept setup failed: {accept_response.data}",
+        )
+
+        detective_token = self.login(self.detective_user)
+        self.auth(detective_token)
+        verify_response = self.verify_tip(
+            tip_id=tip_id,
+            decision="verify",
+            verification_notes="Field validation confirms reported sightings.",
+        )
+        self.assertEqual(
+            verify_response.status_code,
+            status.HTTP_200_OK,
+            msg=f"Detective verify failed: {verify_response.data}",
+        )
+        self.assertEqual(verify_response.data["status"], "verified")
+        self.assertIsNotNone(verify_response.data["unique_code"])
+        self.assertRegex(
+            str(verify_response.data["unique_code"]),
+            r"^[0-9A-F]{32}$",
+        )
+        self.assertIsNotNone(verify_response.data["reward_amount"])
+        self.assertGreater(int(verify_response.data["reward_amount"]), 0)
+
+        tip = BountyTip.objects.get(pk=tip_id)
+        self.assertEqual(tip.status, "verified")
+        self.assertEqual(tip.verified_by_id, self.detective_user.id)
+        self.assertIsNotNone(tip.unique_code)
+        self.assertTrue(re.fullmatch(r"[0-9A-F]{32}", tip.unique_code))
+        self.assertIsNotNone(tip.reward_amount)
+        self.assertGreater(int(tip.reward_amount), 0)
+
+        detail_response = self.client.get(
+            reverse("bounty-tip-detail", kwargs={"pk": tip_id}),
+            format="json",
+        )
+        self.assertEqual(
+            detail_response.status_code,
+            status.HTTP_200_OK,
+            msg=f"Tip detail after verify failed: {detail_response.data}",
+        )
+        self.assertEqual(detail_response.data["status"], "verified")
+        self.assertEqual(detail_response.data["verified_by"], self.detective_user.id)
+        self.assertEqual(detail_response.data["unique_code"], tip.unique_code)
+        self.assertGreater(int(detail_response.data["reward_amount"]), 0)
+
+    def test_verify_pending_tip_without_officer_acceptance_is_rejected(self):
+        tip_id = self.create_tip_as_citizen(
+            information="Pending tip cannot be directly verified.",
+        )
+
+        detective_token = self.login(self.detective_user)
+        self.auth(detective_token)
+        response = self.verify_tip(
+            tip_id=tip_id,
+            decision="verify",
+            verification_notes="Attempting verify before officer review.",
+        )
+        self.assertIn(
+            response.status_code,
+            (status.HTTP_400_BAD_REQUEST, status.HTTP_409_CONFLICT),
+            msg=f"Expected pending-tip verify rejection: {response.data}",
+        )
+
+    def test_non_detective_cannot_verify_tip(self):
+        tip_id = self.create_tip_as_citizen(
+            information="Non-detective verify permission guard.",
+        )
+
+        officer_token = self.login(self.officer_user)
+        self.auth(officer_token)
+        accept_response = self.review_tip(
+            tip_id=tip_id,
+            decision="accept",
+            review_notes="Setup accepted tip for verify permission test.",
+        )
+        self.assertEqual(
+            accept_response.status_code,
+            status.HTTP_200_OK,
+            msg=f"Officer accept setup failed: {accept_response.data}",
+        )
+
+        response = self.verify_tip(
+            tip_id=tip_id,
+            decision="verify",
+            verification_notes="Officer should not be able to verify.",
+        )
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+            msg=f"Non-detective verify should be forbidden: {response.data}",
+        )
+
+    def test_verify_already_verified_tip_is_rejected(self):
+        # Ensure reward is non-zero and verification completes cleanly.
+        self.wanted_suspect.wanted_since = timezone.now() - timedelta(days=35)
+        self.wanted_suspect.save(update_fields=["wanted_since"])
+
+        tip_id = self.create_tip_as_citizen(
+            information="Second verify attempt should fail.",
+        )
+
+        officer_token = self.login(self.officer_user)
+        self.auth(officer_token)
+        accept_response = self.review_tip(
+            tip_id=tip_id,
+            decision="accept",
+            review_notes="Accepted for first verification.",
+        )
+        self.assertEqual(
+            accept_response.status_code,
+            status.HTTP_200_OK,
+            msg=f"Officer accept setup failed: {accept_response.data}",
+        )
+
+        detective_token = self.login(self.detective_user)
+        self.auth(detective_token)
+        first_verify = self.verify_tip(
+            tip_id=tip_id,
+            decision="verify",
+            verification_notes="First verification should succeed.",
+        )
+        self.assertEqual(
+            first_verify.status_code,
+            status.HTTP_200_OK,
+            msg=f"First verify setup failed: {first_verify.data}",
+        )
+
+        second_verify = self.verify_tip(
+            tip_id=tip_id,
+            decision="verify",
+            verification_notes="Second verification should fail.",
+        )
+        self.assertIn(
+            second_verify.status_code,
+            (status.HTTP_400_BAD_REQUEST, status.HTTP_409_CONFLICT),
+            msg=f"Expected already-verified rejection: {second_verify.data}",
         )
