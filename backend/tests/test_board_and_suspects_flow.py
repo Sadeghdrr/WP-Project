@@ -44,6 +44,13 @@ Test map
          C  Self-loop connection (from_item == to_item) → 400
          D  Item belonging to a different board → 400 (cross-board guard)
          E  Unrelated user tries to create connection → 403
+
+  6.5  Batch update item coordinates (drag-and-drop save)
+         A  PATCH /boards/{id}/items/batch-coordinates/ with 2 items → 200; response lists both
+         B  Updated coordinates persist: GET /boards/{id}/full/ reflects new positions
+         C  Payload includes item from a different board → 400
+         D  Duplicate item IDs in same batch → 400 (serializer guard)
+         E  Unrelated user (Cadet) → 403
 """
 
 from __future__ import annotations
@@ -1341,6 +1348,250 @@ class TestBoardAndSuspectsFlow(TestCase):
             status.HTTP_403_FORBIDDEN,
             msg=(
                 f"Expected 403 Forbidden when unrelated user creates connection, "
+                f"got {response.status_code}: {response.data}"
+            ),
+        )
+
+    # ─────────────────────────────────────────────────────────────────
+    # Scenario 6.5 — Batch update item coordinates (drag-and-drop save)
+    # ─────────────────────────────────────────────────────────────────
+
+    # ── helper ───────────────────────────────────────────────────────
+
+    def _batch_update_coordinates(self, board_id: int, items: list) -> object:
+        """
+        PATCH /api/boards/{board_id}/items/batch-coordinates/
+
+        Payload: {"items": [{"id": <int>, "position_x": <float>, "position_y": <float>}, ...]}
+        Returns the raw APIClient response.
+        """
+        url = reverse(
+            "board-item-batch-update-coordinates",
+            kwargs={"board_pk": board_id},
+        )
+        return self.client.patch(url, {"items": items}, format="json")
+
+    # ── 6.5-A: successful batch update → 200 ─────────────────────────
+
+    def test_6_5_a_detective_batch_updates_coordinates_returns_200(self) -> None:
+        """
+        Scenario 6.5-A: PATCH /api/boards/{id}/items/batch-coordinates/ with
+        two valid items returns HTTP 200 OK.
+
+        Service: BoardItemService.update_batch_coordinates (bulk_update)
+        Reference: board/services.py, board/serializers.py
+        """
+        self._login_as(self.detective_user.username, self.detective_password)
+        board_id, item1_id, item2_id = self._setup_board_with_two_items()
+
+        payload = [
+            {"id": item1_id, "position_x": 200.0, "position_y": 350.0},
+            {"id": item2_id, "position_x": 450.5, "position_y": 80.25},
+        ]
+        response = self._batch_update_coordinates(board_id, payload)
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+            msg=(
+                f"Expected 200 OK for batch coordinate update, "
+                f"got {response.status_code}: {response.data}"
+            ),
+        )
+
+    def test_6_5_a_response_lists_both_updated_items_with_new_coordinates(self) -> None:
+        """
+        Scenario 6.5-A (schema): Response body must be a list containing both
+        updated items.  Each entry must include 'id', 'position_x', and
+        'position_y', and the coordinate values must match the submitted payload.
+
+        Reference: board/serializers.py — BoardItemResponseSerializer
+        """
+        self._login_as(self.detective_user.username, self.detective_password)
+        board_id, item1_id, item2_id = self._setup_board_with_two_items()
+
+        payload = [
+            {"id": item1_id, "position_x": 200.0, "position_y": 350.0},
+            {"id": item2_id, "position_x": 450.5, "position_y": 80.25},
+        ]
+        response = self._batch_update_coordinates(board_id, payload)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.data
+        self.assertIsInstance(data, list, msg="Response must be a list of board items.")
+        self.assertEqual(len(data), 2, msg="Response must contain exactly 2 items.")
+
+        returned_map = {item["id"]: item for item in data}
+        for expected in payload:
+            item_id = expected["id"]
+            self.assertIn(item_id, returned_map, msg=f"Item {item_id} missing from response.")
+            self.assertAlmostEqual(
+                float(returned_map[item_id]["position_x"]),
+                expected["position_x"],
+                places=2,
+                msg=f"position_x mismatch for item {item_id} in response.",
+            )
+            self.assertAlmostEqual(
+                float(returned_map[item_id]["position_y"]),
+                expected["position_y"],
+                places=2,
+                msg=f"position_y mismatch for item {item_id} in response.",
+            )
+
+    # ── 6.5-B: coordinates persist in full state ──────────────────────
+
+    def test_6_5_b_updated_coordinates_persist_in_full_state(self) -> None:
+        """
+        Scenario 6.5-B: After a successful batch update, GET /api/boards/{id}/full/
+        must reflect the new (position_x, position_y) for every updated item,
+        confirming that bulk_update actually wrote to the database.
+
+        Reference: board/services.py — bulk_update(fields=["position_x","position_y"])
+        """
+        self._login_as(self.detective_user.username, self.detective_password)
+        board_id, item1_id, item2_id = self._setup_board_with_two_items()
+
+        new_coords = {
+            item1_id: (111.1, 222.2),
+            item2_id: (333.3, 444.4),
+        }
+        payload = [
+            {"id": k, "position_x": v[0], "position_y": v[1]}
+            for k, v in new_coords.items()
+        ]
+        patch_response = self._batch_update_coordinates(board_id, payload)
+        self.assertEqual(
+            patch_response.status_code,
+            status.HTTP_200_OK,
+            msg=f"Batch update failed: {patch_response.data}",
+        )
+
+        full = self._get_full_state(board_id)
+        self.assertEqual(full.status_code, status.HTTP_200_OK)
+
+        items_in_full = {item["id"]: item for item in full.data["items"]}
+        for item_id, (expected_x, expected_y) in new_coords.items():
+            self.assertIn(
+                item_id, items_in_full,
+                msg=f"Item {item_id} missing from full-state items list.",
+            )
+            self.assertAlmostEqual(
+                float(items_in_full[item_id]["position_x"]),
+                expected_x,
+                places=2,
+                msg=f"Persisted position_x mismatch for item {item_id}.",
+            )
+            self.assertAlmostEqual(
+                float(items_in_full[item_id]["position_y"]),
+                expected_y,
+                places=2,
+                msg=f"Persisted position_y mismatch for item {item_id}.",
+            )
+
+    # ── 6.5-C: item from different board → 400 ───────────────────────
+
+    def test_6_5_c_item_from_different_board_returns_400(self) -> None:
+        """
+        Scenario 6.5-C: Including an item ID that belongs to a *different*
+        board in the batch payload must return HTTP 400.
+
+        Service guard: BoardItemService.update_batch_coordinates
+            → raises DomainError(
+                "The following item IDs do not belong to this board: [...]")
+
+        Reference: board/services.py — update_batch_coordinates, lines ~385-392
+        """
+        self._login_as(self.detective_user.username, self.detective_password)
+        board_a_id, item_a_id, _ = self._setup_board_with_two_items()
+
+        # Create a second board on a separate case and pin one item there
+        case_b = _make_open_case(
+            created_by=self.detective_user,
+            assigned_detective=self.detective_user,
+        )
+        board_b_resp = self._create_board(case_pk=case_b.pk)
+        self.assertEqual(board_b_resp.status_code, status.HTTP_201_CREATED)
+        board_b_id = board_b_resp.data["id"]
+        ev_b = self._make_evidence()
+        ct = ContentType.objects.get_for_model(Evidence)
+        item_b_resp = self._add_item(board_b_id, ct.pk, ev_b.pk)
+        self.assertEqual(item_b_resp.status_code, status.HTTP_201_CREATED)
+        item_b_id = item_b_resp.data["id"]
+
+        # Batch payload for board-A that sneaks in board-B's item
+        payload = [
+            {"id": item_a_id, "position_x": 10.0, "position_y": 10.0},
+            {"id": item_b_id, "position_x": 20.0, "position_y": 20.0},
+        ]
+        response = self._batch_update_coordinates(board_a_id, payload)
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+            msg=(
+                f"Expected 400 when payload contains item from a different board, "
+                f"got {response.status_code}: {response.data}"
+            ),
+        )
+
+    # ── 6.5-D: duplicate item IDs in batch → 400 ─────────────────────
+
+    def test_6_5_d_duplicate_item_ids_in_batch_returns_400(self) -> None:
+        """
+        Scenario 6.5-D: When the same item ID appears more than once in the
+        'items' array, the serializer must reject the request with HTTP 400.
+
+        Serializer guard: BatchCoordinateUpdateSerializer.validate_items
+            → ValidationError("Duplicate item IDs in batch.")
+
+        Reference: board/serializers.py — BatchCoordinateUpdateSerializer
+        """
+        self._login_as(self.detective_user.username, self.detective_password)
+        board_id, item1_id, _ = self._setup_board_with_two_items()
+
+        payload = [
+            {"id": item1_id, "position_x": 10.0, "position_y": 10.0},
+            {"id": item1_id, "position_x": 20.0, "position_y": 20.0},  # duplicate
+        ]
+        response = self._batch_update_coordinates(board_id, payload)
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+            msg=(
+                f"Expected 400 for duplicate item IDs in batch, "
+                f"got {response.status_code}: {response.data}"
+            ),
+        )
+
+    # ── 6.5-E: unrelated user → 403 ──────────────────────────────────
+
+    def test_6_5_e_unrelated_user_cannot_batch_update_returns_403(self) -> None:
+        """
+        Scenario 6.5-E: A user without edit access on the board receives
+        HTTP 403 when calling the batch-coordinates endpoint.
+
+        Service check:
+            BoardItemService.update_batch_coordinates → _enforce_edit()
+            → PermissionDenied("You do not have permission to modify this board.")
+
+        Reference: board/services.py — _can_edit_board / _enforce_edit
+        """
+        self._login_as(self.detective_user.username, self.detective_password)
+        board_id, item1_id, item2_id = self._setup_board_with_two_items()
+
+        # Switch to Cadet — no edit access on this board
+        self._login_as(self.cadet_user.username, self.cadet_password)
+        payload = [
+            {"id": item1_id, "position_x": 99.0, "position_y": 99.0},
+        ]
+        response = self._batch_update_coordinates(board_id, payload)
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+            msg=(
+                f"Expected 403 Forbidden for unrelated user on batch-coordinates, "
                 f"got {response.status_code}: {response.data}"
             ),
         )
