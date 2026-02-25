@@ -2198,6 +2198,32 @@ class BountyTipService:
         Creates a new tip with status PENDING. No unique code is
         generated yet.
         """
+        suspect = validated_data.get("suspect")
+        case = validated_data.get("case")
+
+        if suspect and case and suspect.case_id != case.id:
+            raise DomainError(
+                "The provided suspect does not belong to the provided case.",
+            )
+
+        if suspect:
+            if suspect.status != SuspectStatus.WANTED:
+                raise DomainError(
+                    "Bounty tips can only be submitted for suspects in wanted status.",
+                )
+            if not suspect.case.is_open:
+                raise DomainError(
+                    "Bounty tips can only be submitted for suspects linked to open cases.",
+                )
+
+        effective_case = case or (suspect.case if suspect else None)
+        if effective_case and not effective_case.is_open:
+            raise DomainError("Bounty tips can only be submitted for open cases.")
+
+        # If the caller submits only a suspect, persist the suspect's case too.
+        if case is None and suspect is not None:
+            validated_data = {**validated_data, "case": suspect.case}
+
         tip = BountyTip.objects.create(
             informant=requesting_user,
             status=BountyTipStatus.PENDING,

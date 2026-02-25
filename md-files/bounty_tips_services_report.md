@@ -95,6 +95,19 @@ Authorization: Bearer <citizen_jwt>
 }
 ```
 
+**Submission validation guards (service-layer):**
+- If both `suspect` and `case` are provided, they must belong to each other.
+- `case` must be open (`closed` / `voided` cases are rejected).
+- If `suspect` is provided, suspect status must be `wanted`.
+- If only `suspect` is provided, its linked case is auto-populated on the tip.
+
+**Validation error example (400 Bad Request):**
+```json
+{
+    "detail": "Bounty tips can only be submitted for open cases."
+}
+```
+
 **Response (201 Created):**
 ```json
 {
@@ -248,7 +261,7 @@ Authorization: Bearer <police_jwt>
 
 | Method | Endpoint                          | Actor         | Permission                 |
 |--------|-----------------------------------|---------------|----------------------------|
-| POST   | `/api/bounty-tips/`               | Any authenticated user | `IsAuthenticated`   |
+| POST   | `/api/bounty-tips/`               | Any authenticated user (open-case / wanted-suspect validation applies) | `IsAuthenticated`   |
 | GET    | `/api/bounty-tips/`               | Any authenticated user | `IsAuthenticated` (role-scoped) |
 | GET    | `/api/bounty-tips/{id}/`          | Any authenticated user | `IsAuthenticated`   |
 | POST   | `/api/bounty-tips/{id}/review/`   | Officer        | `can_review_bounty_tip`    |

@@ -46,7 +46,7 @@
 | HTTP Method | URL                               | Purpose                                     | Access Level                             |
 | ----------- | --------------------------------- | ------------------------------------------- | ---------------------------------------- |
 | `GET`       | `/api/bounty-tips/`               | List bounty tips (role-scoped)              | Authenticated (role-scoped)              |
-| `POST`      | `/api/bounty-tips/`               | Submit a bounty tip (citizen action)        | Any authenticated user                   |
+| `POST`      | `/api/bounty-tips/`               | Submit a bounty tip (citizen action; open case and wanted suspect validations apply) | Any authenticated user |
 | `GET`       | `/api/bounty-tips/{id}/`          | Retrieve bounty tip detail                  | Authenticated (owner or police)          |
 | `POST`      | `/api/bounty-tips/{id}/review/`   | Officer reviews a bounty tip                | Police Officer (`CAN_REVIEW_BOUNTY_TIP`) |
 | `POST`      | `/api/bounty-tips/{id}/verify/`   | Detective verifies a bounty tip             | Detective (`CAN_VERIFY_BOUNTY_TIP`)      |
