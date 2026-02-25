@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
-import { Skeleton, ErrorState } from "../../components/ui";
+import { Skeleton, ErrorState, MediaViewer } from "../../components/ui";
 import {
   useEvidenceDetail,
   useChainOfCustody,
@@ -22,13 +22,6 @@ const COLOR_CSS: Record<string, string> = {
   amber: css.badgeAmber,
   purple: css.badgePurple,
   gray: css.badgeGray,
-};
-
-const FILE_ICONS: Record<string, string> = {
-  image: "🖼️",
-  video: "🎬",
-  audio: "🎵",
-  document: "📄",
 };
 
 /**
@@ -318,29 +311,12 @@ export default function EvidenceDetailPage() {
           <div className={css.fileGrid}>
             {evidence.files.map((f) => (
               <div key={f.id} className={css.fileCard}>
-                {f.file_type === "image" ? (
-                  <img
-                    src={f.file}
-                    alt={f.caption || "Evidence image"}
-                    className={css.fileThumb}
-                  />
-                ) : (
-                  <div className={css.filePlaceholder}>
-                    {FILE_ICONS[f.file_type] ?? "📎"}
-                  </div>
-                )}
-                <span className={css.fileInfo}>
-                  {f.file_type_display ?? FILE_TYPE_LABELS[f.file_type] ?? f.file_type}
-                  {f.caption ? ` — ${f.caption}` : ""}
-                </span>
-                <a
-                  href={f.file}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={css.fileLink}
-                >
-                  Open file
-                </a>
+                <MediaViewer
+                  fileUrl={f.file}
+                  fileType={f.file_type}
+                  fileTypeDisplay={f.file_type_display ?? FILE_TYPE_LABELS[f.file_type]}
+                  caption={f.caption}
+                />
               </div>
             ))}
           </div>
