@@ -24,15 +24,49 @@ export interface NotificationMarkReadRequest {
 }
 
 // ---------------------------------------------------------------------------
-// Dashboard Statistics (from core aggregation endpoints)
+// Dashboard Statistics (from GET /api/core/dashboard/)
 // ---------------------------------------------------------------------------
 
+export interface CasesByStatusEntry {
+  status: string;
+  label: string;
+  count: number;
+}
+
+export interface CasesByCrimeLevelEntry {
+  crime_level: number;
+  label: string;
+  count: number;
+}
+
+export interface TopWantedSuspect {
+  id: number;
+  full_name: string;
+  national_id: string;
+  status: string;
+  danger_level: number;
+}
+
+export interface RecentActivityEntry {
+  timestamp: string;
+  type: string;
+  description: string;
+  actor: string;
+}
+
 export interface DashboardStats {
-  total_solved_cases: number;
-  total_employees: number;
+  total_cases: number;
   active_cases: number;
-  // Server may include additional stats
-  [key: string]: number;
+  closed_cases: number;
+  voided_cases: number;
+  total_suspects: number;
+  total_evidence: number;
+  total_employees: number;
+  unassigned_evidence_count: number;
+  cases_by_status: CasesByStatusEntry[];
+  cases_by_crime_level: CasesByCrimeLevelEntry[];
+  top_wanted_suspects: TopWantedSuspect[];
+  recent_activity: RecentActivityEntry[];
 }
 
 // ---------------------------------------------------------------------------
