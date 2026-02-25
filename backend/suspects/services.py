@@ -201,7 +201,8 @@ class SuspectProfileService:
             )
         if filters.get("most_wanted"):
             cutoff = timezone.now() - timedelta(days=30)
-            qs = qs.filter(status=SuspectStatus.WANTED, wanted_since__lte=cutoff)
+            # Strictly "over 30 days" per project-doc §4.7.
+            qs = qs.filter(status=SuspectStatus.WANTED, wanted_since__lt=cutoff)
         if "created_after" in filters:
             qs = qs.filter(created_at__date__gte=filters["created_after"])
         if "created_before" in filters:
@@ -438,7 +439,8 @@ class SuspectProfileService:
         qs = (
             Suspect.objects.filter(
                 status=SuspectStatus.WANTED,
-                wanted_since__lte=cutoff,
+                # Strictly "over 30 days" per project-doc §4.7.
+                wanted_since__lt=cutoff,
             )
             # Must be linked to at least one open case
             .exclude(case__status__in=closed_statuses)
@@ -449,7 +451,7 @@ class SuspectProfileService:
         # (days between wanted_since and now)
         qs = qs.annotate(
             computed_days_wanted=ExpressionWrapper(
-                (Now() - F("wanted_since")),
+                ExtractDay(Now() - F("wanted_since")),
                 output_field=IntegerField(),
             ),
         )

@@ -103,14 +103,14 @@ This ensures that if the multiplier or threshold changes, it is updated in **one
 ```python
 qs = Suspect.objects.filter(
     status="wanted",
-    wanted_since__lte=cutoff,       # strictly > 30 days ago
+    wanted_since__lt=cutoff,        # strictly > 30 days ago
 ).exclude(
     case__status__in=["closed", "voided"],  # must have open case
 ).select_related("case")
 
 qs = qs.annotate(
     computed_days_wanted=ExpressionWrapper(
-        Now() - F("wanted_since"),
+        ExtractDay(Now() - F("wanted_since")),
         output_field=IntegerField(),
     ),
     crime_degree=F("case__crime_level"),
