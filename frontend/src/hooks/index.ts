@@ -44,3 +44,15 @@ export {
   BOARD_FULL_KEY,
   BOARDS_LIST_KEY,
 } from "../pages/DetectiveBoard/useBoardData";
+export {
+  useUsers,
+  useUserDetail,
+  useUserActions,
+  useRoles,
+  useRoleDetail,
+  useRoleActions,
+  usePermissions,
+  ADMIN_USERS_KEY,
+  ADMIN_ROLES_KEY,
+  ADMIN_PERMISSIONS_KEY,
+} from "./useAdmin";

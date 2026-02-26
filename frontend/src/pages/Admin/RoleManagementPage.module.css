@@ -1,0 +1,429 @@
+/* RoleManagementPage styles */
+
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 1.5rem;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.header h1 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+.backLink {
+  font-size: 0.9rem;
+  color: #3498db;
+  text-decoration: none;
+}
+
+.backLink:hover {
+  text-decoration: underline;
+}
+
+.createBtn {
+  padding: 0.5rem 1.1rem;
+  border: none;
+  border-radius: 6px;
+  background: #27ae60;
+  color: #fff;
+  font-size: 0.9rem;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.createBtn:hover {
+  background: #219a52;
+}
+
+/* Role cards grid */
+.roleGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.roleCard {
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 1.25rem;
+  transition: box-shadow 0.15s;
+}
+
+.roleCard:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.roleCardHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 0.5rem;
+}
+
+.roleName {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #2c3e50;
+  margin: 0;
+}
+
+.hierarchyBadge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  background: #e3f2fd;
+  color: #1565c0;
+  white-space: nowrap;
+}
+
+.roleDescription {
+  font-size: 0.85rem;
+  color: #666;
+  margin: 0.35rem 0 0.75rem;
+  line-height: 1.4;
+}
+
+.roleActions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.editBtn {
+  padding: 0.35rem 0.75rem;
+  border: 1px solid #3498db;
+  border-radius: 4px;
+  background: #fff;
+  color: #3498db;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.editBtn:hover {
+  background: #ebf5fb;
+}
+
+.permsBtn {
+  padding: 0.35rem 0.75rem;
+  border: 1px solid #8e44ad;
+  border-radius: 4px;
+  background: #fff;
+  color: #8e44ad;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.permsBtn:hover {
+  background: #f5eef8;
+}
+
+.deleteBtn {
+  padding: 0.35rem 0.75rem;
+  border: 1px solid #c0392b;
+  border-radius: 4px;
+  background: #fff;
+  color: #c0392b;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.deleteBtn:hover {
+  background: #fdedec;
+}
+
+.deleteBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Modal */
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.modal {
+  background: #fff;
+  border-radius: 10px;
+  width: 100%;
+  max-width: 540px;
+  max-height: 85vh;
+  overflow-y: auto;
+  padding: 1.5rem;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.18);
+  animation: fadeUp 0.2s ease-out;
+}
+
+.modalWide {
+  composes: modal;
+  max-width: 700px;
+}
+
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.modalHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.25rem;
+}
+
+.modalHeader h2 {
+  font-size: 1.2rem;
+  margin: 0;
+}
+
+.closeBtn {
+  background: none;
+  border: none;
+  font-size: 1.4rem;
+  cursor: pointer;
+  color: #666;
+  padding: 0.25rem;
+}
+
+/* Form fields */
+.field {
+  margin-bottom: 1rem;
+}
+
+.field label {
+  display: block;
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: #555;
+  margin-bottom: 0.3rem;
+}
+
+.field input,
+.field textarea {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #d0d0d0;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.field input:focus,
+.field textarea:focus {
+  border-color: #3498db;
+}
+
+.field textarea {
+  resize: vertical;
+  min-height: 60px;
+}
+
+.formActions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+  margin-top: 1.25rem;
+}
+
+.submitBtn {
+  padding: 0.5rem 1.25rem;
+  border: none;
+  border-radius: 6px;
+  background: #3498db;
+  color: #fff;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.submitBtn:hover {
+  background: #2980b9;
+}
+
+.submitBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.cancelBtn {
+  padding: 0.5rem 1.25rem;
+  border: 1px solid #d0d0d0;
+  border-radius: 6px;
+  background: #f8f8f8;
+  color: #555;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.cancelBtn:hover {
+  background: #eee;
+}
+
+/* Permission assignment */
+.permSection {
+  margin-top: 0.5rem;
+}
+
+.permGroup {
+  margin-bottom: 1rem;
+}
+
+.permGroupTitle {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #2c3e50;
+  margin: 0 0 0.4rem;
+  padding-bottom: 0.25rem;
+  border-bottom: 1px solid #eee;
+}
+
+.permList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.permItem {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  background: #f8f9fa;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.1s;
+}
+
+.permItem:hover {
+  background: #e3f2fd;
+}
+
+.permItem input[type="checkbox"] {
+  margin: 0;
+  accent-color: #3498db;
+}
+
+.permItemLabel {
+  color: #444;
+  font-size: 0.8rem;
+}
+
+.selectAllRow {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.selectAllBtn {
+  padding: 0.3rem 0.75rem;
+  border: 1px solid #d0d0d0;
+  border-radius: 4px;
+  background: #f8f8f8;
+  font-size: 0.8rem;
+  cursor: pointer;
+  color: #555;
+}
+
+.selectAllBtn:hover {
+  background: #eee;
+}
+
+.permSearch {
+  flex: 1;
+  padding: 0.3rem 0.6rem;
+  border: 1px solid #d0d0d0;
+  border-radius: 4px;
+  font-size: 0.8rem;
+}
+
+/* Toast */
+.toast {
+  position: fixed;
+  bottom: 1.5rem;
+  right: 1.5rem;
+  padding: 0.75rem 1.25rem;
+  border-radius: 8px;
+  background: #2ecc71;
+  color: #fff;
+  font-size: 0.9rem;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
+  z-index: 200;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.toastError {
+  composes: toast;
+  background: #e74c3c;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Confirm dialog */
+.confirmText {
+  font-size: 0.95rem;
+  color: #555;
+  margin: 0 0 0.5rem;
+  line-height: 1.5;
+}
+
+.dangerBtn {
+  composes: submitBtn;
+  background: #c0392b;
+}
+
+.dangerBtn:hover {
+  background: #a93226;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .container {
+    padding: 1rem;
+  }
+
+  .roleGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .modal,
+  .modalWide {
+    max-width: 100%;
+  }
+}

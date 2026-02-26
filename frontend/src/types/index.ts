@@ -138,6 +138,19 @@ export type {
   BatchCoordinateUpdateRequest,
 } from "./board";
 
+// Admin
+export type {
+  UserListItem,
+  PermissionItem,
+  RoleDetailFull,
+  RoleListItem,
+  AssignRoleRequest,
+  AssignPermissionsRequest,
+  RoleCreatePayload,
+  RoleUpdatePayload,
+  UserFilters,
+} from "./admin";
+
 // Core
 export type {
   Notification,
