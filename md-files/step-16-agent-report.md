@@ -243,3 +243,94 @@ const boardId = discoveredId ?? createdBoardId;
 - `npx tsc --noEmit` → **0 errors**
 - `npx eslint src/pages/DetectiveBoard/DetectiveBoardPage.tsx src/components/ui/BoardErrorBoundary.tsx src/router/Router.tsx` → **0 errors / 0 warnings**
 - No backend files modified.
+
+---
+
+## Backend Fix: Auto-Resolve Evidence ContentType When `content_type_id` is NULL
+
+**Branch:** (same branch — committed on top)
+
+### Problem
+
+`POST /api/boards/{board_pk}/items/` requires a `content_object` payload:
+
+```json
+{
+  "content_object": { "content_type_id": <int>, "object_id": <int> },
+  "position_x": 0.0,
+  "position_y": 0.0
+}
+```
+
+When the frontend sends `content_type_id: null` (i.e. "I know the object ID but not the CT pk"),
+the previous `to_internal_value` implementation did:
+
+```python
+content_type_id = int(data["content_type_id"])  # int(None) → TypeError
+```
+
+The `TypeError` was caught by the broad `except (KeyError, TypeError, ValueError)` guard and raised
+a generic `ValidationError`, blocking the request entirely.
+
+### Serializer Modified
+
+`backend/board/serializers.py` — `GenericObjectRelatedField.to_internal_value()`
+
+The fix lives in the **field-level validation hook** of `GenericObjectRelatedField`, which is the
+correct serializer-layer entry point for this logic (it runs before the serializer's `validate()`
+method, is encapsulated within the field that owns the content-type semantics, and keeps
+`BoardItemCreateSerializer` clean).
+
+### Method Overridden
+
+`GenericObjectRelatedField.to_internal_value(self, data)`
+
+### How the Null Fallback Works
+
+```python
+raw_content_type_id = data.get("content_type_id")
+
+if raw_content_type_id is None:
+    # content_type_id was explicitly null → auto-resolve Evidence
+    try:
+        ct = ContentType.objects.get(app_label="evidence", model="evidence")
+    except ContentType.DoesNotExist:
+        raise serializers.ValidationError(
+            "Evidence ContentType not found. Cannot auto-resolve content type."
+        )
+else:
+    # Numeric value (correct or incorrect) → normal lookup path; no override
+    content_type_id = int(raw_content_type_id)   # raises ValidationError on bad input
+    ct = ContentType.objects.get(pk=content_type_id)
+```
+
+The key guard is `if raw_content_type_id is None` — the **exact Python `None`** sentinel. The check
+is intentionally strict:
+
+| Incoming `content_type_id` | Behaviour |
+|---------------------------|-----------|
+| `null` (JSON) / `None` (Python) | Auto-resolved to `evidence.Evidence` CT |
+| `0` | Falls into `else` branch → `CT pk=0` lookup → `ContentType.DoesNotExist` → `ValidationError` |
+| Any valid integer | Falls into `else` branch → used as-is |
+| String / bad type | Falls into `else` branch → `int()` raises `ValueError` → `ValidationError` |
+
+All downstream validation (allowed content types, object existence check) runs identically
+regardless of which branch resolved `ct`.
+
+### Confirmation: Service Layer Unchanged
+
+- `backend/board/services.py` — **not touched**
+- `backend/board/views.py` — **not touched**
+- `backend/board/models.py` — **not touched**
+- Zero changes outside `backend/board/serializers.py`
+
+### Test Results
+
+```
+Ran 55 tests in 54.169s
+OK
+```
+
+All 55 tests in `tests/test_board_and_suspects_flow.py` pass with no regression.
+Scenarios covered: 6.1 through 6.8 (board creation, full state, item pinning, connections,
+batch coordinates, sticky notes, declare suspects, sergeant review).

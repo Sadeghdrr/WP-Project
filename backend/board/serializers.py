@@ -117,26 +117,56 @@ class GenericObjectRelatedField(serializers.Field):
         """
         Validate and transform write payload into a content-type/object-id
         pair.
+
+        Auto-resolve behaviour
+        ----------------------
+        When ``content_type_id`` is explicitly ``null`` (Python ``None``),
+        the field automatically resolves the ``ContentType`` for
+        ``evidence.Evidence``.  This lets the frontend omit the content type
+        for the common case of pinning an Evidence object without having to
+        look up the content-type pk first.
+
+        A numeric value — whether correct or incorrect — bypasses
+        auto-resolution and is validated as usual.
         """
         if not isinstance(data, dict):
             raise serializers.ValidationError(
                 "Expected a dict with 'content_type_id' and 'object_id'."
             )
 
+        raw_content_type_id = data.get("content_type_id")
+
+        # Validate object_id independently so the error message is precise.
         try:
-            content_type_id = int(data["content_type_id"])
             object_id = int(data["object_id"])
         except (KeyError, TypeError, ValueError):
             raise serializers.ValidationError(
                 "Both 'content_type_id' (int) and 'object_id' (int) are required."
             )
 
-        try:
-            ct = ContentType.objects.get(pk=content_type_id)
-        except ContentType.DoesNotExist:
-            raise serializers.ValidationError(
-                f"ContentType with id {content_type_id} does not exist."
-            )
+        # ── Auto-resolve when content_type_id is explicitly null ──────────
+        if raw_content_type_id is None:
+            try:
+                ct = ContentType.objects.get(app_label="evidence", model="evidence")
+            except ContentType.DoesNotExist:
+                raise serializers.ValidationError(
+                    "Evidence ContentType not found. Cannot auto-resolve content type."
+                )
+        else:
+            # Numeric value provided – use normal lookup path.
+            try:
+                content_type_id = int(raw_content_type_id)
+            except (TypeError, ValueError):
+                raise serializers.ValidationError(
+                    "Both 'content_type_id' (int) and 'object_id' (int) are required."
+                )
+
+            try:
+                ct = ContentType.objects.get(pk=content_type_id)
+            except ContentType.DoesNotExist:
+                raise serializers.ValidationError(
+                    f"ContentType with id {content_type_id} does not exist."
+                )
 
         key = f"{ct.app_label}.{ct.model}"
         if key not in self.ALLOWED_CONTENT_TYPES:
