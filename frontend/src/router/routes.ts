@@ -42,14 +42,9 @@ export interface RouteConfig {
 
 export const HIERARCHY = {
   BASE_USER: 0,
-  SUSPECT: 0,
-  CRIMINAL: 0,
-  COMPLAINANT: 1,
-  WITNESS: 1,
   JUDGE: 2,
   CORONER: 3,
   CADET: 4,
-  PATROL_OFFICER: 5,
   POLICE_OFFICER: 6,
   DETECTIVE: 7,
   SERGEANT: 8,
@@ -121,7 +116,7 @@ export const routes: RouteConfig[] = [
         path: "new/complaint",
         title: "File Complaint",
         authRequired: true,
-        minHierarchy: HIERARCHY.COMPLAINANT,
+        minHierarchy: 1, // Any authenticated user above Base User
         lazy: true,
       },
       {

@@ -22,8 +22,7 @@ class Role(models.Model):
 
     Default roles seeded via data-migration / fixture:
         System Admin, Police Chief, Captain, Sergeant, Detective,
-        Police Officer, Patrol Officer, Cadet, Coroner, Judge,
-        Complainant, Witness, Suspect, Criminal, Base User.
+        Police Officer, Cadet, Coroner, Judge, Base User.
 
     Note on Custom Permissions:
     Custom workflow permissions are defined as constants in

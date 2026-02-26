@@ -70,14 +70,8 @@ _EVIDENCE_SCOPE_CONFIG: ScopeConfig = {
     ),
     # Cadet sees evidence on cases currently in their review queue
     "cadet": lambda qs, u: qs.filter(case__created_by=u),
-    # Police Officer / Patrol Officer
+    # Police Officer
     "police_officer": lambda qs, u: qs.filter(case__created_by=u),
-    "patrol_officer": lambda qs, u: qs.filter(case__created_by=u),
-    # Complainant / Witness see evidence only on their associated cases
-    "complainant": lambda qs, u: qs.filter(
-        Q(case__complainants__user=u) | Q(case__created_by=u)
-    ).distinct(),
-    "witness": lambda qs, u: qs.filter(case__witnesses__user=u).distinct(),
     # Base User — minimal visibility
     "base_user": lambda qs, u: qs.filter(case__created_by=u),
 }

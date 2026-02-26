@@ -89,7 +89,7 @@ from .models import (
 )
 
 # ── Roles that are NOT allowed to create crime-scene cases ──────────
-_CRIME_SCENE_FORBIDDEN_ROLES: set[str] = {"cadet", "base_user", "complainant"}
+_CRIME_SCENE_FORBIDDEN_ROLES: set[str] = {"cadet", "base_user"}
 
 # ── Role name that auto-approves crime-scene cases ──────────────────
 _CHIEF_ROLE: str = "police_chief"
@@ -174,14 +174,12 @@ JUDGE_VISIBLE_STATUSES: set[str] = {
 
 #: Role → queryset filter config for ``apply_role_filter``.
 CASE_SCOPE_CONFIG: dict[str, Any] = {
-    # Civilians — only cases where they are a complainant
-    "complainant":    lambda qs, u: qs.filter(complainants__user=u),
+    # Base users — only cases where they are a complainant
     "base_user":      lambda qs, u: qs.filter(complainants__user=u),
     # Cadet — early complaint stages
     "cadet":          lambda qs, u: qs.filter(status__in=CADET_VISIBLE_STATUSES),
     # Officers — everything past the complaint-screening phase
     "police_officer": lambda qs, u: qs.exclude(status__in=OFFICER_EXCLUDED_STATUSES),
-    "patrol_officer": lambda qs, u: qs.exclude(status__in=OFFICER_EXCLUDED_STATUSES),
     # Detective — only their assigned cases
     "detective":      lambda qs, u: qs.filter(assigned_detective=u),
     # Sergeant — their assigned cases

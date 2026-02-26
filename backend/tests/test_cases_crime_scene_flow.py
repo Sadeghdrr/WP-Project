@@ -1017,7 +1017,7 @@ class TestCrimeSceneCaseFlow(TestCase):
     # ────────────────────────────────────────────────────────────────
     #
     #  Business rule (project-doc.md §4.2.2 / cases/services.py L92):
-    #    _CRIME_SCENE_FORBIDDEN_ROLES = {"cadet", "base_user", "complainant"}
+    #    _CRIME_SCENE_FORBIDDEN_ROLES = {"cadet", "base_user"}
     #
     #  When the service detects that the requesting user's role name maps to
     #  one of those forbidden roles it raises core.domain.exceptions.PermissionDenied

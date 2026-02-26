@@ -124,7 +124,7 @@ class SuspectProfileService:
 
         Role Scoping Rules
         ------------------
-        - **Base User / Complainant / Witness**: can only see suspects
+        - **Base User**: can only see suspects
           on cases they are directly associated with.
         - **Detective**: sees suspects on cases assigned to them, plus
           suspects they have identified.
@@ -181,7 +181,7 @@ class SuspectProfileService:
             elif role_name == "coroner":
                 qs = qs.filter(case__evidences__registered_by=user).distinct()
             else:
-                # Base user / complainant / witness
+                # Base user / other non-police roles
                 qs = qs.filter(
                     Q(case__complainants__user=user)
                     | Q(case__created_by=user)
@@ -1907,7 +1907,7 @@ class TrialService:
                     Q(case__assigned_sergeant=user),
                 )
             else:
-                # Base users / complainants — see only trials on cases
+                # Base users — see only trials on cases
                 # they are associated with.
                 qs = qs.filter(
                     Q(case__created_by=user)
@@ -2462,7 +2462,6 @@ class BountyTipService:
         allowed_lookup_roles = {
             "cadet",
             "police_officer",
-            "patrol_officer",
             "detective",
             "sergeant",
             "captain",

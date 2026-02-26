@@ -41,7 +41,7 @@ class TestRBACScopes(TestCase):
         cls.roles = {
             name: Role.objects.get(name=name)
             for name in (
-                "Complainant",
+                "Base User",
                 "Cadet",
                 "Police Officer",
                 "Detective",
@@ -73,7 +73,7 @@ class TestRBACScopes(TestCase):
             "compa@scope.test",
             "Ava",
             "Citizen",
-            cls.roles["Complainant"],
+            cls.roles["Base User"],
             cls.passwords["complainant_a"],
         )
         cls.complainant_b = cls._create_user(
@@ -83,7 +83,7 @@ class TestRBACScopes(TestCase):
             "compb@scope.test",
             "Ben",
             "Citizen",
-            cls.roles["Complainant"],
+            cls.roles["Base User"],
             cls.passwords["complainant_b"],
         )
         cls.cadet_user = cls._create_user(

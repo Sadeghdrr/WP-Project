@@ -317,33 +317,6 @@ ROLE_PERMISSIONS_MAP: dict[tuple[str, str, int], list[str]] = {
         CorePerms.CHANGE_NOTIFICATION, CorePerms.DELETE_NOTIFICATION,
     ],
 
-    # ── Patrol Officer ──────────────────────────────────────────────
-    (
-        "Patrol Officer",
-        "Field patrol — reports crime scenes and suspicious activity.",
-        5,
-    ): [
-        # Cases
-        CasesPerms.VIEW_CASE, CasesPerms.ADD_CASE, CasesPerms.CHANGE_CASE,
-        CasesPerms.VIEW_CASECOMPLAINANT,
-        CasesPerms.VIEW_CASEWITNESS, CasesPerms.ADD_CASEWITNESS, CasesPerms.CHANGE_CASEWITNESS,
-        CasesPerms.VIEW_CASESTATUSLOG, CasesPerms.ADD_CASESTATUSLOG,
-        CasesPerms.CAN_CHANGE_CASE_STATUS,
-        # Evidence (register)
-        EvidencePerms.VIEW_EVIDENCE, EvidencePerms.ADD_EVIDENCE,
-        EvidencePerms.VIEW_TESTIMONYEVIDENCE, EvidencePerms.ADD_TESTIMONYEVIDENCE,
-        EvidencePerms.VIEW_VEHICLEEVIDENCE, EvidencePerms.ADD_VEHICLEEVIDENCE,
-        EvidencePerms.VIEW_IDENTITYEVIDENCE, EvidencePerms.ADD_IDENTITYEVIDENCE,
-        EvidencePerms.VIEW_EVIDENCEFILE, EvidencePerms.ADD_EVIDENCEFILE,
-        # Suspects
-        SuspectsPerms.VIEW_SUSPECT,
-        # Users
-        AccountsPerms.VIEW_USER,
-        # Notifications
-        CorePerms.VIEW_NOTIFICATION, CorePerms.ADD_NOTIFICATION,
-        CorePerms.CHANGE_NOTIFICATION, CorePerms.DELETE_NOTIFICATION,
-    ],
-
     # ── Cadet ───────────────────────────────────────────────────────
     (
         "Cadet",
@@ -417,49 +390,6 @@ ROLE_PERMISSIONS_MAP: dict[tuple[str, str, int], list[str]] = {
         # Notifications
         CorePerms.VIEW_NOTIFICATION, CorePerms.ADD_NOTIFICATION,
         CorePerms.CHANGE_NOTIFICATION, CorePerms.DELETE_NOTIFICATION,
-    ],
-
-    # ── Complainant ─────────────────────────────────────────────────
-    (
-        "Complainant",
-        "Citizen who files a complaint to open a case.",
-        1,
-    ): [
-        CasesPerms.VIEW_CASE, CasesPerms.ADD_CASE,
-        CasesPerms.VIEW_CASECOMPLAINANT,
-        CorePerms.VIEW_NOTIFICATION, CorePerms.CHANGE_NOTIFICATION,
-    ],
-
-    # ── Witness ─────────────────────────────────────────────────────
-    (
-        "Witness",
-        "Citizen who has witnessed an incident.",
-        1,
-    ): [
-        CasesPerms.VIEW_CASE,
-        CorePerms.VIEW_NOTIFICATION, CorePerms.CHANGE_NOTIFICATION,
-    ],
-
-    # ── Suspect ─────────────────────────────────────────────────────
-    (
-        "Suspect",
-        "Individual identified as a suspect in a case.",
-        0,
-    ): [
-        CasesPerms.VIEW_CASE,
-        SuspectsPerms.VIEW_BAIL,
-        CorePerms.VIEW_NOTIFICATION, CorePerms.CHANGE_NOTIFICATION,
-    ],
-
-    # ── Criminal ────────────────────────────────────────────────────
-    (
-        "Criminal",
-        "Convicted individual — limited read-only access.",
-        0,
-    ): [
-        CasesPerms.VIEW_CASE,
-        SuspectsPerms.VIEW_BAIL,
-        CorePerms.VIEW_NOTIFICATION, CorePerms.CHANGE_NOTIFICATION,
     ],
 
     # ── Base User ───────────────────────────────────────────────────
