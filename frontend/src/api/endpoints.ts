@@ -57,18 +57,20 @@ export const API = {
   EVIDENCE_FILES: (id: number) => `/evidence/${id}/files/`,
   EVIDENCE_CHAIN_OF_CUSTODY: (id: number) => `/evidence/${id}/chain-of-custody/`,
 
-  // Suspects (note: double-prefix bug in backend URL config)
-  SUSPECTS: "/suspects/suspects/",
-  suspect: (id: number) => `/suspects/suspects/${id}/`,
+  // Suspects
+  SUSPECTS: "/suspects/",
+  suspect: (id: number) => `/suspects/${id}/`,
   INTERROGATIONS: "/suspects/interrogations/",
   TRIALS: "/suspects/trials/",
-  BOUNTY_TIPS: "/suspects/bounty-tips/",
-  bountyTip: (id: number) => `/suspects/bounty-tips/${id}/`,
-  bountyTipReview: (id: number) => `/suspects/bounty-tips/${id}/review/`,
-  bountyTipVerify: (id: number) => `/suspects/bounty-tips/${id}/verify/`,
-  BOUNTY_REWARD_LOOKUP: "/suspects/bounty-tips/lookup-reward/",
   BAIL: "/suspects/bail/",
   MOST_WANTED: "/suspects/most-wanted/",
+
+  // Bounty Tips — mounted at /api/bounty-tips/ (not under /suspects/)
+  BOUNTY_TIPS: "/bounty-tips/",
+  bountyTip: (id: number) => `/bounty-tips/${id}/`,
+  bountyTipReview: (id: number) => `/bounty-tips/${id}/review/`,
+  bountyTipVerify: (id: number) => `/bounty-tips/${id}/verify/`,
+  BOUNTY_REWARD_LOOKUP: "/bounty-tips/lookup-reward/",
 
   // Board
   BOARDS: "/board/boards/",

@@ -10,7 +10,16 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { CaseFilters } from "../api/cases";
 import * as casesApi from "../api/cases";
-import type { CaseDetail, CaseListItem, ReviewDecisionRequest, ResubmitComplaintRequest, CaseGenericTransitionRequest, AssignPersonnelRequest } from "../types";
+import type {
+  CaseDetail,
+  CaseListItem,
+  CaseCreateComplaintRequest,
+  CaseCreateCrimeSceneRequest,
+  ReviewDecisionRequest,
+  ResubmitComplaintRequest,
+  CaseGenericTransitionRequest,
+  AssignPersonnelRequest,
+} from "../types";
 
 // ---------------------------------------------------------------------------
 // Query keys
@@ -49,6 +58,38 @@ export function useCaseDetail(id: number | undefined) {
     },
     enabled: id !== undefined,
     staleTime: 15_000,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Create mutations
+// ---------------------------------------------------------------------------
+
+export function useCreateComplaintCase() {
+  const qc = useQueryClient();
+  return useMutation<CaseDetail, Error, CaseCreateComplaintRequest>({
+    mutationFn: async (data) => {
+      const res = await casesApi.createComplaintCase(data);
+      if (!res.ok) throw new Error(res.error.message);
+      return res.data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: CASES_QUERY_KEY });
+    },
+  });
+}
+
+export function useCreateCrimeSceneCase() {
+  const qc = useQueryClient();
+  return useMutation<CaseDetail, Error, CaseCreateCrimeSceneRequest>({
+    mutationFn: async (data) => {
+      const res = await casesApi.createCrimeSceneCase(data);
+      if (!res.ok) throw new Error(res.error.message);
+      return res.data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: CASES_QUERY_KEY });
+    },
   });
 }
 
