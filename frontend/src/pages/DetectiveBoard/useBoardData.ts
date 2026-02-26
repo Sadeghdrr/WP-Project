@@ -1,9 +1,9 @@
 /**
- * useBoardData — React Query hook for board data + mutations.
+ * useBoardData — React Query hooks for Detective Board.
  *
- * Encapsulates all board API interactions for the spike page.
- * Uses @tanstack/react-query for caching, loading/error states,
- * and mutation + invalidation.
+ * Encapsulates all board API interactions: list, full graph, mutations for
+ * items, connections, and notes. Uses @tanstack/react-query for caching,
+ * loading/error states, and mutation + invalidation.
  */
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -11,7 +11,10 @@ import {
   getBoardFull,
   listBoards,
   createBoard,
+  createBoardItem,
   createBoardNote,
+  updateBoardNote,
+  deleteBoardNote,
   createBoardConnection,
   deleteBoardConnection,
   deleteBoardItem,
@@ -22,11 +25,12 @@ import type {
   DetectiveBoardListItem,
   BoardNoteCreateRequest,
   BoardConnectionCreateRequest,
+  BoardItemCreateRequest,
   BoardItemPositionUpdate,
 } from "../../types/board";
 
-const BOARD_FULL_KEY = "board-full";
-const BOARDS_LIST_KEY = "boards-list";
+export const BOARD_FULL_KEY = "board-full";
+export const BOARDS_LIST_KEY = "boards-list";
 
 // ---------------------------------------------------------------------------
 // List boards
@@ -38,7 +42,6 @@ export function useBoardsList() {
     queryFn: async () => {
       const res = await listBoards();
       if (!res.ok) throw new Error(res.error.message);
-      // Backend might return paginated or array — handle both
       const data = res.data as unknown;
       if (Array.isArray(data)) return data;
       if (data && typeof data === "object" && "results" in data) {
@@ -85,14 +88,14 @@ export function useCreateBoard() {
 }
 
 // ---------------------------------------------------------------------------
-// Create note (auto-pins to board)
+// Board Items (pins)
 // ---------------------------------------------------------------------------
 
-export function useCreateNote(boardId: number) {
+export function useCreateBoardItem(boardId: number) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (data: BoardNoteCreateRequest) => {
-      const res = await createBoardNote(boardId, data);
+    mutationFn: async (data: BoardItemCreateRequest) => {
+      const res = await createBoardItem(boardId, data);
       if (!res.ok) throw new Error(res.error.message);
       return res.data;
     },
@@ -101,45 +104,6 @@ export function useCreateNote(boardId: number) {
     },
   });
 }
-
-// ---------------------------------------------------------------------------
-// Create connection (red line)
-// ---------------------------------------------------------------------------
-
-export function useCreateConnection(boardId: number) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (data: BoardConnectionCreateRequest) => {
-      const res = await createBoardConnection(boardId, data);
-      if (!res.ok) throw new Error(res.error.message);
-      return res.data;
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: [BOARD_FULL_KEY, boardId] });
-    },
-  });
-}
-
-// ---------------------------------------------------------------------------
-// Delete connection
-// ---------------------------------------------------------------------------
-
-export function useDeleteConnection(boardId: number) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (connId: number) => {
-      const res = await deleteBoardConnection(boardId, connId);
-      if (!res.ok) throw new Error(res.error.message);
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: [BOARD_FULL_KEY, boardId] });
-    },
-  });
-}
-
-// ---------------------------------------------------------------------------
-// Delete board item
-// ---------------------------------------------------------------------------
 
 export function useDeleteBoardItem(boardId: number) {
   const qc = useQueryClient();
@@ -165,6 +129,88 @@ export function useBatchSaveCoordinates(boardId: number) {
       if (!res.ok) throw new Error(res.error.message);
       return res.data;
     },
-    // No invalidation needed — optimistic local positions
+    // No invalidation needed — optimistic local positions are already correct
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Notes
+// ---------------------------------------------------------------------------
+
+export function useCreateNote(boardId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: BoardNoteCreateRequest) => {
+      const res = await createBoardNote(boardId, data);
+      if (!res.ok) throw new Error(res.error.message);
+      return res.data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [BOARD_FULL_KEY, boardId] });
+    },
+  });
+}
+
+export function useUpdateNote(boardId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      noteId,
+      data,
+    }: {
+      noteId: number;
+      data: Partial<BoardNoteCreateRequest>;
+    }) => {
+      const res = await updateBoardNote(boardId, noteId, data);
+      if (!res.ok) throw new Error(res.error.message);
+      return res.data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [BOARD_FULL_KEY, boardId] });
+    },
+  });
+}
+
+export function useDeleteNote(boardId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (noteId: number) => {
+      const res = await deleteBoardNote(boardId, noteId);
+      if (!res.ok) throw new Error(res.error.message);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [BOARD_FULL_KEY, boardId] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Connections (red lines)
+// ---------------------------------------------------------------------------
+
+export function useCreateConnection(boardId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: BoardConnectionCreateRequest) => {
+      const res = await createBoardConnection(boardId, data);
+      if (!res.ok) throw new Error(res.error.message);
+      return res.data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [BOARD_FULL_KEY, boardId] });
+    },
+  });
+}
+
+export function useDeleteConnection(boardId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (connId: number) => {
+      const res = await deleteBoardConnection(boardId, connId);
+      if (!res.ok) throw new Error(res.error.message);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [BOARD_FULL_KEY, boardId] });
+    },
   });
 }

@@ -1,18 +1,21 @@
 /**
- * DetectiveBoardPage — Integration spike.
+ * DetectiveBoardPage — Production detective board workspace.
  *
- * Validates the end-to-end data flow:
- *   1. Load board full state from GET /api/board/boards/{id}/full/
- *   2. Render items as draggable React Flow nodes
- *   3. Render connections as red edges
- *   4. Drag-and-drop items → PATCH batch-coordinates
- *   5. Create notes (auto-pinned by backend)
- *   6. Create/delete connections
- *   7. Export canvas as PNG (html-to-image)
+ * Interactive canvas where Detectives place evidence, suspects, and notes at
+ * arbitrary X/Y positions and draw "red lines" (connections) between them.
  *
  * Route: /detective-board/:caseId
  *
- * NOT production quality — this is a spike to de-risk integration.
+ * Features:
+ *   - Board auto-discovery: finds (or creates) the board for the given case
+ *   - React Flow canvas with draggable custom nodes and red edge connections
+ *   - Debounced batch-coordinate save after drag (800 ms)
+ *   - Create/delete notes in sidebar (backend auto-pins note → BoardItem)
+ *   - Pin evidence / suspects via "Add Item" modal
+ *   - Delete items from board (X button on node)
+ *   - Create/delete connections by dragging handles / clicking edge
+ *   - Export canvas as PNG (html-to-image)
+ *   - Loading/error/empty states, responsive sidebar collapse
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -36,29 +39,34 @@ import "@xyflow/react/dist/style.css";
 import { toPng } from "html-to-image";
 
 import { BoardItemNode, type BoardItemNodeData } from "./BoardItemNode";
+import PinEntityModal from "./PinEntityModal";
 import {
   useBoardsList,
   useBoardFull,
   useCreateBoard,
+  useCreateBoardItem,
   useCreateNote,
+  useUpdateNote,
+  useDeleteNote,
   useCreateConnection,
   useDeleteConnection,
   useDeleteBoardItem,
   useBatchSaveCoordinates,
 } from "./useBoardData";
-import type {
-  BoardItem,
-  BoardConnection,
-} from "../../types/board";
+import type { BoardItem, BoardConnection, BoardNote } from "../../types/board";
+import css from "./DetectiveBoardPage.module.css";
 
 // ---------------------------------------------------------------------------
-// Node type registry
+// Constants
 // ---------------------------------------------------------------------------
 
-const nodeTypes = { boardItem: BoardItemNode };
+const NODE_TYPES = { boardItem: BoardItemNode };
+const DEBOUNCE_MS = 800;
+const RED = "#c0392b";
+const DEFAULT_EDGE_OPTS = { style: { stroke: RED, strokeWidth: 2 } };
 
 // ---------------------------------------------------------------------------
-// Helpers: backend data → React Flow nodes/edges
+// Helpers
 // ---------------------------------------------------------------------------
 
 function toNodes(
@@ -69,10 +77,7 @@ function toNodes(
     id: String(item.id),
     type: "boardItem",
     position: { x: item.position_x, y: item.position_y },
-    data: {
-      boardItem: item,
-      onDelete,
-    } satisfies BoardItemNodeData,
+    data: { boardItem: item, onDelete } satisfies BoardItemNodeData,
   }));
 }
 
@@ -83,7 +88,7 @@ function toEdges(connections: BoardConnection[]): Edge[] {
     target: String(c.to_item),
     label: c.label || undefined,
     type: "default",
-    style: { stroke: "#c0392b", strokeWidth: 2 },
+    style: { stroke: RED, strokeWidth: 2 },
     animated: false,
     data: { connectionId: c.id },
   }));
@@ -97,28 +102,21 @@ export default function DetectiveBoardPage() {
   const { caseId } = useParams<{ caseId: string }>();
   const caseIdNum = caseId ? Number(caseId) : null;
 
-  // ── Board discovery ────────────────────────────────────────────
-  const {
-    data: boards,
-    isLoading: boardsLoading,
-    error: boardsError,
-  } = useBoardsList();
-
+  // ── Board discovery ─────────────────────────────────────────────
+  const { data: boards, isLoading: boardsLoading, error: boardsError } =
+    useBoardsList();
   const [boardId, setBoardId] = useState<number | null>(null);
-
-  // Find or create board for this case
   const createBoardMut = useCreateBoard();
 
-  useEffect(() => {
-    if (!boards || !caseIdNum) return;
-    const existing = boards.find((b) => b.case === caseIdNum);
-    if (existing) {
-      setBoardId(existing.id);
-    }
-    // If no board exists, user can create one via button
-  }, [boards, caseIdNum]);
+  // Derive boardId from boards list (no useEffect — derived state during render)
+  const discoveredId = boards?.find((b) => b.case === caseIdNum)?.id ?? null;
+  const [prevDiscovered, setPrevDiscovered] = useState(discoveredId);
+  if (prevDiscovered !== discoveredId) {
+    setPrevDiscovered(discoveredId);
+    if (discoveredId !== null) setBoardId(discoveredId);
+  }
 
-  // ── Full board data ────────────────────────────────────────────
+  // ── Full board data ─────────────────────────────────────────────
   const {
     data: boardState,
     isLoading: boardLoading,
@@ -126,19 +124,32 @@ export default function DetectiveBoardPage() {
     refetch: refetchBoard,
   } = useBoardFull(boardId);
 
-  // ── React Flow state ──────────────────────────────────────────
+  // ── React Flow state ────────────────────────────────────────────
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const reactFlowRef = useRef<HTMLDivElement>(null);
 
-  // Mutations (only initialise when boardId is set)
+  // ── Mutations ───────────────────────────────────────────────────
+  const createBoardItemMut = useCreateBoardItem(boardId ?? 0);
   const createNoteMut = useCreateNote(boardId ?? 0);
+  const updateNoteMut = useUpdateNote(boardId ?? 0);
+  const deleteNoteMut = useDeleteNote(boardId ?? 0);
   const createConnMut = useCreateConnection(boardId ?? 0);
   const deleteConnMut = useDeleteConnection(boardId ?? 0);
   const deleteItemMut = useDeleteBoardItem(boardId ?? 0);
   const batchSaveMut = useBatchSaveCoordinates(boardId ?? 0);
 
-  // ── Sync backend data → React Flow ────────────────────────────
+  // ── UI state ────────────────────────────────────────────────────
+  const [saveStatus, setSaveStatus] = useState("");
+  const [exportStatus, setExportStatus] = useState("");
+  const [noteTitle, setNoteTitle] = useState("");
+  const [noteContent, setNoteContent] = useState("");
+  const [editingNote, setEditingNote] = useState<BoardNote | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editContent, setEditContent] = useState("");
+  const [showPinModal, setShowPinModal] = useState(false);
+
+  // ── Sync backend → React Flow ───────────────────────────────────
   const handleDeleteItem = useCallback(
     (itemId: number) => {
       if (!boardId) return;
@@ -155,90 +166,75 @@ export default function DetectiveBoardPage() {
     setEdges(toEdges(boardState.connections));
   }, [boardState, handleDeleteItem, setNodes, setEdges]);
 
-  // ── Drag end → batch save positions ───────────────────────────
-  const pendingMovesRef = useRef<Map<string, { x: number; y: number }>>(
-    new Map(),
-  );
-  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // ── Drag → debounced batch save ─────────────────────────────────
+  const pendingRef = useRef<Map<string, { x: number; y: number }>>(new Map());
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleNodesChange = useCallback(
     (changes: NodeChange[]) => {
       onNodesChange(changes);
-
-      // Track position changes for batch save
-      for (const change of changes) {
-        if (change.type === "position" && change.position) {
-          pendingMovesRef.current.set(change.id, change.position);
+      for (const c of changes) {
+        if (c.type === "position" && c.position) {
+          pendingRef.current.set(c.id, c.position);
         }
       }
-
-      // Debounced save: 800ms after last drag event
-      if (pendingMovesRef.current.size > 0) {
-        if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-        saveTimeoutRef.current = setTimeout(() => {
-          if (!boardId || pendingMovesRef.current.size === 0) return;
-          const items = Array.from(pendingMovesRef.current.entries()).map(
+      if (pendingRef.current.size > 0) {
+        if (timerRef.current) clearTimeout(timerRef.current);
+        timerRef.current = setTimeout(() => {
+          if (!boardId || pendingRef.current.size === 0) return;
+          const items = Array.from(pendingRef.current.entries()).map(
             ([id, pos]) => ({
               id: Number(id),
               position_x: pos.x,
               position_y: pos.y,
             }),
           );
-          pendingMovesRef.current.clear();
+          pendingRef.current.clear();
           batchSaveMut.mutate(items, {
             onError: (err) => {
-              console.error("[Board Spike] Batch save failed:", err);
               setSaveStatus(`Save failed: ${err.message}`);
             },
             onSuccess: () => {
-              setSaveStatus("Positions saved ✓");
+              setSaveStatus("Saved \u2713");
               setTimeout(() => setSaveStatus(""), 2000);
             },
           });
-        }, 800);
+        }, DEBOUNCE_MS);
       }
     },
     [onNodesChange, boardId, batchSaveMut],
   );
 
-  // ── Connect handler (create red line) ─────────────────────────
+  // ── Connect handler (create red line) ───────────────────────────
   const onConnect: OnConnect = useCallback(
     (connection: Connection) => {
       if (!boardId || !connection.source || !connection.target) return;
-
       // Optimistically add edge
       setEdges((eds) =>
         addEdge(
           {
             ...connection,
-            style: { stroke: "#c0392b", strokeWidth: 2 },
+            style: { stroke: RED, strokeWidth: 2 },
             id: `temp-${Date.now()}`,
           },
           eds,
         ),
       );
-
       createConnMut.mutate(
         {
           from_item: Number(connection.source),
           to_item: Number(connection.target),
           label: "",
         },
-        {
-          onError: (err) => {
-            console.error("[Board Spike] Create connection failed:", err);
-            // Refetch to revert optimistic update
-            refetchBoard();
-          },
-        },
+        { onError: () => refetchBoard() },
       );
     },
     [boardId, createConnMut, setEdges, refetchBoard],
   );
 
-  // ── Delete edge handler ───────────────────────────────────────
+  // ── Delete edge ─────────────────────────────────────────────────
   const handleEdgeClick = useCallback(
-    (_event: React.MouseEvent, edge: Edge) => {
+    (_e: React.MouseEvent, edge: Edge) => {
       const connId = edge.data?.connectionId as number | undefined;
       if (!connId || !boardId) return;
       if (confirm("Delete this connection?")) {
@@ -248,10 +244,7 @@ export default function DetectiveBoardPage() {
     [boardId, deleteConnMut],
   );
 
-  // ── Create note ───────────────────────────────────────────────
-  const [noteTitle, setNoteTitle] = useState("");
-  const [noteContent, setNoteContent] = useState("");
-
+  // ── Create note ─────────────────────────────────────────────────
   const handleCreateNote = useCallback(() => {
     if (!boardId || !noteTitle.trim()) return;
     createNoteMut.mutate(
@@ -261,21 +254,57 @@ export default function DetectiveBoardPage() {
           setNoteTitle("");
           setNoteContent("");
         },
-        onError: (err) => {
-          console.error("[Board Spike] Create note failed:", err);
-        },
       },
     );
   }, [boardId, noteTitle, noteContent, createNoteMut]);
 
-  // ── Export as PNG ─────────────────────────────────────────────
-  const [exportStatus, setExportStatus] = useState("");
+  // ── Edit note ───────────────────────────────────────────────────
+  const startEditNote = useCallback((note: BoardNote) => {
+    setEditingNote(note);
+    setEditTitle(note.title);
+    setEditContent(note.content);
+  }, []);
 
+  const handleSaveNote = useCallback(() => {
+    if (!editingNote) return;
+    updateNoteMut.mutate(
+      {
+        noteId: editingNote.id,
+        data: { title: editTitle.trim(), content: editContent.trim() },
+      },
+      { onSuccess: () => setEditingNote(null) },
+    );
+  }, [editingNote, editTitle, editContent, updateNoteMut]);
+
+  const handleDeleteNote = useCallback(
+    (noteId: number) => {
+      if (confirm("Delete this note?")) {
+        deleteNoteMut.mutate(noteId);
+      }
+    },
+    [deleteNoteMut],
+  );
+
+  // ── Pin entity (add item) ──────────────────────────────────────
+  const handlePinEntity = useCallback(
+    (entity: { content_type_id: number; object_id: number }) => {
+      createBoardItemMut.mutate(
+        {
+          content_object: entity,
+          position_x: 100 + Math.random() * 300,
+          position_y: 100 + Math.random() * 300,
+        },
+        { onSuccess: () => setShowPinModal(false) },
+      );
+    },
+    [createBoardItemMut],
+  );
+
+  // ── Export PNG ──────────────────────────────────────────────────
   const handleExport = useCallback(async () => {
     if (!reactFlowRef.current) return;
-    setExportStatus("Exporting…");
+    setExportStatus("Exporting\u2026");
     try {
-      // Find the React Flow viewport element
       const viewport = reactFlowRef.current.querySelector(
         ".react-flow__viewport",
       ) as HTMLElement | null;
@@ -287,106 +316,75 @@ export default function DetectiveBoardPage() {
         backgroundColor: "#f5f0e1",
         quality: 0.95,
       });
-      // Trigger download
       const link = document.createElement("a");
-      link.download = `detective-board-${boardId}.png`;
+      link.download = `detective-board-case-${caseIdNum}.png`;
       link.href = dataUrl;
       link.click();
-      setExportStatus("Exported ✓");
+      setExportStatus("Exported \u2713");
       setTimeout(() => setExportStatus(""), 3000);
     } catch (err) {
-      console.error("[Board Spike] Export error:", err);
       setExportStatus(
         `Export failed: ${err instanceof Error ? err.message : "unknown"}`,
       );
     }
-  }, [boardId]);
+  }, [caseIdNum]);
 
-  // ── Handle create board ───────────────────────────────────────
+  // ── Create board ───────────────────────────────────────────────
   const handleCreateBoard = useCallback(() => {
     if (!caseIdNum) return;
     createBoardMut.mutate(caseIdNum, {
-      onSuccess: (board) => {
-        setBoardId(board.id);
-      },
-      onError: (err) => {
-        console.error("[Board Spike] Create board failed:", err);
-      },
+      onSuccess: (board) => setBoardId(board.id),
     });
   }, [caseIdNum, createBoardMut]);
 
-  // ── Status messages ───────────────────────────────────────────
-  const [saveStatus, setSaveStatus] = useState("");
-
-  // ── Derive state ──────────────────────────────────────────────
+  // ── Derived state ──────────────────────────────────────────────
   const hasBoard = boardId !== null;
   const isLoading = boardsLoading || boardLoading;
   const error = boardsError || boardError;
   const noBoardForCase =
     !boardsLoading && boards && !boards.find((b) => b.case === caseIdNum);
+  const memoNodeTypes = useMemo(() => NODE_TYPES, []);
 
-  // ── Memoized node types ───────────────────────────────────────
-  const memoNodeTypes = useMemo(() => nodeTypes, []);
-
-  // ---------------------------------------------------------------------------
+  // ─────────────────────────────────────────────────────────────────
   // Render
-  // ---------------------------------------------------------------------------
-
+  // ─────────────────────────────────────────────────────────────────
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      {/* ── Header ────────────────────────────────────────────────── */}
-      <div
-        style={{
-          padding: "12px 20px",
-          borderBottom: "1px solid #d4c5a9",
-          background: "#faf6eb",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          flexWrap: "wrap",
-          gap: 8,
-        }}
-      >
+    <div className={css.page}>
+      {/* ── Header ────────────────────────────────────────────── */}
+      <div className={css.header}>
         <div>
-          <h1
-            style={{
-              margin: 0,
-              fontSize: 20,
-              fontWeight: 700,
-              color: "#3e2723",
-            }}
-          >
+          <h1 className={css.headerTitle}>
             Detective Board{" "}
-            <span style={{ fontWeight: 400, fontSize: 14, color: "#6d4c41" }}>
+            <span className={css.headerSub}>
               {caseIdNum ? `Case #${caseIdNum}` : ""}
-              {boardId ? ` · Board #${boardId}` : ""}
             </span>
           </h1>
-          <div style={{ fontSize: 11, color: "#8d6e63", marginTop: 2 }}>
-            Spike: drag items, connect with red lines, save positions, export
-            PNG
-          </div>
         </div>
-
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          {saveStatus && (
-            <span style={{ fontSize: 12, color: "#6d4c41" }}>
-              {saveStatus}
-            </span>
-          )}
+        <div className={css.headerActions}>
+          {saveStatus && <span className={css.statusMsg}>{saveStatus}</span>}
           {exportStatus && (
-            <span style={{ fontSize: 12, color: "#6d4c41" }}>
-              {exportStatus}
-            </span>
+            <span className={css.statusMsg}>{exportStatus}</span>
           )}
           {hasBoard && (
             <>
-              <button onClick={handleExport} style={btnStyle}>
+              <button
+                type="button"
+                className={css.btn}
+                onClick={() => setShowPinModal(true)}
+              >
+                + Add Item
+              </button>
+              <button
+                type="button"
+                className={css.btn}
+                onClick={handleExport}
+              >
                 Export PNG
               </button>
               <button
+                type="button"
+                className={css.btn}
                 onClick={() => refetchBoard()}
-                style={btnStyle}
               >
                 Refresh
               </button>
@@ -395,36 +393,35 @@ export default function DetectiveBoardPage() {
         </div>
       </div>
 
-      {/* ── Error / loading / no board ─────────────────────────── */}
+      {/* ── Error ─────────────────────────────────────────────── */}
       {error && (
-        <div style={{ padding: 16, color: "#c0392b", background: "#fdedec" }}>
+        <div className={css.errorBox}>
           Error: {error instanceof Error ? error.message : String(error)}
         </div>
       )}
 
+      {/* ── Loading ───────────────────────────────────────────── */}
       {isLoading && (
-        <div style={{ padding: 24, textAlign: "center", color: "#8d6e63" }}>
-          Loading board data…
-        </div>
+        <div className={css.centerMsg}>Loading board data\u2026</div>
       )}
 
+      {/* ── No board yet ─────────────────────────────────────── */}
       {!isLoading && noBoardForCase && !hasBoard && (
-        <div style={{ padding: 24, textAlign: "center" }}>
-          <p style={{ color: "#6d4c41", marginBottom: 12 }}>
-            No detective board exists for Case #{caseIdNum}.
-          </p>
+        <div className={css.centerMsg}>
+          <p>No detective board exists for Case #{caseIdNum}.</p>
           <button
+            type="button"
+            className={css.btnPrimary}
             onClick={handleCreateBoard}
-            style={{ ...btnStyle, fontSize: 14, padding: "8px 20px" }}
             disabled={createBoardMut.isPending}
           >
             {createBoardMut.isPending
-              ? "Creating…"
+              ? "Creating\u2026"
               : "Create Detective Board"}
           </button>
           {createBoardMut.isError && (
-            <p style={{ color: "#c0392b", marginTop: 8, fontSize: 13 }}>
-              Failed: {createBoardMut.error.message}
+            <p className={css.errorInline}>
+              {createBoardMut.error.message}
             </p>
           )}
         </div>
@@ -432,12 +429,9 @@ export default function DetectiveBoardPage() {
 
       {/* ── Board canvas + sidebar ────────────────────────────── */}
       {hasBoard && !isLoading && (
-        <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
-          {/* ── Canvas ────────────────────────────────────────── */}
-          <div
-            ref={reactFlowRef}
-            style={{ flex: 1, background: "#f5f0e1" }}
-          >
+        <div className={css.body}>
+          {/* Canvas */}
+          <div ref={reactFlowRef} className={css.canvas}>
             <ReactFlow
               nodes={nodes}
               edges={edges}
@@ -448,9 +442,7 @@ export default function DetectiveBoardPage() {
               nodeTypes={memoNodeTypes}
               fitView
               fitViewOptions={{ padding: 0.2 }}
-              defaultEdgeOptions={{
-                style: { stroke: "#c0392b", strokeWidth: 2 },
-              }}
+              defaultEdgeOptions={DEFAULT_EDGE_OPTS}
               style={{ width: "100%", height: "100%" }}
             >
               <Background
@@ -467,185 +459,167 @@ export default function DetectiveBoardPage() {
             </ReactFlow>
           </div>
 
-          {/* ── Sidebar controls ──────────────────────────────── */}
-          <div
-            style={{
-              width: 260,
-              borderLeft: "1px solid #d4c5a9",
-              background: "#faf6eb",
-              padding: 16,
-              overflowY: "auto",
-              fontSize: 13,
-            }}
-          >
-            {/* Board summary */}
-            <SectionTitle>Board Summary</SectionTitle>
-            <div style={{ marginBottom: 12, color: "#6d4c41", fontSize: 12 }}>
-              Items: {boardState?.items.length ?? 0} · Connections:{" "}
-              {boardState?.connections.length ?? 0} · Notes:{" "}
-              {boardState?.notes.length ?? 0}
-            </div>
-
-            <hr style={{ border: "none", borderTop: "1px solid #d4c5a9" }} />
-
-            {/* Add note */}
-            <SectionTitle>Add Note</SectionTitle>
-            <input
-              type="text"
-              placeholder="Note title"
-              value={noteTitle}
-              onChange={(e) => setNoteTitle(e.target.value)}
-              style={inputStyle}
-            />
-            <textarea
-              placeholder="Content (optional)"
-              value={noteContent}
-              onChange={(e) => setNoteContent(e.target.value)}
-              rows={3}
-              style={{ ...inputStyle, resize: "vertical" }}
-            />
-            <button
-              onClick={handleCreateNote}
-              disabled={!noteTitle.trim() || createNoteMut.isPending}
-              style={{
-                ...btnStyle,
-                width: "100%",
-                opacity: !noteTitle.trim() ? 0.5 : 1,
-              }}
-            >
-              {createNoteMut.isPending ? "Creating…" : "Add Note"}
-            </button>
-            {createNoteMut.isError && (
-              <div
-                style={{ color: "#c0392b", fontSize: 11, marginTop: 4 }}
-              >
-                {createNoteMut.error.message}
+          {/* Sidebar */}
+          <aside className={css.sidebar}>
+            <div className={css.sidebarScroll}>
+              {/* Summary */}
+              <h3 className={css.sectionTitle}>Board Summary</h3>
+              <div className={css.summary}>
+                Items: {boardState?.items.length ?? 0} &middot; Connections:{" "}
+                {boardState?.connections.length ?? 0} &middot; Notes:{" "}
+                {boardState?.notes.length ?? 0}
               </div>
-            )}
 
-            <hr
-              style={{
-                border: "none",
-                borderTop: "1px solid #d4c5a9",
-                margin: "12px 0",
-              }}
-            />
+              <hr className={css.divider} />
 
-            {/* Instructions */}
-            <SectionTitle>How to Use</SectionTitle>
-            <ul
-              style={{
-                paddingLeft: 16,
-                color: "#6d4c41",
-                fontSize: 11,
-                lineHeight: 1.6,
-              }}
-            >
-              <li>
-                <strong>Drag</strong> items to reposition (auto-saves)
-              </li>
-              <li>
-                <strong>Connect</strong>: drag from bottom handle to top
-                handle of another item
-              </li>
-              <li>
-                <strong>Delete connection</strong>: click on a red line
-              </li>
-              <li>
-                <strong>Remove item</strong>: click X on item card
-              </li>
-              <li>
-                <strong>Export</strong>: click "Export PNG" button
-              </li>
-            </ul>
-
-            <hr
-              style={{
-                border: "none",
-                borderTop: "1px solid #d4c5a9",
-                margin: "12px 0",
-              }}
-            />
-
-            {/* Notes list */}
-            <SectionTitle>Notes on Board</SectionTitle>
-            {boardState?.notes.length === 0 && (
-              <div style={{ color: "#8d6e63", fontSize: 11 }}>
-                No notes yet.
-              </div>
-            )}
-            {boardState?.notes.map((n) => (
-              <div
-                key={n.id}
-                style={{
-                  background: "#fff",
-                  border: "1px solid #e0d6c2",
-                  borderRadius: 4,
-                  padding: "6px 8px",
-                  marginBottom: 6,
-                  fontSize: 11,
-                }}
+              {/* Add note */}
+              <h3 className={css.sectionTitle}>Add Note</h3>
+              <input
+                type="text"
+                className={css.input}
+                placeholder="Note title"
+                value={noteTitle}
+                onChange={(e) => setNoteTitle(e.target.value)}
+              />
+              <textarea
+                className={css.textarea}
+                placeholder="Content (optional)"
+                value={noteContent}
+                onChange={(e) => setNoteContent(e.target.value)}
+                rows={3}
+              />
+              <button
+                type="button"
+                className={`${css.btnPrimary} ${css.btnBlock}`}
+                onClick={handleCreateNote}
+                disabled={!noteTitle.trim() || createNoteMut.isPending}
               >
-                <strong>{n.title}</strong>
-                {n.content && (
-                  <div style={{ color: "#6d4c41", marginTop: 2 }}>
-                    {n.content.substring(0, 100)}
-                    {n.content.length > 100 ? "…" : ""}
+                {createNoteMut.isPending ? "Creating\u2026" : "Add Note"}
+              </button>
+              {createNoteMut.isError && (
+                <div className={css.errorInline}>
+                  {createNoteMut.error.message}
+                </div>
+              )}
+
+              <hr className={css.divider} />
+
+              {/* Notes list */}
+              <h3 className={css.sectionTitle}>Notes</h3>
+              {boardState?.notes.length === 0 && (
+                <div className={css.emptyHint}>No notes yet.</div>
+              )}
+              {boardState?.notes.map((n) =>
+                editingNote?.id === n.id ? (
+                  /* inline edit */
+                  <div key={n.id} className={css.noteCard}>
+                    <input
+                      className={css.input}
+                      value={editTitle}
+                      onChange={(e) => setEditTitle(e.target.value)}
+                    />
+                    <textarea
+                      className={css.textarea}
+                      value={editContent}
+                      onChange={(e) => setEditContent(e.target.value)}
+                      rows={2}
+                    />
+                    <div className={css.noteActions}>
+                      <button
+                        type="button"
+                        className={css.noteMiniBtn}
+                        onClick={handleSaveNote}
+                        disabled={updateNoteMut.isPending}
+                      >
+                        {updateNoteMut.isPending ? "Saving\u2026" : "Save"}
+                      </button>
+                      <button
+                        type="button"
+                        className={css.noteMiniBtn}
+                        onClick={() => setEditingNote(null)}
+                      >
+                        Cancel
+                      </button>
+                    </div>
                   </div>
-                )}
-              </div>
-            ))}
+                ) : (
+                  <div key={n.id} className={css.noteCard}>
+                    <div className={css.noteTitle}>{n.title}</div>
+                    {n.content && (
+                      <div className={css.noteContent}>
+                        {n.content.length > 120
+                          ? `${n.content.substring(0, 120)}\u2026`
+                          : n.content}
+                      </div>
+                    )}
+                    <div className={css.noteActions}>
+                      <button
+                        type="button"
+                        className={css.noteMiniBtn}
+                        onClick={() => startEditNote(n)}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        className={css.noteMiniBtn}
+                        onClick={() => handleDeleteNote(n.id)}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                ),
+              )}
 
-            {/* Mutation status */}
-            {batchSaveMut.isPending && (
-              <div style={{ color: "#8d6e63", fontSize: 11, marginTop: 8 }}>
-                Saving positions…
-              </div>
-            )}
-          </div>
+              <hr className={css.divider} />
+
+              {/* Instructions */}
+              <h3 className={css.sectionTitle}>How to Use</h3>
+              <ul className={css.instructions}>
+                <li>
+                  <strong>Drag</strong> items to reposition (auto-saves)
+                </li>
+                <li>
+                  <strong>Connect</strong>: drag from bottom handle to top
+                  handle of another item
+                </li>
+                <li>
+                  <strong>Delete connection</strong>: click on a red line
+                </li>
+                <li>
+                  <strong>Remove item</strong>: click X on item card
+                </li>
+                <li>
+                  <strong>Add Item</strong>: pin evidence / suspects from this
+                  case
+                </li>
+                <li>
+                  <strong>Export</strong>: download the board as a PNG image
+                </li>
+              </ul>
+
+              {/* Mutation status */}
+              {batchSaveMut.isPending && (
+                <div className={css.emptyHint} style={{ marginTop: 8 }}>
+                  Saving positions\u2026
+                </div>
+              )}
+            </div>
+          </aside>
         </div>
+      )}
+
+      {/* Pin entity modal */}
+      {showPinModal && boardId && caseIdNum && (
+        <PinEntityModal
+          caseId={caseIdNum}
+          existingItems={boardState?.items ?? []}
+          onPin={handlePinEntity}
+          isPinning={createBoardItemMut.isPending}
+          onClose={() => setShowPinModal(false)}
+        />
       )}
     </div>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Tiny reusable bits
-// ---------------------------------------------------------------------------
-
-function SectionTitle({ children }: { children: React.ReactNode }) {
-  return (
-    <h3
-      style={{
-        margin: "8px 0 6px",
-        fontSize: 13,
-        fontWeight: 700,
-        color: "#5d4037",
-      }}
-    >
-      {children}
-    </h3>
-  );
-}
-
-const btnStyle: React.CSSProperties = {
-  padding: "4px 12px",
-  fontSize: 12,
-  border: "1px solid #c9a96e",
-  borderRadius: 4,
-  background: "#faf6eb",
-  color: "#5d4037",
-  cursor: "pointer",
-  fontWeight: 600,
-};
-
-const inputStyle: React.CSSProperties = {
-  width: "100%",
-  padding: "6px 8px",
-  fontSize: 12,
-  border: "1px solid #d4c5a9",
-  borderRadius: 4,
-  marginBottom: 6,
-  fontFamily: "inherit",
-  boxSizing: "border-box",
-};

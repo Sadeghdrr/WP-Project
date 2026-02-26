@@ -25,3 +25,4 @@ export * as evidenceApi from "./evidence";
 export type { EvidenceFilters } from "./evidence";
 export * as suspectsApi from "./suspects";
 export type { BountyTipFilters } from "./suspects";
+export * as boardApi from "./board";
