@@ -18,7 +18,7 @@
  *   - Loading/error/empty states, responsive sidebar collapse
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import {
   ReactFlow,
@@ -103,18 +103,17 @@ export default function DetectiveBoardPage() {
   const caseIdNum = caseId ? Number(caseId) : null;
 
   // ── Board discovery ─────────────────────────────────────────────
+  // boardId is DERIVED from boards list query — no extra state needed.
+  // createdBoardId is the only real state: set once when the user creates
+  // a brand-new board and the list hasn't refetched yet to include it.
   const { data: boards, isLoading: boardsLoading, error: boardsError } =
     useBoardsList();
-  const [boardId, setBoardId] = useState<number | null>(null);
+  const [createdBoardId, setCreatedBoardId] = useState<number | null>(null);
   const createBoardMut = useCreateBoard();
 
-  // Derive boardId from boards list (no useEffect — derived state during render)
+  // Pure derivation during render — no setState, no useEffect needed.
   const discoveredId = boards?.find((b) => b.case === caseIdNum)?.id ?? null;
-  const [prevDiscovered, setPrevDiscovered] = useState(discoveredId);
-  if (prevDiscovered !== discoveredId) {
-    setPrevDiscovered(discoveredId);
-    if (discoveredId !== null) setBoardId(discoveredId);
-  }
+  const boardId = discoveredId ?? createdBoardId;
 
   // ── Full board data ─────────────────────────────────────────────
   const {
@@ -150,16 +149,39 @@ export default function DetectiveBoardPage() {
   const [showPinModal, setShowPinModal] = useState(false);
 
   // ── Sync backend → React Flow ───────────────────────────────────
-  const handleDeleteItem = useCallback(
-    (itemId: number) => {
-      if (!boardId) return;
-      if (confirm("Remove this item from the board?")) {
-        deleteItemMut.mutate(itemId);
-      }
-    },
-    [boardId, deleteItemMut],
-  );
+  //
+  // FIX: deleteItemMut (useMutation result) is a new object reference every
+  // render, so any useCallback/useEffect that lists it as a dep fires every
+  // render.  We break the chain by storing boardId and deleteItemMut in refs
+  // and giving handleDeleteItem an empty dependency array — making it a
+  // forever-stable function identity.
+  //
+  // Without this: deleteItemMut changes → handleDeleteItem changes →
+  //   sync effect fires → setNodes called → React Flow updates store →
+  //   re-render → deleteItemMut changes → LOOP.
+  const boardIdRef = useRef<number | null>(boardId);
+  const deleteItemMutRef = useRef(deleteItemMut);
 
+  // Keep refs in sync after every render (useLayoutEffect without deps = runs
+  // synchronously after every DOM update, before the browser paints).
+  // This guarantees the refs are always current by the time any event handler
+  // is invoked, without triggering additional renders.
+  useLayoutEffect(() => {
+    boardIdRef.current = boardId;
+    deleteItemMutRef.current = deleteItemMut;
+  });
+
+  // Stable forever — reads current values from refs at call-time.
+  const handleDeleteItem = useCallback((itemId: number) => {
+    if (!boardIdRef.current) return;
+    if (confirm("Remove this item from the board?")) {
+      deleteItemMutRef.current.mutate(itemId);
+    }
+  }, []); // ← intentionally empty: stability guaranteed by refs above
+
+  // Sync effect: only depends on boardState.  handleDeleteItem, setNodes, and
+  // setEdges are all stable references — listing them satisfies exhaustive-deps
+  // without any loop risk.
   useEffect(() => {
     if (!boardState) return;
     setNodes(toNodes(boardState.items, handleDeleteItem));
@@ -333,7 +355,7 @@ export default function DetectiveBoardPage() {
   const handleCreateBoard = useCallback(() => {
     if (!caseIdNum) return;
     createBoardMut.mutate(caseIdNum, {
-      onSuccess: (board) => setBoardId(board.id),
+      onSuccess: (board) => setCreatedBoardId(board.id),
     });
   }, [caseIdNum, createBoardMut]);
 

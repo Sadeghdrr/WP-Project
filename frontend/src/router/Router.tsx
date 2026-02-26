@@ -1,7 +1,8 @@
 import { lazy, Suspense } from "react";
-import { createBrowserRouter, RouterProvider } from "react-router-dom";
+import { createBrowserRouter, RouterProvider, useParams } from "react-router-dom";
 import { AppLayout } from "../components/layout";
 import { ProtectedRoute, GuestRoute } from "../components/auth";
+import { BoardErrorBoundary } from "../components/ui/BoardErrorBoundary";
 
 // ---------------------------------------------------------------------------
 // Lazy-loaded pages
@@ -90,6 +91,23 @@ function s(Component: React.LazyExoticComponent<React.ComponentType>) {
     <Suspense fallback={<PageLoader />}>
       <Component />
     </Suspense>
+  );
+}
+
+/**
+ * Wraps the DetectiveBoardPage lazy component inside a BoardErrorBoundary so
+ * that runtime errors (including the "Maximum update depth exceeded" infinite
+ * loop) show a friendly recovery UI instead of the bare React crash screen.
+ * Uses useParams to pass the caseId to the error boundary for the back-link.
+ */
+function BoardWithErrorBoundary() {
+  const { caseId } = useParams<{ caseId: string }>();
+  return (
+    <BoardErrorBoundary caseId={caseId}>
+      <Suspense fallback={<PageLoader />}>
+        <DetectiveBoardPage />
+      </Suspense>
+    </BoardErrorBoundary>
   );
 }
 
@@ -187,8 +205,8 @@ const router = createBrowserRouter([
             ],
           },
 
-          // Detective Board
-          { path: "/detective-board/:caseId", element: s(DetectiveBoardPage) },
+          // Detective Board (wrapped in BoardErrorBoundary)
+          { path: "/detective-board/:caseId", element: <BoardWithErrorBoundary /> },
 
           // Reporting
           { path: "/reports", element: s(ReportingPage) },

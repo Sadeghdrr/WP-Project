@@ -52,17 +52,17 @@
 
 | Action | Endpoint | Method |
 |--------|----------|--------|
-| List boards | `/api/board/boards/` | GET |
-| Create board | `/api/board/boards/` | POST |
-| Full board graph | `/api/board/boards/{id}/full/` | GET |
-| Pin item | `/api/board/boards/{id}/items/` | POST |
-| Unpin item | `/api/board/boards/{id}/items/{itemId}/` | DELETE |
-| Batch update positions | `/api/board/boards/{id}/items/batch-coordinates/` | PATCH |
-| Create connection | `/api/board/boards/{id}/connections/` | POST |
-| Delete connection | `/api/board/boards/{id}/connections/{connId}/` | DELETE |
-| Create note | `/api/board/boards/{id}/notes/` | POST |
-| Update note | `/api/board/boards/{id}/notes/{noteId}/` | PATCH |
-| Delete note | `/api/board/boards/{id}/notes/{noteId}/` | DELETE |
+| List boards | `/api/boards/` | GET |
+| Create board | `/api/boards/` | POST |
+| Full board graph | `/api/boards/{id}/full/` | GET |
+| Pin item | `/api/boards/{id}/items/` | POST |
+| Unpin item | `/api/boards/{id}/items/{itemId}/` | DELETE |
+| Batch update positions | `/api/boards/{id}/items/batch-coordinates/` | PATCH |
+| Create connection | `/api/boards/{id}/connections/` | POST |
+| Delete connection | `/api/boards/{id}/connections/{connId}/` | DELETE |
+| Create note | `/api/boards/{id}/notes/` | POST |
+| Update note | `/api/boards/{id}/notes/{noteId}/` | PATCH |
+| Delete note | `/api/boards/{id}/notes/{noteId}/` | DELETE |
 
 ## Performance / Stability Approach
 
@@ -99,25 +99,25 @@
 | `frontend/docs/detective-board-notes.md` | Added case-board integration documentation |
 
 #### Board-case integration summary
-- `useBoardForCase(caseId)` reuses `useBoardsList()` (fetches `GET /api/board/boards/`) and derives the matching board via `boards.find(b => b.case === caseId)`.
+- `useBoardForCase(caseId)` reuses `useBoardsList()` (fetches `GET /api/boards/`) and derives the matching board via `boards.find(b => b.case === caseId)`.
 - `DetectiveBoardSection` renders inside the CaseDetailPage grid, showing:
   - **If board exists**: Board ID, item count, connection count, created date, and "Open Detective Board" link → `/detective-board/:caseId`
   - **If no board**: "No detective board exists" message + "Create Detective Board" button (permission-gated)
   - **Loading/error states**: Proper feedback
   - **Permission gating**: Section hidden for users without `board.view_detectiveboard` or `board.add_detectiveboard`
-- Board creation from case page: `POST /api/board/boards/` with `{ case: caseId }` → navigate to board workspace on success
+- Board creation from case page: `POST /api/boards/` with `{ case: caseId }` → navigate to board workspace on success
 - React Query invalidation ensures board list stays fresh after creation
 
 #### Endpoints used
-- `GET /api/board/boards/` — list boards → client-side filter by case
-- `POST /api/board/boards/` — create board (payload `{ case: int }`, detective auto-assigned)
-- `DELETE /api/board/boards/{id}/` — delete board (hook added, not yet wired to UI)
+- `GET /api/boards/` — list boards → client-side filter by case
+- `POST /api/boards/` — create board (payload `{ case: int }`, detective auto-assigned)
+- `DELETE /api/boards/{id}/` — delete board (hook added, not yet wired to UI)
 
 #### Data flow explanation
 1. User opens `CaseDetailPage` for case #5
-2. `useBoardForCase(5)` calls `GET /api/board/boards/` → returns all visible boards
+2. `useBoardForCase(5)` calls `GET /api/boards/` → returns all visible boards
 3. Finds board where `board.case === 5` → shows board metadata + "Open" link
-4. If no match → shows "Create" button → `POST /api/board/boards/` creates board → navigates to workspace
+4. If no match → shows "Create" button → `POST /api/boards/` creates board → navigates to workspace
 5. Workspace page (`/detective-board/5`) also calls `useBoardsList()` which hits the same React Query cache → immediate display
 
 ## Backend Anomalies / Problems (Report Only)
@@ -143,3 +143,103 @@ Zero files in `backend/` were modified by this implementation. All changes are i
 | Board creation from case page | **Implemented** | "Create Detective Board" button with backend call |
 | Board opening from case page | **Implemented** | "Open Detective Board" link navigates to workspace |
 | Board list reflects backend truth | **Implemented** | React Query fetches from API on mount; no local-only storage |
+---
+
+## Infinite Loop Fix Pass (ReactFlow — Step 16 Bug Fix)
+
+**Branch:** `agent/step-16-fix-reactflow-infinite-loop`
+
+### Symptom
+
+Navigating to `/detective-board/<id>` produced a "Maximum update depth exceeded" React crash immediately after mount. The board never rendered; instead the app threw continuously.
+
+### Root Cause 1 — Unstable `handleDeleteItem` in sync effect dependency array (PRIMARY)
+
+File: `frontend/src/pages/DetectiveBoard/DetectiveBoardPage.tsx`
+
+```
+// BEFORE (broken)
+const handleDeleteItem = useCallback((itemId: number) => {
+  if (!boardId) return;
+  if (confirm("Remove this item from the board?")) deleteItemMut.mutate(itemId);
+}, [boardId, deleteItemMut]);  // ← deleteItemMut is a new object reference every render
+
+useEffect(() => {
+  if (!boardState) return;
+  setNodes(toNodes(boardState.items, handleDeleteItem));
+  setEdges(toEdges(boardState.connections));
+}, [boardState, handleDeleteItem, setNodes, setEdges]);
+//                ↑ changes every render because handleDeleteItem changes every render
+```
+
+`useDeleteBoardItem(boardId)` calls React Query's `useMutation`, which returns a **fresh object reference on every render** whenever internal mutation state changes (isPending, isSuccess, etc.). Because `handleDeleteItem` listed `deleteItemMut` as a dependency, its identity was never stable. The sync effect listed `handleDeleteItem` as a dependency, so it fired on every render, called `setNodes()`, which caused ReactFlow's internal store to update, which triggered another re-render — creating an infinite loop.
+
+### Root Cause 2 — setState-during-render in board discovery (SECONDARY)
+
+```tsx
+// BEFORE (broken) — setState called during render body
+if (prevDiscovered !== discoveredId) {
+  setPrevDiscovered(discoveredId);
+  setBoardId(discoveredId);   // ← setState during render = immediate forced re-render
+}
+```
+
+Calling `setState` unconditionally during the render body caused React to immediately queue another render, compounding Root Cause 1.
+
+### Fix Applied
+
+**1. Stabilise `handleDeleteItem` via refs:**
+
+```tsx
+// After — ref pattern: stable function identity forever
+const boardIdRef = useRef<number | null>(boardId);
+const deleteItemMutRef = useRef(deleteItemMut);
+
+// Keep refs in sync after every commit (useLayoutEffect without deps)
+useLayoutEffect(() => {
+  boardIdRef.current = boardId;
+  deleteItemMutRef.current = deleteItemMut;
+});
+
+const handleDeleteItem = useCallback((itemId: number) => {
+  if (!boardIdRef.current) return;
+  if (confirm("Remove this item from the board?")) {
+    deleteItemMutRef.current.mutate(itemId);
+  }
+}, []); // ← intentionally empty; reads current values from refs at call-time
+```
+
+`useLayoutEffect` without a dependency array runs synchronously after every commit, keeping the refs up-to-date without triggering re-renders. `handleDeleteItem` now has a stable identity for the lifetime of the component.
+
+**2. Replace board discovery state with pure derived value:**
+
+```tsx
+// After — pure derived value, no state, no useEffect, no cascading re-render
+const discoveredId = boards?.find((b) => b.case === caseIdNum)?.id ?? null;
+const boardId = discoveredId ?? createdBoardId;
+// createdBoardId is only updated once, on createBoardMut.onSuccess
+```
+
+`discoveredId` is computed inline from the already-cached `boards` query result. `createdBoardId` is a stable state value changed only when a new board is successfully created. No effect runs; no intermediate state assignment occurs during render.
+
+### New File — BoardErrorBoundary
+
+`frontend/src/components/ui/BoardErrorBoundary.tsx` — React class component with `getDerivedStateFromError`. Wraps the detective board route so that any future runtime crash shows a recovery UI (Retry, Back to Case, All Cases links) instead of a blank white screen.
+
+### Router Change
+
+`frontend/src/router/Router.tsx` — Added `BoardWithErrorBoundary` functional component that reads `caseId` from `useParams` and renders `<BoardErrorBoundary caseId={caseId}><DetectiveBoardPage /></BoardErrorBoundary>`. The board route now uses this wrapper.
+
+### Files Changed (Phase 3 — Infinite Loop Fix)
+
+| File | Change |
+|------|--------|
+| `frontend/src/pages/DetectiveBoard/DetectiveBoardPage.tsx` | Ref pattern for `handleDeleteItem`; pure derived `boardId`; `useLayoutEffect` sync |
+| `frontend/src/components/ui/BoardErrorBoundary.tsx` | **New** — error boundary class component |
+| `frontend/src/router/Router.tsx` | Wrapped board route with `BoardWithErrorBoundary` |
+
+### Verification
+
+- `npx tsc --noEmit` → **0 errors**
+- `npx eslint src/pages/DetectiveBoard/DetectiveBoardPage.tsx src/components/ui/BoardErrorBoundary.tsx src/router/Router.tsx` → **0 errors / 0 warnings**
+- No backend files modified.
