@@ -457,7 +457,12 @@ ROLE_PERMISSIONS_MAP: dict[tuple[str, str, int], list[str]] = {
         0,
     ): [
         SuspectsPerms.VIEW_SUSPECT,       # Most Wanted page is public
-        SuspectsPerms.VIEW_BOUNTYTIP, SuspectsPerms.ADD_BOUNTYTIP,
+        SuspectsPerms.VIEW_BOUNTYTIP,
+        SuspectsPerms.ADD_BOUNTYTIP,
+        SuspectsPerms.VIEW_BAIL,
+        CasesPerms.ADD_CASE,
+        CasesPerms.VIEW_CASE,
+        CasesPerms.VIEW_CASECOMPLAINANT,
         # ── Scope permissions ──────────────────────────────────────
         CasesPerms.CAN_SCOPE_OWN_CASES,
         SuspectsPerms.CAN_SCOPE_OWN_SUSPECTS,
