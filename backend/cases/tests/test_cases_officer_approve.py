@@ -62,6 +62,12 @@ class TestComplaintOfficerApproveFlow(TestCase):
             codename=CasesPerms.CAN_APPROVE_CASE,
         )
         cls.officer_role.permissions.add(officer_approve_perm)
+        # Officer needs scope permission to view cases via detail endpoint
+        officer_scope_perm = Permission.objects.get(
+            content_type__app_label="cases",
+            codename=CasesPerms.CAN_SCOPE_OFFICER_CASES,
+        )
+        cls.officer_role.permissions.add(officer_scope_perm)
 
         cls.complainant_password = "OfficerFlow!Pass41"
         cls.complainant = User.objects.create_user(

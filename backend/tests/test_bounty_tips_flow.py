@@ -56,6 +56,9 @@ class TestBountyTipsFlow(TestCase):
 
         _grant(cls.officer_role, "can_review_bounty_tip", "suspects")
         _grant(cls.detective_role, "can_verify_bounty_tip", "suspects")
+        # Bounty reward lookup requires this permission (permission-based RBAC)
+        _grant(cls.officer_role, "can_lookup_bounty_reward", "suspects")
+        _grant(cls.detective_role, "can_lookup_bounty_reward", "suspects")
 
         cls.citizen_password = "Citizen!Pass101"
         cls.officer_password = "Officer!Pass101"

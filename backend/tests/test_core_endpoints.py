@@ -7,6 +7,7 @@ Scope in this file:
 
 from django.test import TestCase
 from django.urls import reverse
+from django.contrib.auth.models import Permission
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -14,6 +15,11 @@ from accounts.models import Role, User
 from cases.models import Case, CaseCreationType, CaseStatus, CrimeLevel
 from evidence.models import Evidence, EvidenceType
 from suspects.models import Suspect
+
+
+def _grant(role: Role, codename: str, app_label: str) -> None:
+    perm = Permission.objects.get(codename=codename, content_type__app_label=app_label)
+    role.permissions.add(perm)
 
 
 class TestCoreEndpoints(TestCase):
@@ -37,6 +43,15 @@ class TestCoreEndpoints(TestCase):
                 role.hierarchy_level = level
                 role.save(update_fields=["hierarchy_level"])
             cls.roles_by_name[name] = role
+
+        # ── Scope & dashboard permissions (permission-based RBAC) ────
+        _grant(cls.roles_by_name["Detective"], "can_scope_assigned_cases", "cases")
+        _grant(cls.roles_by_name["Captain"], "can_scope_all_cases", "cases")
+        _grant(cls.roles_by_name["Captain"], "can_view_full_dashboard", "core")
+        _grant(cls.roles_by_name["Captain"], "can_search_all", "core")
+        _grant(cls.roles_by_name["Police Chief"], "can_scope_all_cases", "cases")
+        _grant(cls.roles_by_name["Police Chief"], "can_view_full_dashboard", "core")
+        _grant(cls.roles_by_name["Police Chief"], "can_search_all", "core")
 
         cls.user_password = "CoreEndpointsP@ss123"
         cls.user = User.objects.create_user(

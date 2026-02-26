@@ -16,6 +16,7 @@ from __future__ import annotations
 from uuid import uuid4
 
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Permission
 from django.test import TestCase
 from django.urls import reverse
 from rest_framework import status
@@ -24,6 +25,11 @@ from rest_framework.test import APIClient
 from accounts.models import Role
 
 User = get_user_model()
+
+
+def _grant(role: Role, codename: str, app_label: str) -> None:
+    perm = Permission.objects.get(codename=codename, content_type__app_label=app_label)
+    role.permissions.add(perm)
 
 
 class TestRBACRoleCreate(TestCase):
@@ -43,6 +49,9 @@ class TestRBACRoleCreate(TestCase):
                 "hierarchy_level": 0,
             },
         )
+
+        # Admin needs can_manage_users permission (permission-based RBAC)
+        _grant(cls.system_admin_role, "can_manage_users", "accounts")
 
         cls.admin_password = "Adm!nRoleCreate99"
         cls.normal_password = "N0rmalRoleCreate88"

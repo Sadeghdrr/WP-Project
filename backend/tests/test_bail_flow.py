@@ -45,6 +45,7 @@ class TestBailFlow(TestCase):
         cls.detective_role = _make_role("Detective", hierarchy_level=7)
 
         _grant(cls.sergeant_role, "can_set_bail_amount", "suspects")
+        _grant(cls.sergeant_role, "can_scope_supervised_suspects", "suspects")
 
         cls.sergeant_password = "Serg3ant!Bail11"
         cls.officer_password = "Officer!Bail11"

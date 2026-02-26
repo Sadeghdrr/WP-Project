@@ -64,6 +64,16 @@ class TestSuspectWorkflow(TestCase):
         _grant(cls.chief_role, "can_assign_detective", "cases")
         _grant(cls.chief_role, "view_case", "cases")
         _grant(cls.chief_role, "can_approve_critical_case", "cases")
+        _grant(cls.chief_role, "can_scope_all_cases", "cases")
+
+        # ── New scope / assignment permissions (permission-based RBAC) ──
+        _grant(cls.detective_role, "can_be_assigned_detective", "cases")
+        _grant(cls.detective_role, "can_scope_assigned_cases", "cases")
+        _grant(cls.detective_role, "can_scope_assigned_suspects", "suspects")
+        _grant(cls.sergeant_role, "view_suspect", "suspects")
+        _grant(cls.sergeant_role, "can_scope_supervised_suspects", "suspects")
+        _grant(cls.captain_role, "view_suspect", "suspects")
+        _grant(cls.captain_role, "can_scope_all_suspects", "suspects")
 
         cls.detective_password = "Det3ctive!Pass77"
         cls.sergeant_password = "Serg3ant!Pass77"

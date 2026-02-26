@@ -15,6 +15,7 @@ Engineering constraints:
 from __future__ import annotations
 
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Permission
 from django.test import TestCase
 from django.urls import reverse
 from rest_framework import status
@@ -57,6 +58,13 @@ class TestAssignRoleEndpoint(TestCase):
                 "hierarchy_level": 5,
             },
         )
+
+        # Grant can_manage_users so admin can assign any role (including same-level)
+        manage_perm = Permission.objects.get(
+            codename="can_manage_users",
+            content_type__app_label="accounts",
+        )
+        cls.system_admin_role.permissions.add(manage_perm)
 
         cls.admin_user = User.objects.create_user(
             username="rbac_admin",

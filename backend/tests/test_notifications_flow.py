@@ -48,6 +48,8 @@ class TestNotificationsFlow(TestCase):
             _grant(cls.officer_role, codename, "evidence")
         _grant(cls.coroner_role, "can_verify_evidence", "evidence")
         _grant(cls.sergeant_role, "can_assign_detective", "cases")
+        # Detective must be assignable (permission-based RBAC)
+        _grant(cls.detective_role, "can_be_assigned_detective", "cases")
 
         cls.passwords = {
             "detective": "D3tective!NFlow1",

@@ -24,6 +24,11 @@ from accounts.models import Role
 User = get_user_model()
 
 
+def _grant(role: Role, codename: str, app_label: str) -> None:
+    perm = Permission.objects.get(codename=codename, content_type__app_label=app_label)
+    role.permissions.add(perm)
+
+
 class TestRBACAssignPermissions(TestCase):
     @classmethod
     def setUpTestData(cls):
@@ -48,6 +53,9 @@ class TestRBACAssignPermissions(TestCase):
                 "hierarchy_level": 1,
             },
         )
+
+        # Admin needs can_manage_users permission (permission-based RBAC)
+        _grant(cls.system_admin_role, "can_manage_users", "accounts")
 
         cls.admin_password = "Adm!nAssignPerm99"
         cls.normal_password = "N0rmalAssignPerm88"

@@ -134,11 +134,20 @@ class TestCrimeSceneCaseFlow(TestCase):
         for role in (cls.officer_role, cls.captain_role, cls.chief_role):
             _assign_permission_to_role(role, "add_case", app_label="cases")
             _assign_permission_to_role(role, "view_case", app_label="cases")
+            _assign_permission_to_role(role, "can_create_crime_scene", app_label="cases")
 
         # Captain and Chief can approve crime-scene cases.
         # Reference: cases_services_crime_scene_flow_report.md §1 "Who Can Approve?"
         for role in (cls.captain_role, cls.chief_role):
             _assign_permission_to_role(role, "can_approve_case", app_label="cases")
+
+        # Chief auto-approves crime-scene cases on creation.
+        _assign_permission_to_role(cls.chief_role, "can_auto_approve_crime_scene", app_label="cases")
+
+        # Scope permissions for case visibility.
+        _assign_permission_to_role(cls.officer_role, "can_scope_officer_cases", app_label="cases")
+        _assign_permission_to_role(cls.captain_role, "can_scope_all_cases", app_label="cases")
+        _assign_permission_to_role(cls.chief_role, "can_scope_all_cases", app_label="cases")
 
         # ── Users ────────────────────────────────────────────────────
         cls.officer_password = "0fficer!Pass99"

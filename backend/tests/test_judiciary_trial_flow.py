@@ -51,11 +51,21 @@ class TestJudiciaryTrialFlow(TestCase):
 
         _grant(cls.judge_role, "can_judge_trial", "suspects")
         _grant(cls.judge_role, "view_evidence", "evidence")
+        _grant(cls.judge_role, "can_be_assigned_judge", "cases")
+        _grant(cls.judge_role, "can_scope_judiciary_cases", "cases")
+        _grant(cls.judge_role, "can_view_case_report", "cases")
+        _grant(cls.judge_role, "view_case", "cases")
+        _grant(cls.judge_role, "view_suspect", "suspects")
+        _grant(cls.judge_role, "can_scope_all_suspects", "suspects")
         _grant(cls.captain_role, "can_render_verdict", "suspects")
         _grant(cls.captain_role, "can_forward_to_judiciary", "cases")
         _grant(cls.captain_role, "can_change_case_status", "cases")
         _grant(cls.captain_role, "add_casecomplainant", "cases")
         _grant(cls.captain_role, "add_evidence", "evidence")
+        _grant(cls.captain_role, "can_scope_all_cases", "cases")
+        _grant(cls.captain_role, "view_case", "cases")
+        _grant(cls.captain_role, "can_assign_detective", "cases")
+        _grant(cls.detective_role, "can_be_assigned_detective", "cases")
 
         cls.judge_password = "Judge!Pass9901"
         cls.detective_password = "Det!Pass9902"

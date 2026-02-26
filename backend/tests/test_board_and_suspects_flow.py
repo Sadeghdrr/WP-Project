@@ -196,9 +196,17 @@ class TestBoardAndSuspectsFlow(TestCase):
             "delete_detectiveboard",
         ):
             _assign_permission_to_role(cls.detective_role, codename, "board")
+        # Detective needs board-creation permission (permission-based RBAC)
+        _assign_permission_to_role(cls.detective_role, "can_create_board", "board")
+        _assign_permission_to_role(cls.detective_role, "can_be_assigned_detective", "cases")
+        _assign_permission_to_role(cls.detective_role, "can_scope_assigned_cases", "cases")
+        _assign_permission_to_role(cls.detective_role, "view_case", "cases")
 
         # Sergeants can view boards (read-only supervisory access)
         _assign_permission_to_role(cls.sergeant_role, "view_detectiveboard", "board")
+        _assign_permission_to_role(cls.sergeant_role, "can_view_any_board", "board")
+        _assign_permission_to_role(cls.sergeant_role, "can_be_assigned_sergeant", "cases")
+        _assign_permission_to_role(cls.sergeant_role, "can_scope_supervised_cases", "cases")
 
         # ── Users ────────────────────────────────────────────────────
 
