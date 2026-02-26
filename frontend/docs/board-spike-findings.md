@@ -9,18 +9,18 @@
 
 | Action | Method | Path | Status |
 |---|---|---|---|
-| List boards | GET | `/api/board/boards/` | Implemented |
-| Board detail | GET | `/api/board/boards/{id}/` | Implemented |
-| **Full board graph** | GET | `/api/board/boards/{id}/full/` | Implemented — single-call load |
-| Create board | POST | `/api/board/boards/` | Implemented |
-| Add item (pin) | POST | `/api/board/boards/{board_pk}/items/` | Implemented |
-| Remove item | DELETE | `/api/board/boards/{board_pk}/items/{id}/` | Implemented |
-| **Batch coordinate update** | PATCH | `/api/board/boards/{board_pk}/items/batch-coordinates/` | Implemented — debounced on drag |
-| Create connection | POST | `/api/board/boards/{board_pk}/connections/` | Implemented |
-| Delete connection | DELETE | `/api/board/boards/{board_pk}/connections/{id}/` | Implemented |
-| Create note | POST | `/api/board/boards/{board_pk}/notes/` | Implemented |
-| Update note | PATCH | `/api/board/boards/{board_pk}/notes/{id}/` | Available but not wired in spike UI |
-| Delete note | DELETE | `/api/board/boards/{board_pk}/notes/{id}/` | Available but not wired in spike UI |
+| List boards | GET | `/api/boards/` | Implemented |
+| Board detail | GET | `/api/boards/{id}/` | Implemented |
+| **Full board graph** | GET | `/api/boards/{id}/full/` | Implemented — single-call load |
+| Create board | POST | `/api/boards/` | Implemented |
+| Add item (pin) | POST | `/api/boards/{board_pk}/items/` | Implemented |
+| Remove item | DELETE | `/api/boards/{board_pk}/items/{id}/` | Implemented |
+| **Batch coordinate update** | PATCH | `/api/boards/{board_pk}/items/batch-coordinates/` | Implemented — debounced on drag |
+| Create connection | POST | `/api/boards/{board_pk}/connections/` | Implemented |
+| Delete connection | DELETE | `/api/boards/{board_pk}/connections/{id}/` | Implemented |
+| Create note | POST | `/api/boards/{board_pk}/notes/` | Implemented |
+| Update note | PATCH | `/api/boards/{board_pk}/notes/{id}/` | Available but not wired in spike UI |
+| Delete note | DELETE | `/api/boards/{board_pk}/notes/{id}/` | Available but not wired in spike UI |
 
 ---
 
@@ -107,7 +107,7 @@ Backend auto-creates a BoardItem for this note via `BoardNoteService.create_note
 
 ## What Failed / Friction Points
 
-1. **Board discovery by case** — The board list endpoint (`GET /api/board/boards/`) returns boards visible to the user but doesn't support filtering by `case_id` query parameter. Client-side filtering is needed after loading all boards. For production, a `?case=<id>` filter or a `get_or_create` endpoint per case would reduce round-trips.
+1. **Board discovery by case** — The board list endpoint (`GET /api/boards/`) returns boards visible to the user but doesn't support filtering by `case_id` query parameter. Client-side filtering is needed after loading all boards. For production, a `?case=<id>` filter or a `get_or_create` endpoint per case would reduce round-trips.
 
 2. **GenericForeignKey on item creation** — To add evidence or suspects as board items, the frontend needs to know the Django `ContentType` ID for each model. This is runtime-dependent and not exposed by a dedicated endpoint. A `GET /api/core/constants/` or content-type list endpoint would help. For the spike, note creation (which auto-pins) is the validated flow.
 
@@ -125,7 +125,7 @@ Backend auto-creates a BoardItem for this note via `BoardNoteService.create_note
 
 1. **Keep React Flow** — `@xyflow/react` is well-suited for this use case. It handles large node counts, custom nodes/edges, and has good TypeScript support.
 
-2. **Add a `?case=<id>` filter** to the board list endpoint, or expose a dedicated `GET /api/board/boards/by-case/{case_id}/` endpoint.
+2. **Add a `?case=<id>` filter** to the board list endpoint, or expose a dedicated `GET /api/boards/by-case/{case_id}/` endpoint.
 
 3. **Expose ContentType mapping** — Either provide a lookup endpoint or embed content type IDs in the `GET .../full/` response metadata so the frontend can create items for specific evidence/suspect types without guessing IDs.
 

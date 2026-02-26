@@ -4,17 +4,17 @@
 
 | # | Endpoint | Method | Purpose |
 |---|----------|--------|---------|
-| 1 | `GET /api/board/boards/` | GET | List all boards visible to the user |
-| 2 | `POST /api/board/boards/` | POST | Create board for a case (`{ case: int }`) |
-| 3 | `GET /api/board/boards/{id}/full/` | GET | Full board graph (items + connections + notes) |
-| 4 | `POST /api/board/boards/{boardId}/items/` | POST | Pin a content object (evidence, suspect, etc.) to the board |
-| 5 | `DELETE /api/board/boards/{boardId}/items/{id}/` | DELETE | Unpin an item from the board |
-| 6 | `PATCH /api/board/boards/{boardId}/items/batch-coordinates/` | PATCH | Batch update X/Y positions after drag-and-drop |
-| 7 | `POST /api/board/boards/{boardId}/connections/` | POST | Create a red-line connection between two items |
-| 8 | `DELETE /api/board/boards/{boardId}/connections/{id}/` | DELETE | Remove a connection |
-| 9 | `POST /api/board/boards/{boardId}/notes/` | POST | Create a sticky note (auto-pinned by backend) |
-| 10 | `PATCH /api/board/boards/{boardId}/notes/{id}/` | PATCH | Update note title/content |
-| 11 | `DELETE /api/board/boards/{boardId}/notes/{id}/` | DELETE | Delete a note (backend cleans up the auto-pinned item) |
+| 1 | `GET /api/boards/` | GET | List all boards visible to the user |
+| 2 | `POST /api/boards/` | POST | Create board for a case (`{ case: int }`) |
+| 3 | `GET /api/boards/{id}/full/` | GET | Full board graph (items + connections + notes) |
+| 4 | `POST /api/boards/{boardId}/items/` | POST | Pin a content object (evidence, suspect, etc.) to the board |
+| 5 | `DELETE /api/boards/{boardId}/items/{id}/` | DELETE | Unpin an item from the board |
+| 6 | `PATCH /api/boards/{boardId}/items/batch-coordinates/` | PATCH | Batch update X/Y positions after drag-and-drop |
+| 7 | `POST /api/boards/{boardId}/connections/` | POST | Create a red-line connection between two items |
+| 8 | `DELETE /api/boards/{boardId}/connections/{id}/` | DELETE | Remove a connection |
+| 9 | `POST /api/boards/{boardId}/notes/` | POST | Create a sticky note (auto-pinned by backend) |
+| 10 | `PATCH /api/boards/{boardId}/notes/{id}/` | PATCH | Update note title/content |
+| 11 | `DELETE /api/boards/{boardId}/notes/{id}/` | DELETE | Delete a note (backend cleans up the auto-pinned item) |
 
 ## Board Data Mapping Strategy
 
@@ -77,19 +77,19 @@
 
 ### How case-board relationship works
 - Backend enforces **at most one board per case** (`BoardWorkspaceService.create_board` raises `DomainError` on duplicate).
-- `GET /api/board/boards/` returns all boards visible to the current user. There is **no server-side case filter** — must filter client-side.
+- `GET /api/boards/` returns all boards visible to the current user. There is **no server-side case filter** — must filter client-side.
 - Frontend uses `useBoardForCase(caseId)` hook: fetches full board list via React Query, derives the matching board via `boards.find(b => b.case === caseId)`.
 
 ### Board listing flow (CaseDetailPage)
 1. `DetectiveBoardSection` renders inside the case detail grid
-2. Calls `useBoardForCase(caseId)` → fetches `GET /api/board/boards/`
+2. Calls `useBoardForCase(caseId)` → fetches `GET /api/boards/`
 3. If board exists → shows Board ID, item count, connection count, created date, and "Open Detective Board" link
 4. If no board → shows "Create Detective Board" button (permission-gated: `board.add_detectiveboard`)
 5. Section hidden entirely for users without `board.view_detectiveboard` or `board.add_detectiveboard` permissions
 
 ### Board creation flow (from case page)
 1. User clicks "Create Detective Board"
-2. `POST /api/board/boards/` with `{ case: caseId }`
+2. `POST /api/boards/` with `{ case: caseId }`
 3. Backend sets `detective = request.user` automatically
 4. On success → navigate to `/detective-board/:caseId`
 5. React Query automatically invalidates boards list → next case page visit reflects the new board

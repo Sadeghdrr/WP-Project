@@ -25,17 +25,17 @@
 
 | Endpoint | Tested In Spike |
 |---|---|
-| `GET /api/board/boards/` | Yes — board discovery/list |
-| `GET /api/board/boards/{id}/full/` | Yes — full graph load |
-| `POST /api/board/boards/` | Yes — create board for case |
-| `POST /api/board/boards/{id}/items/` | Yes — API layer ready, not wired to UI button (note auto-pins) |
-| `DELETE /api/board/boards/{id}/items/{id}/` | Yes — remove item via node X button |
-| `PATCH /api/board/boards/{id}/items/batch-coordinates/` | Yes — debounced drag save |
-| `POST /api/board/boards/{id}/connections/` | Yes — draw red line via handle drag |
-| `DELETE /api/board/boards/{id}/connections/{id}/` | Yes — click edge to delete |
-| `POST /api/board/boards/{id}/notes/` | Yes — sidebar form |
-| `PATCH /api/board/boards/{id}/notes/{id}/` | API layer ready, UI not wired |
-| `DELETE /api/board/boards/{id}/notes/{id}/` | API layer ready, UI not wired |
+| `GET /api/boards/` | Yes — board discovery/list |
+| `GET /api/boards/{id}/full/` | Yes — full graph load |
+| `POST /api/boards/` | Yes — create board for case |
+| `POST /api/boards/{id}/items/` | Yes — API layer ready, not wired to UI button (note auto-pins) |
+| `DELETE /api/boards/{id}/items/{id}/` | Yes — remove item via node X button |
+| `PATCH /api/boards/{id}/items/batch-coordinates/` | Yes — debounced drag save |
+| `POST /api/boards/{id}/connections/` | Yes — draw red line via handle drag |
+| `DELETE /api/boards/{id}/connections/{id}/` | Yes — click edge to delete |
+| `POST /api/boards/{id}/notes/` | Yes — sidebar form |
+| `PATCH /api/boards/{id}/notes/{id}/` | API layer ready, UI not wired |
+| `DELETE /api/boards/{id}/notes/{id}/` | API layer ready, UI not wired |
 
 ---
 
@@ -55,7 +55,7 @@
 
 ## Backend Anomalies / Problems (Report Only — No Backend Changes Made)
 
-1. **No case-based board filter** — `GET /api/board/boards/` does not support `?case=<id>` query param. The frontend must load all visible boards and filter client-side. This is suboptimal when the user has many boards.
+1. **No case-based board filter** — `GET /api/boards/` does not support `?case=<id>` query param. The frontend must load all visible boards and filter client-side. This is suboptimal when the user has many boards.
 
 2. **ContentType ID not discoverable** — To pin arbitrary evidence/suspects as BoardItems, the frontend needs the Django `ContentType.id` for each model type. No endpoint exposes this mapping. The spike works around this by relying on note creation (which auto-pins), but production will need a ContentType lookup or shortcut.
 
