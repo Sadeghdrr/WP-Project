@@ -52,7 +52,7 @@ export interface BoardItemWithBoard extends BoardItem {
 
 export interface BoardItemCreateRequest {
   content_object: {
-    content_type_id: number;
+    content_type_id: number | null;
     object_id: number;
   };
   position_x?: number;

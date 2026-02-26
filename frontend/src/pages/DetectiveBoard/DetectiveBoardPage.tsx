@@ -86,10 +86,8 @@ function toEdges(connections: BoardConnection[]): Edge[] {
     id: `conn-${c.id}`,
     source: String(c.from_item),
     target: String(c.to_item),
-    label: c.label || undefined,
-    type: "default",
-    style: { stroke: RED, strokeWidth: 2 },
-    animated: false,
+    sourceHandle: "bottom",
+    targetHandle: "top",
     data: { connectionId: c.id },
   }));
 }
@@ -148,6 +146,46 @@ export default function DetectiveBoardPage() {
   const [editContent, setEditContent] = useState("");
   const [showPinModal, setShowPinModal] = useState(false);
 
+  // ── Content type cache ──────────────────────────────────────────
+  // Build a mapping of model name → content_type_id from existing board items.
+  // Persisted in a ref so it survives item removal (once seen, always known).
+  const ctCacheRef = useRef<Map<string, number>>(new Map());
+  useEffect(() => {
+    if (!boardState) return;
+    for (const item of boardState.items) {
+      const summary = item.content_object_summary;
+      if (summary) {
+        ctCacheRef.current.set(summary.model, summary.content_type_id);
+      }
+    }
+  }, [boardState]);
+
+  // Set of note IDs currently pinned to the board
+  const pinnedNoteIds = useMemo(() => {
+    if (!boardState) return new Set<number>();
+    const ids = new Set<number>();
+    for (const item of boardState.items) {
+      const summary = item.content_object_summary;
+      if (summary && summary.model === "boardnote") {
+        ids.add(summary.object_id);
+      }
+    }
+    return ids;
+  }, [boardState]);
+
+  // Handler: re-pin a note that was previously removed from the board
+  const handlePinNote = useCallback(
+    (noteId: number) => {
+      const ctId = ctCacheRef.current.get("boardnote") ?? null;
+      createBoardItemMut.mutate({
+        content_object: { content_type_id: ctId, object_id: noteId },
+        position_x: 0,
+        position_y: 0,
+      });
+    },
+    [createBoardItemMut],
+  );
+
   // ── Sync backend → React Flow ───────────────────────────────────
   //
   // FIX: deleteItemMut (useMutation result) is a new object reference every
@@ -182,10 +220,19 @@ export default function DetectiveBoardPage() {
   // Sync effect: only depends on boardState.  handleDeleteItem, setNodes, and
   // setEdges are all stable references — listing them satisfies exhaustive-deps
   // without any loop risk.
+  //
+  // FIX: Defer edge setting by one animation frame so that ReactFlow has
+  // processed the new nodes (measured dimensions, registered IDs) before
+  // edges reference them.  Without this delay, edges whose source/target
+  // nodes haven't been registered yet are silently dropped by ReactFlow.
   useEffect(() => {
     if (!boardState) return;
     setNodes(toNodes(boardState.items, handleDeleteItem));
-    setEdges(toEdges(boardState.connections));
+    const edgesFromBackend = toEdges(boardState.connections);
+    const raf = requestAnimationFrame(() => {
+      setEdges(edgesFromBackend);
+    });
+    return () => cancelAnimationFrame(raf);
   }, [boardState, handleDeleteItem, setNodes, setEdges]);
 
   // ── Drag → debounced batch save ─────────────────────────────────
@@ -236,7 +283,6 @@ export default function DetectiveBoardPage() {
         addEdge(
           {
             ...connection,
-            style: { stroke: RED, strokeWidth: 2 },
             id: `temp-${Date.now()}`,
           },
           eds,
@@ -309,12 +355,12 @@ export default function DetectiveBoardPage() {
 
   // ── Pin entity (add item) ──────────────────────────────────────
   const handlePinEntity = useCallback(
-    (entity: { content_type_id: number; object_id: number }) => {
+    (entity: { content_type_id: number | null; object_id: number }) => {
       createBoardItemMut.mutate(
         {
           content_object: entity,
-          position_x: 100 + Math.random() * 300,
-          position_y: 100 + Math.random() * 300,
+          position_x: 0,
+          position_y: 0,
         },
         { onSuccess: () => setShowPinModal(false) },
       );
@@ -589,6 +635,18 @@ export default function DetectiveBoardPage() {
                       >
                         Delete
                       </button>
+                      {!pinnedNoteIds.has(n.id) && (
+                        <button
+                          type="button"
+                          className={css.noteMiniBtn}
+                          onClick={() => handlePinNote(n.id)}
+                          disabled={createBoardItemMut.isPending}
+                        >
+                          {createBoardItemMut.isPending
+                            ? "Adding\u2026"
+                            : "Add To Board"}
+                        </button>
+                      )}
                     </div>
                   </div>
                 ),

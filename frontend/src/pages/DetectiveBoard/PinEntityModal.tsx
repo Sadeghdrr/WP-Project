@@ -27,7 +27,7 @@ import type { BoardItem } from "../../types/board";
 // ---------------------------------------------------------------------------
 
 interface PinnableEntity {
-  content_type_id: number;
+  content_type_id: number | null;
   object_id: number;
   label: string;
   model: string;
@@ -36,7 +36,7 @@ interface PinnableEntity {
 interface Props {
   caseId: number;
   existingItems: BoardItem[];
-  onPin: (entity: { content_type_id: number; object_id: number }) => void;
+  onPin: (entity: { content_type_id: number | null; object_id: number }) => void;
   isPinning: boolean;
   onClose: () => void;
 }
@@ -83,29 +83,10 @@ export default function PinEntityModal({
             // resolves it via GenericObjectRelatedField. We use the base Evidence
             // CT here since the backend maps it.
             items.push({
-              content_type_id: ev.content_type_id ?? 0,
+              content_type_id: ev.content_type_id ?? null,
               object_id: ev.id,
               label: `${ev.evidence_type ?? "Evidence"} — ${ev.description?.substring(0, 60) || `#${ev.id}`}`,
               model: "evidence",
-            });
-          }
-        }
-
-        // 2) Suspects for this case
-        const susRes = await apiGet<
-          | Array<{ id: number; full_name: string; national_id: string; content_type_id?: number }>
-          | { results: Array<{ id: number; full_name: string; national_id: string; content_type_id?: number }> }
-        >(`${API.SUSPECTS}?case=${caseId}`);
-        if (susRes.ok) {
-          const susList = Array.isArray(susRes.data)
-            ? susRes.data
-            : susRes.data.results ?? [];
-          for (const s of susList) {
-            items.push({
-              content_type_id: s.content_type_id ?? 0,
-              object_id: s.id,
-              label: `${s.full_name} (${s.national_id})`,
-              model: "suspect",
             });
           }
         }

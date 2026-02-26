@@ -196,3 +196,15 @@ svg {
    lg  ≤ 1024px
    xl  ≤ 1280px
    --------------------------------------------------------------------------- */
+
+/* Ensure edges render above node backgrounds */
+.react-flow .react-flow__edges {
+    z-index: 10;          /* فقط z-index رو بالا ببر */
+}
+
+.react-flow .react-flow__nodes {
+    z-index: 5;
+}
+.react-flow__edges svg {
+    max-width: none !important;
+}
