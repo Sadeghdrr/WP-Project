@@ -33,6 +33,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import Role, User
+from core.permissions_constants import AccountsPerms
 from .serializers import (
     AssignRoleSerializer,
     CustomTokenObtainPairSerializer,
@@ -521,16 +522,16 @@ class RoleViewSet(viewsets.ViewSet):
     @staticmethod
     def _require_system_admin(request: Request) -> None:
         """
-        Enforce System Admin-only access for role management endpoints.
+        Enforce admin-only access for role management endpoints.
 
         Accept either:
         - Django superuser
-        - user.role.name == "System Admin"
+        - User with ``CAN_MANAGE_USERS`` permission
         """
         user = request.user
         if user.is_superuser:
             return
-        if user.role is not None and user.role.name == "System Admin":
+        if user.has_perm(f"accounts.{AccountsPerms.CAN_MANAGE_USERS}"):
             return
         raise DRFPermissionDenied("Only System Administrators may manage roles.")
 

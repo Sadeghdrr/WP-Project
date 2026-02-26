@@ -45,6 +45,10 @@ class AccountsPerms:
     CHANGE_USER = "change_user"
     DELETE_USER = "delete_user"
 
+    # ── Custom workflow permissions ─────────────────────────────────
+    CAN_MANAGE_USERS = "can_manage_users"
+    """Admin-level user management (activate, deactivate, assign roles)."""
+
 
 # ════════════════════════════════════════════════════════════════════
 #  CASES APP — Standard CRUD + Custom Workflow
@@ -95,6 +99,51 @@ class CasesPerms:
 
     CAN_APPROVE_CRITICAL_CASE = "can_approve_critical_case"
     """Police Chief approves critical-level cases that require chief-level sign-off."""
+
+    # ── Scope permissions (data-visibility tiers) ───────────────────
+    CAN_SCOPE_ALL_CASES = "can_scope_all_cases"
+    """Unrestricted case visibility (Captain, Chief, Admin)."""
+
+    CAN_SCOPE_SUPERVISED_CASES = "can_scope_supervised_cases"
+    """See cases assigned to this user as sergeant, plus cases with detectives."""
+
+    CAN_SCOPE_ASSIGNED_CASES = "can_scope_assigned_cases"
+    """See only cases assigned to this user as detective."""
+
+    CAN_SCOPE_OFFICER_CASES = "can_scope_officer_cases"
+    """See cases past the complaint-screening phase."""
+
+    CAN_SCOPE_COMPLAINT_QUEUE = "can_scope_complaint_queue"
+    """See only early-stage complaint cases."""
+
+    CAN_SCOPE_JUDICIARY_CASES = "can_scope_judiciary_cases"
+    """See only judiciary/closed cases assigned to this judge."""
+
+    CAN_SCOPE_OWN_CASES = "can_scope_own_cases"
+    """See only cases where the user is a complainant or creator."""
+
+    # ── Workflow guard permissions ──────────────────────────────────
+    CAN_CREATE_CRIME_SCENE = "can_create_crime_scene"
+    """Allowed to create a crime-scene case (Officer and above)."""
+
+    CAN_AUTO_APPROVE_CRIME_SCENE = "can_auto_approve_crime_scene"
+    """Crime-scene cases auto-open on creation (Police Chief)."""
+
+    CAN_VIEW_CASE_REPORT = "can_view_case_report"
+    """Access the full aggregated case report."""
+
+    # ── Assignment capability permissions ───────────────────────────
+    CAN_BE_ASSIGNED_DETECTIVE = "can_be_assigned_detective"
+    """User can be assigned to a case as detective."""
+
+    CAN_BE_ASSIGNED_SERGEANT = "can_be_assigned_sergeant"
+    """User can be assigned to a case as sergeant."""
+
+    CAN_BE_ASSIGNED_CAPTAIN = "can_be_assigned_captain"
+    """User can be assigned to a case as captain."""
+
+    CAN_BE_ASSIGNED_JUDGE = "can_be_assigned_judge"
+    """User can be assigned to a case as judge."""
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -216,6 +265,26 @@ class SuspectsPerms:
     CAN_SET_BAIL_AMOUNT = "can_set_bail_amount"
     """Sergeant determines the bail / fine amount."""
 
+    # ── Scope permissions (data-visibility tiers) ───────────────────
+    CAN_SCOPE_ALL_SUSPECTS = "can_scope_all_suspects"
+    """Unrestricted suspect/interrogation/trial/bail visibility."""
+
+    CAN_SCOPE_ASSIGNED_SUSPECTS = "can_scope_assigned_suspects"
+    """Detective: suspects on assigned cases or identified by this user."""
+
+    CAN_SCOPE_SUPERVISED_SUSPECTS = "can_scope_supervised_suspects"
+    """Sergeant: suspects on supervised cases or pending approval."""
+
+    CAN_SCOPE_EXAMINED_SUSPECTS = "can_scope_examined_suspects"
+    """Coroner: suspects on cases where this user registered evidence."""
+
+    CAN_SCOPE_OWN_SUSPECTS = "can_scope_own_suspects"
+    """Base User: suspects on cases the user is associated with."""
+
+    # ── Workflow guard permissions ──────────────────────────────────
+    CAN_LOOKUP_BOUNTY_REWARD = "can_lookup_bounty_reward"
+    """Police ranks can look up bounty reward info."""
+
 
 # ════════════════════════════════════════════════════════════════════
 #  BOARD APP — Standard CRUD + Custom Workflow
@@ -252,6 +321,12 @@ class BoardPerms:
     CAN_EXPORT_BOARD = "can_export_board"
     """Detective exports the board as an image for reports."""
 
+    CAN_CREATE_BOARD = "can_create_board"
+    """Can create a new detective board (Detective, Supervisors, Admin)."""
+
+    CAN_VIEW_ANY_BOARD = "can_view_any_board"
+    """Supervisor-level: can view boards on cases assigned to them."""
+
 
 # ════════════════════════════════════════════════════════════════════
 #  CORE APP — Standard CRUD
@@ -265,3 +340,10 @@ class CorePerms:
     ADD_NOTIFICATION = "add_notification"
     CHANGE_NOTIFICATION = "change_notification"
     DELETE_NOTIFICATION = "delete_notification"
+
+    # ── Custom workflow permissions ─────────────────────────────────
+    CAN_VIEW_FULL_DASHBOARD = "can_view_full_dashboard"
+    """Full department-wide dashboard statistics access."""
+
+    CAN_SEARCH_ALL = "can_search_all"
+    """Unrestricted global search across all cases/suspects/evidence."""

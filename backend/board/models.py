@@ -45,6 +45,8 @@ class DetectiveBoard(TimeStampedModel):
         verbose_name_plural = "Detective Boards"
         permissions = [
             (BoardPerms.CAN_EXPORT_BOARD, "Can export detective board as image"),
+            (BoardPerms.CAN_CREATE_BOARD, "Can create a detective board"),
+            (BoardPerms.CAN_VIEW_ANY_BOARD, "Supervisor: view boards on assigned cases"),
         ]
 
     def __str__(self):

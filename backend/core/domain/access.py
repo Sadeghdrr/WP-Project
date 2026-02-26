@@ -1,22 +1,21 @@
 """
-core.domain.access — Role-scoped queryset selectors (shared patterns).
+core.domain.access — Permission-scoped queryset selectors (shared patterns).
 
-This module provides **placeholder hooks** and shared utilities that
-each app's service layer will call to obtain querysets filtered by the
-requesting user's role.
+This module provides shared utilities that each app's service layer
+calls to obtain querysets filtered by the requesting user's permissions.
 
 ╔══════════════════════════════════════════════════════════════════╗
 ║  IMPORTANT — Per-app scoping logic does NOT live here.         ║
-║  Each app's ``services.py`` owns its own ``get_filtered_qs()`` ║
-║  implementation.  This module provides:                        ║
-║    1) A registry pattern for role→queryset filters.            ║
-║    2) Helper functions that apps can call.                      ║
-║    3) Documented hooks explaining how to plug in.              ║
+║  Each app's ``services.py`` owns its own scope-rules list.     ║
+║  This module provides:                                         ║
+║    1) ``apply_permission_scope`` — ordered permission dispatch.║
+║    2) ``require_permission`` — guard that checks has_perm.     ║
+║    3) ``get_user_role_name`` — informational role-name helper. ║
 ╚══════════════════════════════════════════════════════════════════╝
 
 Architecture overview
 ---------------------
-Role-based data access follows a **selector** pattern:
+Permission-based data access follows a **scope-rule** pattern:
 
     ┌─────────┐      ┌────────────────┐      ┌──────────────────┐
     │  View   │─────▶│  App service   │─────▶│ core.domain      │
@@ -26,20 +25,18 @@ Role-based data access follows a **selector** pattern:
 
 Usage in an app's service layer::
 
-    from core.domain.access import apply_role_filter
+    from core.domain.access import apply_permission_scope
+
+    CASE_SCOPE_RULES = [
+        ("cases.can_scope_all_cases",       lambda qs, u: qs),
+        ("cases.can_scope_assigned_cases",  lambda qs, u: qs.filter(assigned_detective=u)),
+        ("cases.can_scope_own_cases",       lambda qs, u: qs.filter(created_by=u)),
+    ]
 
     class CaseQueryService:
         def get_filtered_queryset(self, user):
             qs = Case.objects.all()
-            return apply_role_filter(qs, user, scope_config=CASE_SCOPE_CONFIG)
-
-Where ``CASE_SCOPE_CONFIG`` is defined inside the cases app::
-
-    CASE_SCOPE_CONFIG = {
-        "detective": lambda qs, user: qs.filter(assigned_detective=user),
-        "sergeant":  lambda qs, user: qs.filter(assigned_sergeant=user),
-        # ... other roles ...
-    }
+            return apply_permission_scope(qs, user, scope_rules=CASE_SCOPE_RULES)
 """
 
 from __future__ import annotations
@@ -55,8 +52,11 @@ if TYPE_CHECKING:
 # Takes (queryset, user) and returns a filtered queryset.
 ScopeFilter = Callable[[QuerySet, "User"], QuerySet]
 
-# Type alias for a complete scope configuration dict.
-# Maps role name (lowercased) → ScopeFilter.
+# Type alias for a single scope rule: (permission_codename, filter_fn).
+# Permission codename should include the app label (e.g. "cases.can_scope_all_cases").
+ScopeRule = tuple[str, ScopeFilter]
+
+# Legacy type alias — kept for backward compatibility during migration.
 ScopeConfig = dict[str, ScopeFilter]
 
 
@@ -64,9 +64,9 @@ def get_user_role_name(user: User) -> str | None:
     """
     Return the lowercased role name for a user, or ``None`` if unassigned.
 
-    This is the canonical way to obtain the user's role string for
-    scope-config lookups — avoids repeating the attribute access and
-    null-check everywhere.
+    This is an **informational** helper — used for JWT tokens, API
+    responses, and logging.  Service-layer access control should use
+    ``apply_permission_scope`` or ``user.has_perm()``, never role names.
 
     Args:
         user: Authenticated User instance.
@@ -82,6 +82,87 @@ def get_user_role_name(user: User) -> str | None:
     return role.name.lower().replace(" ", "_")
 
 
+def apply_permission_scope(
+    queryset: QuerySet,
+    user: User,
+    *,
+    scope_rules: list[ScopeRule],
+    default: str = "none",
+) -> QuerySet:
+    """
+    Apply the first matching permission-based scope rule.
+
+    Rules are checked **in order** — first permission match wins.
+    Order rules from broadest (unrestricted) to narrowest (most restricted)
+    so that users with wider access hit their rule first.
+
+    Args:
+        queryset:     Base (unfiltered) queryset.
+        user:         The authenticated user.
+        scope_rules:  Ordered list of ``(perm_codename, filter_fn)`` tuples.
+                      The ``perm_codename`` must include the app label
+                      (e.g. ``"cases.can_scope_all_cases"``).
+        default:      What to do when no matching permission is found.
+                      ``"none"`` (default) → empty queryset.
+                      ``"all"`` → return unfiltered.
+
+    Returns:
+        The (possibly filtered) queryset.
+
+    Example::
+
+        qs = apply_permission_scope(
+            Case.objects.all(),
+            request.user,
+            scope_rules=[
+                ("cases.can_scope_all_cases",
+                 lambda qs, u: qs),
+                ("cases.can_scope_assigned_cases",
+                 lambda qs, u: qs.filter(assigned_detective=u)),
+            ],
+            default="none",
+        )
+    """
+    for perm, filter_fn in scope_rules:
+        if user.has_perm(perm):
+            return filter_fn(queryset, user)
+
+    if default == "none":
+        return queryset.none()
+    return queryset
+
+
+def require_permission(user: User, *perms: str, message: str = "") -> None:
+    """
+    Guard that raises ``PermissionDenied`` if the user lacks **all** of
+    the given permissions (OR-logic: having any one is sufficient).
+
+    Args:
+        user:    Authenticated user.
+        *perms:  One or more full permission strings (``app.codename``).
+        message: Optional custom error message.
+
+    Raises:
+        core.domain.exceptions.PermissionDenied: If the user has none
+            of the listed permissions.
+
+    Example::
+
+        require_permission(user, "cases.can_create_crime_scene")
+    """
+    from core.domain.exceptions import PermissionDenied as DomainPermissionDenied
+
+    for perm in perms:
+        if user.has_perm(perm):
+            return
+    raise DomainPermissionDenied(
+        message or f"Missing required permission: {', '.join(perms)}."
+    )
+
+
+# ── Legacy aliases (deprecated — migrate to permission-based) ───────
+
+
 def apply_role_filter(
     queryset: QuerySet,
     user: User,
@@ -90,39 +171,12 @@ def apply_role_filter(
     default: str = "all",
 ) -> QuerySet:
     """
+    .. deprecated::
+        Use ``apply_permission_scope`` with permission-keyed scope rules
+        instead of role-name-keyed scope configs.
+
     Apply role-based filtering to a queryset using the provided config.
-
-    Lookup order:
-        1. If the user's role name matches a key in ``scope_config``,
-           the corresponding filter is applied.
-        2. Otherwise, the ``default`` strategy is used:
-           - ``"all"`` → return the queryset unfiltered.
-           - ``"none"`` → return an empty queryset.
-
-    Args:
-        queryset:     Base (unfiltered) queryset.
-        user:         The authenticated user.
-        scope_config: Dict mapping role names to filter callables.
-        default:      What to do when no matching role is found.
-                      ``"all"`` (default) or ``"none"``.
-
-    Returns:
-        The (possibly filtered) queryset.
-
-    Example::
-
-        qs = apply_role_filter(
-            Case.objects.all(),
-            request.user,
-            scope_config={
-                "detective": lambda qs, u: qs.filter(assigned_detective=u),
-                "sergeant":  lambda qs, u: qs.filter(assigned_sergeant=u),
-                "captain":   lambda qs, u: qs.all(),
-                "police_chief": lambda qs, u: qs.all(),
-                "system_admin": lambda qs, u: qs.all(),
-            },
-            default="none",
-        )
+    Kept for backward compatibility during migration.
     """
     role_name = get_user_role_name(user)
 
@@ -136,23 +190,11 @@ def apply_role_filter(
 
 def require_role(user: User, *allowed_roles: str) -> None:
     """
+    .. deprecated::
+        Use ``require_permission`` with permission codenames instead.
+
     Guard that raises ``PermissionDenied`` if the user's role is not
     among ``allowed_roles``.
-
-    Role names should be **lowercase with underscores** (e.g.
-    ``"detective"``, ``"police_chief"``).
-
-    Args:
-        user:          Authenticated user.
-        *allowed_roles: One or more role name strings.
-
-    Raises:
-        core.domain.exceptions.PermissionDenied: If the user's role
-            is not in the allowed set.
-
-    Example::
-
-        require_role(user, "detective", "sergeant", "captain")
     """
     from core.domain.exceptions import PermissionDenied as DomainPermissionDenied
 

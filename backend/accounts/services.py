@@ -31,6 +31,7 @@ from django.db.models import Q, QuerySet
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from core.domain.exceptions import Conflict, DomainError, NotFound, PermissionDenied
+from core.permissions_constants import AccountsPerms
 
 from .models import Role
 
@@ -404,8 +405,8 @@ class UserManagementService:
         except Role.DoesNotExist:
             raise NotFound(f"Role with id {role_id} not found.")
 
-        # Authorization: must be System Admin OR hierarchy > both current and new role
-        is_admin = performed_by.role and performed_by.role.name == "System Admin"
+        # Authorization: must have CAN_MANAGE_USERS perm OR hierarchy > both current and new role
+        is_admin = performed_by.has_perm(f"accounts.{AccountsPerms.CAN_MANAGE_USERS}")
         if not is_admin:
             performer_level = performed_by.hierarchy_level
             target_current_level = target_user.hierarchy_level
@@ -454,7 +455,7 @@ class UserManagementService:
         except User.DoesNotExist:
             raise NotFound(f"User with id {user_id} not found.")
 
-        is_admin = performed_by.role and performed_by.role.name == "System Admin"
+        is_admin = performed_by.has_perm(f"accounts.{AccountsPerms.CAN_MANAGE_USERS}")
         if not is_admin and performed_by.hierarchy_level <= target_user.hierarchy_level:
             raise PermissionDenied(
                 "You do not have sufficient authority to activate this user."
@@ -499,7 +500,7 @@ class UserManagementService:
         if target_user.pk == performed_by.pk:
             raise DomainError("You cannot deactivate your own account.")
 
-        is_admin = performed_by.role and performed_by.role.name == "System Admin"
+        is_admin = performed_by.has_perm(f"accounts.{AccountsPerms.CAN_MANAGE_USERS}")
         if not is_admin and performed_by.hierarchy_level <= target_user.hierarchy_level:
             raise PermissionDenied(
                 "You do not have sufficient authority to deactivate this user."

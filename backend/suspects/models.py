@@ -187,6 +187,14 @@ class Suspect(TimeStampedModel):
             (SuspectsPerms.CAN_IDENTIFY_SUSPECT, "Can identify and declare suspects (Detective)"),
             (SuspectsPerms.CAN_APPROVE_SUSPECT, "Can approve/reject identified suspects (Sergeant)"),
             (SuspectsPerms.CAN_ISSUE_ARREST_WARRANT, "Can issue arrest warrant (Sergeant)"),
+            # Scope permissions (data-visibility tiers)
+            (SuspectsPerms.CAN_SCOPE_ALL_SUSPECTS, "Unrestricted suspect visibility"),
+            (SuspectsPerms.CAN_SCOPE_ASSIGNED_SUSPECTS, "See suspects on assigned cases (Detective)"),
+            (SuspectsPerms.CAN_SCOPE_SUPERVISED_SUSPECTS, "See suspects on supervised cases (Sergeant)"),
+            (SuspectsPerms.CAN_SCOPE_EXAMINED_SUSPECTS, "See suspects on examined cases (Coroner)"),
+            (SuspectsPerms.CAN_SCOPE_OWN_SUSPECTS, "See suspects on own cases"),
+            # Workflow guard
+            (SuspectsPerms.CAN_LOOKUP_BOUNTY_REWARD, "Can look up bounty reward info"),
         ]
 
     def __str__(self):

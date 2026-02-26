@@ -33,7 +33,6 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Q, QuerySet
 
-from core.domain.access import apply_role_filter, get_user_role_name, ScopeConfig
 from core.domain.exceptions import DomainError, NotFound, PermissionDenied
 from core.domain.notifications import NotificationService
 from core.permissions_constants import EvidencePerms
@@ -52,29 +51,10 @@ from .models import (
 
 logger = logging.getLogger(__name__)
 
-# ── Role-scoped queryset configuration for evidence visibility ──────
-_EVIDENCE_SCOPE_CONFIG: ScopeConfig = {
-    # Unrestricted roles
-    "system_admin": lambda qs, u: qs,
-    "police_chief": lambda qs, u: qs,
-    "captain": lambda qs, u: qs,
-    "judge": lambda qs, u: qs,
-    # Detective sees evidence on their assigned cases
-    "detective": lambda qs, u: qs.filter(case__assigned_detective=u),
-    # Sergeant sees evidence on cases they supervise
-    "sergeant": lambda qs, u: qs.filter(case__assigned_sergeant=u),
-    # Coroner sees all biological evidence plus evidence on cases they examine
-    "coroner": lambda qs, u: qs.filter(
-        Q(evidence_type=EvidenceType.BIOLOGICAL)
-        | Q(case__assigned_detective=u)
-    ),
-    # Cadet sees evidence on cases currently in their review queue
-    "cadet": lambda qs, u: qs.filter(case__created_by=u),
-    # Police Officer
-    "police_officer": lambda qs, u: qs.filter(case__created_by=u),
-    # Base User — minimal visibility
-    "base_user": lambda qs, u: qs.filter(case__created_by=u),
-}
+# ── Evidence visibility follows case visibility ────────────────────
+# Evidence queryset scoping delegates to CaseQueryService so that
+# evidence list semantics always align with the user's case permissions.
+# No separate evidence scope config is needed.
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -96,34 +76,24 @@ class EvidenceQueryService:
         filters: dict[str, Any],
     ) -> QuerySet[Evidence]:
         """
-        Build a role-scoped, filtered queryset of ``Evidence`` objects.
+        Build a permission-scoped, filtered queryset of ``Evidence`` objects.
         """
         # 1) Require explicit read permission first.
         if not requesting_user.has_perm(f"evidence.{EvidencePerms.VIEW_EVIDENCE}"):
             raise PermissionDenied("You do not have permission to view evidence.")
 
-        role_name = get_user_role_name(requesting_user)
         qs = Evidence.objects.all()
 
         # 2) Primary scope: evidence must belong to cases visible to this user.
         # This keeps evidence list semantics aligned with case visibility rules.
-        from cases.services import CASE_SCOPE_CONFIG, CaseQueryService
+        from cases.services import CaseQueryService
 
-        if role_name in CASE_SCOPE_CONFIG:
-            visible_case_ids = (
-                CaseQueryService
-                .get_filtered_queryset(requesting_user, filters={})
-                .values_list("id", flat=True)
-            )
-            qs = qs.filter(case_id__in=visible_case_ids)
-        else:
-            # Fallback for roles not represented in case scope config.
-            qs = apply_role_filter(
-                qs,
-                requesting_user,
-                scope_config=_EVIDENCE_SCOPE_CONFIG,
-                default="none",
-            )
+        visible_case_ids = (
+            CaseQueryService
+            .get_filtered_queryset(requesting_user, filters={})
+            .values_list("id", flat=True)
+        )
+        qs = qs.filter(case_id__in=visible_case_ids)
 
         # 3. Apply explicit filters
         evidence_type = filters.get("evidence_type")

@@ -9,6 +9,8 @@ from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.db import models
 
+from core.permissions_constants import CorePerms
+
 
 class TimeStampedModel(models.Model):
     """
@@ -69,6 +71,10 @@ class Notification(TimeStampedModel):
         ordering = ["-created_at"]
         indexes = [
             models.Index(fields=["recipient", "is_read"]),
+        ]
+        permissions = [
+            (CorePerms.CAN_VIEW_FULL_DASHBOARD, "Full department dashboard access"),
+            (CorePerms.CAN_SEARCH_ALL, "Unrestricted global search"),
         ]
 
     def __str__(self):

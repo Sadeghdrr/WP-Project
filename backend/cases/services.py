@@ -72,7 +72,7 @@ from django.db.models import Count, Max, Prefetch, Q, QuerySet
 from django.utils import timezone
 
 from core.constants import REWARD_MULTIPLIER
-from core.domain.access import apply_role_filter, get_user_role_name
+from core.domain.access import apply_permission_scope, require_permission
 from core.domain.exceptions import DomainError, InvalidTransition, NotFound, PermissionDenied
 from core.domain.notifications import NotificationService
 from core.permissions_constants import CasesPerms
@@ -89,10 +89,7 @@ from .models import (
 )
 
 # ── Roles that are NOT allowed to create crime-scene cases ──────────
-_CRIME_SCENE_FORBIDDEN_ROLES: set[str] = {"cadet", "base_user"}
-
-# ── Role name that auto-approves crime-scene cases ──────────────────
-_CHIEF_ROLE: str = "police_chief"
+# (replaced by CAN_CREATE_CRIME_SCENE permission check)
 
 # ── Valid role-field names for unassign ──────────────────────────────
 _VALID_ROLE_FIELDS: set[str] = {
@@ -172,30 +169,36 @@ JUDGE_VISIBLE_STATUSES: set[str] = {
     CaseStatus.CLOSED,
 }
 
-#: Role → queryset filter config for ``apply_role_filter``.
-CASE_SCOPE_CONFIG: dict[str, Any] = {
-    # Base users — only cases where they are a complainant
-    "base_user":      lambda qs, u: qs.filter(complainants__user=u),
-    # Cadet — early complaint stages
-    "cadet":          lambda qs, u: qs.filter(status__in=CADET_VISIBLE_STATUSES),
-    # Officers — everything past the complaint-screening phase
-    "police_officer": lambda qs, u: qs.exclude(status__in=OFFICER_EXCLUDED_STATUSES),
-    # Detective — only their assigned cases
-    "detective":      lambda qs, u: qs.filter(assigned_detective=u),
-    # Sergeant — their assigned cases
-    "sergeant":       lambda qs, u: qs.filter(
-                          Q(assigned_sergeant=u) | Q(assigned_detective__isnull=False)
-                      ),
+#: Permission-based scope rules for ``apply_permission_scope``.
+#: Ordered from broadest (unrestricted) to narrowest (own-only).
+CASE_SCOPE_RULES: list[tuple[str, Any]] = [
     # Senior / admin roles — unrestricted
-    "captain":        lambda qs, u: qs,
-    "police_chief":   lambda qs, u: qs,
-    "system_admin":   lambda qs, u: qs,
+    (f"cases.{CasesPerms.CAN_SCOPE_ALL_CASES}",
+     lambda qs, u: qs),
+    # Sergeant — their supervised cases
+    (f"cases.{CasesPerms.CAN_SCOPE_SUPERVISED_CASES}",
+     lambda qs, u: qs.filter(
+         Q(assigned_sergeant=u) | Q(assigned_detective__isnull=False)
+     )),
+    # Detective — only their assigned cases
+    (f"cases.{CasesPerms.CAN_SCOPE_ASSIGNED_CASES}",
+     lambda qs, u: qs.filter(assigned_detective=u)),
+    # Officers — everything past the complaint-screening phase
+    (f"cases.{CasesPerms.CAN_SCOPE_OFFICER_CASES}",
+     lambda qs, u: qs.exclude(status__in=OFFICER_EXCLUDED_STATUSES)),
+    # Cadet — early complaint stages
+    (f"cases.{CasesPerms.CAN_SCOPE_COMPLAINT_QUEUE}",
+     lambda qs, u: qs.filter(status__in=CADET_VISIBLE_STATUSES)),
     # Judge — only judiciary/closed cases assigned to them
-    "judge":          lambda qs, u: qs.filter(
-                          status__in=JUDGE_VISIBLE_STATUSES,
-                          assigned_judge=u,
-                      ),
-}
+    (f"cases.{CasesPerms.CAN_SCOPE_JUDICIARY_CASES}",
+     lambda qs, u: qs.filter(
+         status__in=JUDGE_VISIBLE_STATUSES,
+         assigned_judge=u,
+     )),
+    # Base users — only cases where they are a complainant
+    (f"cases.{CasesPerms.CAN_SCOPE_OWN_CASES}",
+     lambda qs, u: qs.filter(complainants__user=u)),
+]
 
 
 class CaseQueryService:
@@ -270,11 +273,11 @@ class CaseQueryService:
         # 1. Base queryset
         qs = Case.objects.all()
 
-        # 2. Role-scoped filtering
-        qs = apply_role_filter(
+        # 2. Permission-scoped filtering
+        qs = apply_permission_scope(
             qs,
             requesting_user,
-            scope_config=CASE_SCOPE_CONFIG,
+            scope_rules=CASE_SCOPE_RULES,
             default="none",
         )
 
@@ -318,11 +321,11 @@ class CaseQueryService:
         core.domain.exceptions.NotFound
             If the case does not exist or is not visible to the user.
         """
-        # 1. Build role-scoped base queryset
-        qs = apply_role_filter(
+        # 1. Build permission-scoped base queryset
+        qs = apply_permission_scope(
             Case.objects.all(),
             requesting_user,
-            scope_config=CASE_SCOPE_CONFIG,
+            scope_rules=CASE_SCOPE_RULES,
             default="none",
         )
 
@@ -460,16 +463,18 @@ class CaseCreationService:
         5. If status == OPEN, automatically set ``approved_by = requesting_user``.
         6. Return ``case``.
         """
-        # ── Role guard: Cadets / base users cannot create crime-scene cases
-        role_name = get_user_role_name(requesting_user)
-        if role_name in _CRIME_SCENE_FORBIDDEN_ROLES or role_name is None:
-            raise PermissionDenied(
-                "Your role is not permitted to create a crime-scene case."
-            )
+        # ── Permission guard ─────────────────────────────────────
+        require_permission(
+            requesting_user,
+            f"cases.{CasesPerms.CAN_CREATE_CRIME_SCENE}",
+            message="Your role is not permitted to create a crime-scene case.",
+        )
 
         # ── Determine initial status based on rank
-        is_chief = role_name == _CHIEF_ROLE
-        initial_status = CaseStatus.OPEN if is_chief else CaseStatus.PENDING_APPROVAL
+        can_auto_approve = requesting_user.has_perm(
+            f"cases.{CasesPerms.CAN_AUTO_APPROVE_CRIME_SCENE}"
+        )
+        initial_status = CaseStatus.OPEN if can_auto_approve else CaseStatus.PENDING_APPROVAL
 
         # ── Extract nested witnesses before creating case
         witnesses_data = validated_data.pop("witnesses", []) or []
@@ -478,7 +483,7 @@ class CaseCreationService:
         validated_data["status"] = initial_status
         validated_data["created_by"] = requesting_user
 
-        if is_chief:
+        if can_auto_approve:
             validated_data["approved_by"] = requesting_user
 
         case = Case.objects.create(**validated_data)
@@ -491,8 +496,8 @@ class CaseCreationService:
 
         # ── Log the initial status
         log_message = (
-            "Crime-scene case created and auto-approved (Police Chief)."
-            if is_chief
+            "Crime-scene case created and auto-approved."
+            if can_auto_approve
             else "Crime-scene case created — pending superior approval."
         )
         CaseStatusLog.objects.create(
@@ -504,7 +509,7 @@ class CaseCreationService:
         )
 
         # ── Notify approvers if pending
-        if not is_chief:
+        if not can_auto_approve:
             NotificationService.create(
                 actor=requesting_user,
                 recipients=[requesting_user],  # placeholder — ideally superiors
@@ -1346,8 +1351,7 @@ class CaseAssignmentService:
                 reason="Case must be in OPEN status to assign a detective.",
             )
 
-        detective_role = get_user_role_name(detective)
-        if detective_role != "detective":
+        if not detective.has_perm(f"cases.{CasesPerms.CAN_BE_ASSIGNED_DETECTIVE}"):
             raise DomainError(
                 "The assigned user must hold the 'Detective' role."
             )
@@ -1407,8 +1411,7 @@ class CaseAssignmentService:
                 "You do not have permission to assign a sergeant."
             )
 
-        sergeant_role = get_user_role_name(sergeant)
-        if sergeant_role != "sergeant":
+        if not sergeant.has_perm(f"cases.{CasesPerms.CAN_BE_ASSIGNED_SERGEANT}"):
             raise DomainError(
                 "The assigned user must hold the 'Sergeant' role."
             )
@@ -1466,8 +1469,7 @@ class CaseAssignmentService:
                 "You do not have permission to assign a captain."
             )
 
-        captain_role = get_user_role_name(captain)
-        if captain_role != "captain":
+        if not captain.has_perm(f"cases.{CasesPerms.CAN_BE_ASSIGNED_CAPTAIN}"):
             raise DomainError(
                 "The assigned user must hold the 'Captain' role."
             )
@@ -1522,8 +1524,7 @@ class CaseAssignmentService:
                 "You do not have permission to assign a judge."
             )
 
-        judge_role = get_user_role_name(judge)
-        if judge_role != "judge":
+        if not judge.has_perm(f"cases.{CasesPerms.CAN_BE_ASSIGNED_JUDGE}"):
             raise DomainError(
                 "The assigned user must hold the 'Judge' role."
             )
@@ -1922,13 +1923,8 @@ class CaseReportingService:
     Police Chief, or System Administrator.
     """
 
-    #: Roles that are allowed to pull the full case report.
-    _REPORT_ALLOWED_ROLES: frozenset[str] = frozenset({
-        "judge",
-        "captain",
-        "police_chief",
-        "system_administrator",
-    })
+    #: Permission required to pull the full case report.
+    _REPORT_PERM = f"cases.{CasesPerms.CAN_VIEW_CASE_REPORT}"
 
     @classmethod
     def get_case_report(cls, user: Any, case_id: int) -> dict[str, Any]:
@@ -1950,17 +1946,19 @@ class CaseReportingService:
         Raises
         ------
         core.domain.exceptions.PermissionDenied
-            If the user's role is not in ``_REPORT_ALLOWED_ROLES``.
+            If the user lacks the ``CAN_VIEW_CASE_REPORT`` permission.
         core.domain.exceptions.NotFound
             If the case does not exist.
         """
         # ── Access enforcement ──────────────────────────────────────
-        role_name = get_user_role_name(user)
-        if role_name not in cls._REPORT_ALLOWED_ROLES and not user.is_superuser:
-            raise PermissionDenied(
+        require_permission(
+            user,
+            cls._REPORT_PERM,
+            message=(
                 "Only a Judge, Captain, or Police Chief may access "
                 "the full case report."
-            )
+            ),
+        )
 
         # ── Fetch the case with all related data ────────────────────
         try:

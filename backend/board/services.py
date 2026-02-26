@@ -36,6 +36,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import Count, Prefetch, Q, QuerySet
 
 from core.domain.exceptions import DomainError, NotFound, PermissionDenied
+from core.permissions_constants import BoardPerms
 
 from .models import BoardConnection, BoardItem, BoardNote, DetectiveBoard
 
@@ -44,47 +45,34 @@ from .models import BoardConnection, BoardItem, BoardNote, DetectiveBoard
 #  Shared permission helpers
 # ═══════════════════════════════════════════════════════════════════
 
-# Role names that imply supervisory read/write access to any board
-# belonging to cases they are assigned to.
-_SUPERVISOR_ROLES = frozenset({"Sergeant", "Captain", "Police Chief"})
-_ADMIN_ROLE = "System Admin"
-
-# Roles that are allowed to *create* a detective board.
-# project-doc.md §4.4: boards belong to the Detective;
-# supervisors who are assigned to the case may also open one.
-_BOARD_CREATOR_ROLES = frozenset({"Detective"}) | _SUPERVISOR_ROLES
-
 
 def _is_admin(user: Any) -> bool:
-    """Return True if the user is a superuser or has the System Admin role."""
-    return user.is_superuser or (user.role is not None and user.role.name == _ADMIN_ROLE)
+    """Return True if the user is a superuser."""
+    return user.is_superuser
 
 
 def _can_create_board(user: Any) -> bool:
     """
     Creation access — project-doc.md §4.4.
 
-    Only Detectives, supervisory ranks (Sergeant / Captain / Police Chief),
-    and System Admins / superusers may open a new detective board.
-    All other roles (Cadet, Officer, Coroner, Base User, etc.) are denied.
+    Users with ``CAN_CREATE_BOARD`` permission (Detectives,
+    supervisory ranks, System Admins) may open a new detective board.
     """
-    if _is_admin(user):
-        return True
-    return user.role is not None and user.role.name in _BOARD_CREATOR_ROLES
+    return user.has_perm(f"board.{BoardPerms.CAN_CREATE_BOARD}")
 
 
 def _can_view_board(user: Any, board: DetectiveBoard) -> bool:
     """
     Read access:
     - The board's detective.
-    - A supervisor (Sergeant/Captain/Chief) assigned to the same case.
-    - An admin / superuser.
+    - A supervisor with ``CAN_VIEW_ANY_BOARD`` assigned to the same case.
+    - A superuser.
     """
     if _is_admin(user):
         return True
     if board.detective_id == user.pk:
         return True
-    if user.role and user.role.name in _SUPERVISOR_ROLES:
+    if user.has_perm(f"board.{BoardPerms.CAN_VIEW_ANY_BOARD}"):
         case = board.case
         return _is_assigned_to_case(user, case)
     return False
@@ -179,7 +167,7 @@ class BoardWorkspaceService:
         if _is_admin(requesting_user):
             return qs
 
-        if requesting_user.role and requesting_user.role.name in _SUPERVISOR_ROLES:
+        if requesting_user.has_perm(f"board.{BoardPerms.CAN_VIEW_ANY_BOARD}"):
             return qs.filter(
                 Q(detective=requesting_user)
                 | Q(case__assigned_detective=requesting_user)

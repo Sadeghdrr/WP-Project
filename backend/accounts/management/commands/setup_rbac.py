@@ -100,6 +100,14 @@ ROLE_PERMISSIONS_MAP: dict[tuple[str, str, int], list[str]] = {
         SuspectsPerms.CAN_SCORE_GUILT, SuspectsPerms.CAN_RENDER_VERDICT,
         SuspectsPerms.CAN_JUDGE_TRIAL, SuspectsPerms.CAN_REVIEW_BOUNTY_TIP,
         SuspectsPerms.CAN_VERIFY_BOUNTY_TIP, SuspectsPerms.CAN_SET_BAIL_AMOUNT,
+        # ── Scope permissions (data-visibility tiers) ──────────────
+        CasesPerms.CAN_SCOPE_ALL_CASES,
+        CasesPerms.CAN_CREATE_CRIME_SCENE, CasesPerms.CAN_AUTO_APPROVE_CRIME_SCENE,
+        CasesPerms.CAN_VIEW_CASE_REPORT,
+        SuspectsPerms.CAN_SCOPE_ALL_SUSPECTS,
+        SuspectsPerms.CAN_LOOKUP_BOUNTY_REWARD,
+        # ── Account management ─────────────────────────────────────
+        AccountsPerms.CAN_MANAGE_USERS,
         # Board
         BoardPerms.VIEW_DETECTIVEBOARD, BoardPerms.ADD_DETECTIVEBOARD,
         BoardPerms.CHANGE_DETECTIVEBOARD, BoardPerms.DELETE_DETECTIVEBOARD,
@@ -110,9 +118,11 @@ ROLE_PERMISSIONS_MAP: dict[tuple[str, str, int], list[str]] = {
         BoardPerms.VIEW_BOARDCONNECTION, BoardPerms.ADD_BOARDCONNECTION,
         BoardPerms.CHANGE_BOARDCONNECTION, BoardPerms.DELETE_BOARDCONNECTION,
         BoardPerms.CAN_EXPORT_BOARD,
+        BoardPerms.CAN_CREATE_BOARD, BoardPerms.CAN_VIEW_ANY_BOARD,
         # Core
         CorePerms.VIEW_NOTIFICATION, CorePerms.ADD_NOTIFICATION,
         CorePerms.CHANGE_NOTIFICATION, CorePerms.DELETE_NOTIFICATION,
+        CorePerms.CAN_VIEW_FULL_DASHBOARD, CorePerms.CAN_SEARCH_ALL,
     ],
 
     # ── Police Chief ────────────────────────────────────────────────
@@ -146,16 +156,24 @@ ROLE_PERMISSIONS_MAP: dict[tuple[str, str, int], list[str]] = {
         SuspectsPerms.VIEW_BOUNTYTIP,
         SuspectsPerms.VIEW_BAIL, SuspectsPerms.CHANGE_BAIL,
         SuspectsPerms.CAN_RENDER_VERDICT,
+        # ── Scope permissions ──────────────────────────────────────
+        CasesPerms.CAN_SCOPE_ALL_CASES,
+        CasesPerms.CAN_CREATE_CRIME_SCENE, CasesPerms.CAN_AUTO_APPROVE_CRIME_SCENE,
+        CasesPerms.CAN_VIEW_CASE_REPORT,
+        SuspectsPerms.CAN_SCOPE_ALL_SUSPECTS,
+        SuspectsPerms.CAN_LOOKUP_BOUNTY_REWARD,
         # Board (read-only)
         BoardPerms.VIEW_DETECTIVEBOARD,
         BoardPerms.VIEW_BOARDNOTE,
         BoardPerms.VIEW_BOARDITEM,
         BoardPerms.VIEW_BOARDCONNECTION,
+        BoardPerms.CAN_CREATE_BOARD, BoardPerms.CAN_VIEW_ANY_BOARD,
         # Users (view only)
         AccountsPerms.VIEW_USER,
         # Notifications
         CorePerms.VIEW_NOTIFICATION, CorePerms.ADD_NOTIFICATION,
         CorePerms.CHANGE_NOTIFICATION, CorePerms.DELETE_NOTIFICATION,
+        CorePerms.CAN_VIEW_FULL_DASHBOARD, CorePerms.CAN_SEARCH_ALL,
     ],
 
     # ── Captain ─────────────────────────────────────────────────────
@@ -185,16 +203,25 @@ ROLE_PERMISSIONS_MAP: dict[tuple[str, str, int], list[str]] = {
         SuspectsPerms.VIEW_BOUNTYTIP,
         SuspectsPerms.VIEW_BAIL,
         SuspectsPerms.CAN_RENDER_VERDICT,
+        # ── Scope permissions ──────────────────────────────────────
+        CasesPerms.CAN_SCOPE_ALL_CASES,
+        CasesPerms.CAN_CREATE_CRIME_SCENE,
+        CasesPerms.CAN_VIEW_CASE_REPORT,
+        CasesPerms.CAN_BE_ASSIGNED_CAPTAIN,
+        SuspectsPerms.CAN_SCOPE_ALL_SUSPECTS,
+        SuspectsPerms.CAN_LOOKUP_BOUNTY_REWARD,
         # Board (read-only)
         BoardPerms.VIEW_DETECTIVEBOARD,
         BoardPerms.VIEW_BOARDNOTE,
         BoardPerms.VIEW_BOARDITEM,
         BoardPerms.VIEW_BOARDCONNECTION,
+        BoardPerms.CAN_CREATE_BOARD, BoardPerms.CAN_VIEW_ANY_BOARD,
         # Users
         AccountsPerms.VIEW_USER,
         # Notifications
         CorePerms.VIEW_NOTIFICATION, CorePerms.ADD_NOTIFICATION,
         CorePerms.CHANGE_NOTIFICATION, CorePerms.DELETE_NOTIFICATION,
+        CorePerms.CAN_VIEW_FULL_DASHBOARD, CorePerms.CAN_SEARCH_ALL,
     ],
 
     # ── Sergeant ────────────────────────────────────────────────────
@@ -226,11 +253,18 @@ ROLE_PERMISSIONS_MAP: dict[tuple[str, str, int], list[str]] = {
         SuspectsPerms.CAN_APPROVE_SUSPECT, SuspectsPerms.CAN_ISSUE_ARREST_WARRANT,
         SuspectsPerms.CAN_CONDUCT_INTERROGATION, SuspectsPerms.CAN_SCORE_GUILT,
         SuspectsPerms.CAN_SET_BAIL_AMOUNT,
+        # ── Scope permissions ──────────────────────────────────────
+        CasesPerms.CAN_SCOPE_SUPERVISED_CASES,
+        CasesPerms.CAN_CREATE_CRIME_SCENE,
+        CasesPerms.CAN_BE_ASSIGNED_SERGEANT,
+        SuspectsPerms.CAN_SCOPE_SUPERVISED_SUSPECTS,
+        SuspectsPerms.CAN_LOOKUP_BOUNTY_REWARD,
         # Board (read-only)
         BoardPerms.VIEW_DETECTIVEBOARD,
         BoardPerms.VIEW_BOARDNOTE,
         BoardPerms.VIEW_BOARDITEM,
         BoardPerms.VIEW_BOARDCONNECTION,
+        BoardPerms.CAN_CREATE_BOARD, BoardPerms.CAN_VIEW_ANY_BOARD,
         # Users
         AccountsPerms.VIEW_USER,
         # Notifications
@@ -270,6 +304,12 @@ ROLE_PERMISSIONS_MAP: dict[tuple[str, str, int], list[str]] = {
         SuspectsPerms.VIEW_BAIL,
         SuspectsPerms.CAN_IDENTIFY_SUSPECT, SuspectsPerms.CAN_CONDUCT_INTERROGATION,
         SuspectsPerms.CAN_SCORE_GUILT, SuspectsPerms.CAN_VERIFY_BOUNTY_TIP,
+        # ── Scope permissions ──────────────────────────────────────
+        CasesPerms.CAN_SCOPE_ASSIGNED_CASES,
+        CasesPerms.CAN_CREATE_CRIME_SCENE,
+        CasesPerms.CAN_BE_ASSIGNED_DETECTIVE,
+        SuspectsPerms.CAN_SCOPE_ASSIGNED_SUSPECTS,
+        SuspectsPerms.CAN_LOOKUP_BOUNTY_REWARD,
         # Board (full CRUD — detective's workspace)
         BoardPerms.VIEW_DETECTIVEBOARD, BoardPerms.ADD_DETECTIVEBOARD,
         BoardPerms.CHANGE_DETECTIVEBOARD, BoardPerms.DELETE_DETECTIVEBOARD,
@@ -280,6 +320,7 @@ ROLE_PERMISSIONS_MAP: dict[tuple[str, str, int], list[str]] = {
         BoardPerms.VIEW_BOARDCONNECTION, BoardPerms.ADD_BOARDCONNECTION,
         BoardPerms.CHANGE_BOARDCONNECTION, BoardPerms.DELETE_BOARDCONNECTION,
         BoardPerms.CAN_EXPORT_BOARD,
+        BoardPerms.CAN_CREATE_BOARD,
         # Users
         AccountsPerms.VIEW_USER,
         # Notifications
@@ -310,6 +351,11 @@ ROLE_PERMISSIONS_MAP: dict[tuple[str, str, int], list[str]] = {
         SuspectsPerms.VIEW_SUSPECT,
         SuspectsPerms.VIEW_BOUNTYTIP, SuspectsPerms.CHANGE_BOUNTYTIP,
         SuspectsPerms.CAN_REVIEW_BOUNTY_TIP,
+        # ── Scope permissions ──────────────────────────────────────
+        CasesPerms.CAN_SCOPE_OFFICER_CASES,
+        CasesPerms.CAN_CREATE_CRIME_SCENE,
+        SuspectsPerms.CAN_SCOPE_OWN_SUSPECTS,
+        SuspectsPerms.CAN_LOOKUP_BOUNTY_REWARD,
         # Users
         AccountsPerms.VIEW_USER,
         # Notifications
@@ -329,6 +375,10 @@ ROLE_PERMISSIONS_MAP: dict[tuple[str, str, int], list[str]] = {
         CasesPerms.VIEW_CASEWITNESS,
         CasesPerms.VIEW_CASESTATUSLOG, CasesPerms.ADD_CASESTATUSLOG,
         CasesPerms.CAN_REVIEW_COMPLAINT, CasesPerms.CAN_CHANGE_CASE_STATUS,
+        # ── Scope permissions ──────────────────────────────────────
+        CasesPerms.CAN_SCOPE_COMPLAINT_QUEUE,
+        SuspectsPerms.CAN_SCOPE_OWN_SUSPECTS,
+        SuspectsPerms.CAN_LOOKUP_BOUNTY_REWARD,
         # Evidence (view only)
         EvidencePerms.VIEW_EVIDENCE,
         EvidencePerms.VIEW_TESTIMONYEVIDENCE,
@@ -356,6 +406,9 @@ ROLE_PERMISSIONS_MAP: dict[tuple[str, str, int], list[str]] = {
         EvidencePerms.VIEW_IDENTITYEVIDENCE,
         EvidencePerms.VIEW_EVIDENCEFILE, EvidencePerms.ADD_EVIDENCEFILE,
         EvidencePerms.CAN_VERIFY_EVIDENCE, EvidencePerms.CAN_REGISTER_FORENSIC_RESULT,
+        # ── Scope permissions ──────────────────────────────────────
+        SuspectsPerms.CAN_SCOPE_EXAMINED_SUSPECTS,
+        SuspectsPerms.CAN_LOOKUP_BOUNTY_REWARD,
         # Notifications
         CorePerms.VIEW_NOTIFICATION, CorePerms.ADD_NOTIFICATION,
         CorePerms.CHANGE_NOTIFICATION, CorePerms.DELETE_NOTIFICATION,
@@ -385,6 +438,11 @@ ROLE_PERMISSIONS_MAP: dict[tuple[str, str, int], list[str]] = {
         SuspectsPerms.VIEW_TRIAL, SuspectsPerms.ADD_TRIAL, SuspectsPerms.CHANGE_TRIAL,
         SuspectsPerms.VIEW_BAIL,
         SuspectsPerms.CAN_JUDGE_TRIAL,
+        # ── Scope permissions ──────────────────────────────────────
+        CasesPerms.CAN_SCOPE_JUDICIARY_CASES,
+        CasesPerms.CAN_VIEW_CASE_REPORT,
+        CasesPerms.CAN_BE_ASSIGNED_JUDGE,
+        SuspectsPerms.CAN_SCOPE_ALL_SUSPECTS,
         # Users
         AccountsPerms.VIEW_USER,
         # Notifications
@@ -400,6 +458,9 @@ ROLE_PERMISSIONS_MAP: dict[tuple[str, str, int], list[str]] = {
     ): [
         SuspectsPerms.VIEW_SUSPECT,       # Most Wanted page is public
         SuspectsPerms.VIEW_BOUNTYTIP, SuspectsPerms.ADD_BOUNTYTIP,
+        # ── Scope permissions ──────────────────────────────────────
+        CasesPerms.CAN_SCOPE_OWN_CASES,
+        SuspectsPerms.CAN_SCOPE_OWN_SUSPECTS,
         CorePerms.VIEW_NOTIFICATION, CorePerms.CHANGE_NOTIFICATION,
     ],
 }

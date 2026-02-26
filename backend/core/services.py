@@ -64,7 +64,8 @@ from django.db.models.functions import Cast, Coalesce, Greatest, Now
 from django.utils import timezone
 
 from core.constants import REWARD_MULTIPLIER
-from core.domain.access import apply_role_filter, get_user_role_name
+from core.domain.access import apply_permission_scope
+from core.permissions_constants import CasesPerms, CorePerms
 
 if TYPE_CHECKING:
     from accounts.models import User
@@ -266,23 +267,22 @@ class DashboardAggregationService:
       employees, number of active cases).
     """
 
-    #: Role names that see department-wide stats.
-    FULL_ACCESS_ROLES = {"captain", "police_chief", "system_admin"}
-
     #: Maximum number of top-wanted suspects to return.
     TOP_WANTED_LIMIT: int = 10
 
     #: Maximum number of recent activity items to return.
     RECENT_ACTIVITY_LIMIT: int = 20
 
-    #: Role → queryset filter mapping for dashboard case scoping.
-    _DASHBOARD_SCOPE_CONFIG = {
-        "captain": lambda qs, u: qs,
-        "police_chief": lambda qs, u: qs,
-        "system_admin": lambda qs, u: qs,
-        "detective": lambda qs, u: qs.filter(assigned_detective=u),
-        "sergeant": lambda qs, u: qs.filter(assigned_sergeant=u),
-    }
+    #: Permission-based scope rules for dashboard case scoping.
+    _DASHBOARD_SCOPE_RULES: list[tuple[str, Any]] = [
+        (f"core.{CorePerms.CAN_VIEW_FULL_DASHBOARD}", lambda qs, u: qs),
+        (f"cases.{CasesPerms.CAN_SCOPE_SUPERVISED_CASES}",
+         lambda qs, u: qs.filter(
+             Q(assigned_sergeant=u) | Q(assigned_detective__isnull=False)
+         )),
+        (f"cases.{CasesPerms.CAN_SCOPE_ASSIGNED_CASES}",
+         lambda qs, u: qs.filter(assigned_detective=u)),
+    ]
 
     def __init__(self, user: User) -> None:
         self.user = user
@@ -338,13 +338,13 @@ class DashboardAggregationService:
     # ── Private helpers ─────────────────────────────────────────────
 
     def _get_case_queryset(self) -> QuerySet:
-        """Return a ``Case`` queryset scoped to the requesting user's role."""
+        """Return a ``Case`` queryset scoped to the requesting user's permissions."""
         Case = apps.get_model("cases", "Case")
         qs = Case.objects.all()
-        return apply_role_filter(
+        return apply_permission_scope(
             qs,
             self.user,
-            scope_config=self._DASHBOARD_SCOPE_CONFIG,
+            scope_rules=self._DASHBOARD_SCOPE_RULES,
             default="all",
         )
 
@@ -424,14 +424,12 @@ class DashboardAggregationService:
         """Return the latest activity feed items."""
         CaseStatusLog = apps.get_model("cases", "CaseStatusLog")
 
-        role_name = get_user_role_name(self.user)
         log_qs = CaseStatusLog.objects.select_related("changed_by", "case")
 
-        # Scope activity to user's cases if they are detective/sergeant
-        if role_name == "detective":
-            log_qs = log_qs.filter(case__assigned_detective=self.user)
-        elif role_name == "sergeant":
-            log_qs = log_qs.filter(case__assigned_sergeant=self.user)
+        # Scope activity to user's visible cases unless they have full access
+        if not self.user.has_perm(f"core.{CorePerms.CAN_VIEW_FULL_DASHBOARD}"):
+            visible_case_ids = self._get_case_queryset().values_list("id", flat=True)
+            log_qs = log_qs.filter(case_id__in=visible_case_ids)
 
         logs = log_qs.order_by("-created_at")[: self.RECENT_ACTIVITY_LIMIT]
 
@@ -494,16 +492,16 @@ class GlobalSearchService:
     #: Minimum query length.
     MIN_QUERY_LENGTH: int = 2
 
-    #: Role → queryset filter mapping (mirrors CaseQueryService scoping).
-    _SEARCH_SCOPE_CONFIG = {
-        "captain": lambda qs, u: qs,
-        "police_chief": lambda qs, u: qs,
-        "system_admin": lambda qs, u: qs,
-        "detective": lambda qs, u: qs.filter(assigned_detective=u),
-        "sergeant": lambda qs, u: qs.filter(
-            Q(assigned_sergeant=u) | Q(assigned_detective__isnull=False),
-        ),
-    }
+    #: Permission-based scope rules for search case scoping.
+    _SEARCH_SCOPE_RULES: list[tuple[str, Any]] = [
+        (f"core.{CorePerms.CAN_SEARCH_ALL}", lambda qs, u: qs),
+        (f"cases.{CasesPerms.CAN_SCOPE_SUPERVISED_CASES}",
+         lambda qs, u: qs.filter(
+             Q(assigned_sergeant=u) | Q(assigned_detective__isnull=False)
+         )),
+        (f"cases.{CasesPerms.CAN_SCOPE_ASSIGNED_CASES}",
+         lambda qs, u: qs.filter(assigned_detective=u)),
+    ]
 
     def __init__(
         self,
@@ -557,10 +555,10 @@ class GlobalSearchService:
 
         Case = apps.get_model("cases", "Case")
         qs = Case.objects.all()
-        qs = apply_role_filter(
+        qs = apply_permission_scope(
             qs,
             self.user,
-            scope_config=self._SEARCH_SCOPE_CONFIG,
+            scope_rules=self._SEARCH_SCOPE_RULES,
             default="all",
         )
         qs = qs.filter(
@@ -646,41 +644,18 @@ class GlobalSearchService:
         Return a queryset of Case PKs the user is allowed to see, or
         ``None`` if the user has unrestricted access.
         """
-        Case = apps.get_model("cases", "Case")
-
-        role_name = get_user_role_name(self.user)
-
-        # Unrestricted roles
-        if role_name in ("captain", "police_chief", "system_admin"):
+        if self.user.has_perm(f"core.{CorePerms.CAN_SEARCH_ALL}"):
             return None
 
-        # Detective sees only their assigned cases
-        if role_name == "detective":
-            return (
-                Case.objects
-                .filter(assigned_detective=self.user)
-                .values_list("id", flat=True)
-            )
-
-        # Sergeant sees cases they supervise or that have a detective
-        if role_name == "sergeant":
-            return (
-                Case.objects
-                .filter(
-                    Q(assigned_sergeant=self.user)
-                    | Q(assigned_detective__isnull=False),
-                )
-                .values_list("id", flat=True)
-            )
-
-        # All other roles: see all open cases (public visibility)
-        from cases.models import CaseStatus
-
-        return (
-            Case.objects
-            .exclude(status__in=[CaseStatus.CLOSED, CaseStatus.VOIDED])
-            .values_list("id", flat=True)
+        Case = apps.get_model("cases", "Case")
+        qs = Case.objects.all()
+        scoped = apply_permission_scope(
+            qs,
+            self.user,
+            scope_rules=self._SEARCH_SCOPE_RULES,
+            default="all",
         )
+        return scoped.values_list("id", flat=True)
 
 
 # ════════════════════════════════════════════════════════════════════

@@ -202,6 +202,23 @@ class Case(TimeStampedModel):
             (CasesPerms.CAN_CHANGE_CASE_STATUS, "Can transition case workflow status"),
             (CasesPerms.CAN_FORWARD_TO_JUDICIARY, "Can forward solved case to judiciary"),
             (CasesPerms.CAN_APPROVE_CRITICAL_CASE, "Can approve critical-level cases (Chief)"),
+            # Scope permissions (data-visibility tiers)
+            (CasesPerms.CAN_SCOPE_ALL_CASES, "Unrestricted case visibility"),
+            (CasesPerms.CAN_SCOPE_SUPERVISED_CASES, "See supervised cases (Sergeant)"),
+            (CasesPerms.CAN_SCOPE_ASSIGNED_CASES, "See only assigned cases (Detective)"),
+            (CasesPerms.CAN_SCOPE_OFFICER_CASES, "See post-complaint cases (Officer)"),
+            (CasesPerms.CAN_SCOPE_COMPLAINT_QUEUE, "See early complaint queue (Cadet)"),
+            (CasesPerms.CAN_SCOPE_JUDICIARY_CASES, "See judiciary/closed cases (Judge)"),
+            (CasesPerms.CAN_SCOPE_OWN_CASES, "See only own-involved cases"),
+            # Workflow guard permissions
+            (CasesPerms.CAN_CREATE_CRIME_SCENE, "Can create a crime-scene case"),
+            (CasesPerms.CAN_AUTO_APPROVE_CRIME_SCENE, "Crime-scene cases auto-open on creation"),
+            (CasesPerms.CAN_VIEW_CASE_REPORT, "Can access the full case report"),
+            # Assignment capability permissions
+            (CasesPerms.CAN_BE_ASSIGNED_DETECTIVE, "Can be assigned as detective"),
+            (CasesPerms.CAN_BE_ASSIGNED_SERGEANT, "Can be assigned as sergeant"),
+            (CasesPerms.CAN_BE_ASSIGNED_CAPTAIN, "Can be assigned as captain"),
+            (CasesPerms.CAN_BE_ASSIGNED_JUDGE, "Can be assigned as judge"),
         ]
 
     def __str__(self):

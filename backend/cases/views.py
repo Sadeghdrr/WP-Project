@@ -35,7 +35,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from core.domain.exceptions import NotFound, PermissionDenied
-from core.domain.access import get_user_role_name
+from core.permissions_constants import CasesPerms
 
 from .models import Case, CaseComplainant
 from .serializers import (
@@ -296,8 +296,7 @@ class CaseViewSet(viewsets.ViewSet):
         4. Return HTTP 204.
         """
         case = self._get_case(pk)
-        role_name = get_user_role_name(request.user)
-        if role_name != "system_admin" and not request.user.is_superuser:
+        if not request.user.has_perm(f"cases.{CasesPerms.DELETE_CASE}"):
             return Response(
                 {"detail": "Only System Administrators may delete cases."},
                 status=status.HTTP_403_FORBIDDEN,

@@ -55,7 +55,7 @@ from django.utils import timezone
 
 from cases.models import CrimeLevel
 from core.constants import REWARD_MULTIPLIER
-from core.domain.access import apply_role_filter, get_user_role_name
+from core.domain.access import apply_permission_scope, require_permission
 from core.domain.exceptions import DomainError, InvalidTransition, NotFound, PermissionDenied
 from core.domain.notifications import NotificationService
 from core.permissions_constants import CasesPerms, SuspectsPerms
@@ -75,6 +75,96 @@ from .models import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  Permission-based scope rules for suspects-domain entities
+# ═══════════════════════════════════════════════════════════════════
+
+#: Scope rules for Suspect querysets (ordered broadest → narrowest).
+SUSPECT_SCOPE_RULES: list[tuple[str, Any]] = [
+    (f"suspects.{SuspectsPerms.CAN_SCOPE_ALL_SUSPECTS}",
+     lambda qs, u: qs),
+    (f"suspects.{SuspectsPerms.CAN_SCOPE_SUPERVISED_SUSPECTS}",
+     lambda qs, u: qs.filter(
+         Q(case__assigned_sergeant=u) | Q(sergeant_approval_status="pending")
+     )),
+    (f"suspects.{SuspectsPerms.CAN_SCOPE_ASSIGNED_SUSPECTS}",
+     lambda qs, u: qs.filter(
+         Q(case__assigned_detective=u) | Q(identified_by=u)
+     )),
+    (f"suspects.{SuspectsPerms.CAN_SCOPE_EXAMINED_SUSPECTS}",
+     lambda qs, u: qs.filter(case__evidences__registered_by=u).distinct()),
+    (f"suspects.{SuspectsPerms.CAN_SCOPE_OWN_SUSPECTS}",
+     lambda qs, u: qs.filter(
+         Q(case__complainants__user=u) | Q(case__created_by=u)
+     ).distinct()),
+]
+
+#: Scope rules for Interrogation querysets.
+INTERROGATION_SCOPE_RULES: list[tuple[str, Any]] = [
+    (f"suspects.{SuspectsPerms.CAN_SCOPE_ALL_SUSPECTS}",
+     lambda qs, u: qs),
+    (f"suspects.{SuspectsPerms.CAN_SCOPE_SUPERVISED_SUSPECTS}",
+     lambda qs, u: qs.filter(
+         Q(case__assigned_sergeant=u) | Q(sergeant=u)
+     )),
+    (f"suspects.{SuspectsPerms.CAN_SCOPE_ASSIGNED_SUSPECTS}",
+     lambda qs, u: qs.filter(
+         Q(case__assigned_detective=u) | Q(detective=u)
+     )),
+    (f"suspects.{SuspectsPerms.CAN_SCOPE_OWN_SUSPECTS}",
+     lambda qs, u: qs.filter(
+         Q(case__created_by=u) | Q(case__complainants__user=u)
+     ).distinct()),
+]
+
+#: Scope rules for Trial querysets.
+TRIAL_SCOPE_RULES: list[tuple[str, Any]] = [
+    (f"suspects.{SuspectsPerms.CAN_SCOPE_ALL_SUSPECTS}",
+     lambda qs, u: qs),
+    (f"suspects.{SuspectsPerms.CAN_SCOPE_ASSIGNED_SUSPECTS}",
+     lambda qs, u: qs.filter(
+         Q(case__assigned_detective=u) | Q(suspect__identified_by=u)
+     )),
+    (f"suspects.{SuspectsPerms.CAN_SCOPE_SUPERVISED_SUSPECTS}",
+     lambda qs, u: qs.filter(case__assigned_sergeant=u)),
+    (f"suspects.{SuspectsPerms.CAN_SCOPE_OWN_SUSPECTS}",
+     lambda qs, u: qs.filter(
+         Q(case__created_by=u) | Q(case__complainants__user=u)
+     ).distinct()),
+]
+
+#: Scope rules for BountyTip querysets.
+BOUNTY_TIP_SCOPE_RULES: list[tuple[str, Any]] = [
+    (f"suspects.{SuspectsPerms.CAN_SCOPE_ALL_SUSPECTS}",
+     lambda qs, u: qs),
+    (f"suspects.{SuspectsPerms.CAN_SCOPE_ASSIGNED_SUSPECTS}",
+     lambda qs, u: qs.filter(
+         Q(case__assigned_detective=u) | Q(suspect__identified_by=u)
+     )),
+    (f"suspects.{SuspectsPerms.CAN_SCOPE_SUPERVISED_SUSPECTS}",
+     lambda qs, u: qs.filter(case__assigned_sergeant=u)),
+    (f"suspects.{SuspectsPerms.CAN_SCOPE_OWN_SUSPECTS}",
+     lambda qs, u: qs.filter(informant=u)),
+]
+
+#: Scope rules for Bail querysets.
+BAIL_SCOPE_RULES: list[tuple[str, Any]] = [
+    (f"suspects.{SuspectsPerms.CAN_SCOPE_ALL_SUSPECTS}",
+     lambda qs, u: qs),
+    (f"suspects.{SuspectsPerms.CAN_SCOPE_SUPERVISED_SUSPECTS}",
+     lambda qs, u: qs.filter(
+         Q(case__assigned_sergeant=u) | Q(approved_by=u)
+     )),
+    (f"suspects.{SuspectsPerms.CAN_SCOPE_ASSIGNED_SUSPECTS}",
+     lambda qs, u: qs.filter(
+         Q(case__assigned_detective=u) | Q(suspect__identified_by=u)
+     )),
+    # Judge — bails on cases assigned to them
+    (f"cases.{CasesPerms.CAN_SCOPE_JUDICIARY_CASES}",
+     lambda qs, u: qs.filter(case__assigned_judge=u)),
+]
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -159,33 +249,13 @@ class SuspectProfileService:
             "interrogations", "trials", "bails",
         )
 
-        # ── Role-based scoping ──────────────────────────────────────
-        user = requesting_user
-        role_name = ""
-        if hasattr(user, "role") and user.role:
-            role_name = user.role.name.lower()
-
-        high_level_roles = {
-            "captain", "police chief", "admin", "system administrator", "judge",
-        }
-        if role_name not in high_level_roles and not user.is_superuser:
-            if role_name == "sergeant":
-                qs = qs.filter(
-                    Q(case__assigned_sergeant=user)
-                    | Q(sergeant_approval_status="pending")
-                )
-            elif role_name == "detective":
-                qs = qs.filter(
-                    Q(case__assigned_detective=user) | Q(identified_by=user)
-                )
-            elif role_name == "coroner":
-                qs = qs.filter(case__evidences__registered_by=user).distinct()
-            else:
-                # Base user / other non-police roles
-                qs = qs.filter(
-                    Q(case__complainants__user=user)
-                    | Q(case__created_by=user)
-                ).distinct()
+        # ── Permission-based scoping ────────────────────────────────
+        qs = apply_permission_scope(
+            qs,
+            requesting_user,
+            scope_rules=SUSPECT_SCOPE_RULES,
+            default="none",
+        )
 
         # ── Explicit filters ────────────────────────────────────────
         if "status" in filters:
@@ -1274,10 +1344,7 @@ class InterrogationService:
         """
         Return all interrogation sessions for a given suspect.
 
-        Role-based scoping:
-        - Detective: sees interrogations on cases assigned to them.
-        - Sergeant: sees interrogations on cases they supervise.
-        - Captain / Chief / Admin / Judge: unrestricted.
+        Permission-based scoping via ``INTERROGATION_SCOPE_RULES``.
         """
         qs = Interrogation.objects.filter(
             suspect_id=suspect_id,
@@ -1285,29 +1352,11 @@ class InterrogationService:
             "detective", "sergeant", "suspect", "case",
         ).order_by("-created_at")
 
-        user = requesting_user
-        role_name = ""
-        if hasattr(user, "role") and user.role:
-            role_name = user.role.name.lower()
-
-        high_level_roles = {
-            "captain", "police chief", "admin",
-            "system administrator", "judge",
-        }
-        if role_name not in high_level_roles and not user.is_superuser:
-            if role_name == "detective":
-                qs = qs.filter(
-                    Q(case__assigned_detective=user) | Q(detective=user),
-                )
-            elif role_name == "sergeant":
-                qs = qs.filter(
-                    Q(case__assigned_sergeant=user) | Q(sergeant=user),
-                )
-            else:
-                qs = qs.filter(
-                    Q(case__created_by=user)
-                    | Q(case__complainants__user=user),
-                ).distinct()
+        qs = apply_permission_scope(
+            qs, requesting_user,
+            scope_rules=INTERROGATION_SCOPE_RULES,
+            default="none",
+        )
 
         return qs
 
@@ -1338,29 +1387,11 @@ class InterrogationService:
             "detective", "sergeant", "suspect", "case",
         ).order_by("-created_at")
 
-        user = requesting_user
-        role_name = ""
-        if hasattr(user, "role") and user.role:
-            role_name = user.role.name.lower()
-
-        high_level_roles = {
-            "captain", "police chief", "admin",
-            "system administrator", "judge",
-        }
-        if role_name not in high_level_roles and not user.is_superuser:
-            if role_name == "detective":
-                qs = qs.filter(
-                    Q(case__assigned_detective=user) | Q(detective=user),
-                )
-            elif role_name == "sergeant":
-                qs = qs.filter(
-                    Q(case__assigned_sergeant=user) | Q(sergeant=user),
-                )
-            else:
-                qs = qs.filter(
-                    Q(case__created_by=user)
-                    | Q(case__complainants__user=user),
-                ).distinct()
+        qs = apply_permission_scope(
+            qs, requesting_user,
+            scope_rules=INTERROGATION_SCOPE_RULES,
+            default="none",
+        )
 
         if filters:
             if "case" in filters:
@@ -1543,15 +1574,6 @@ class VerdictService:
                 "Only a Captain (or higher) can render a verdict."
             )
 
-        role_name = ""
-        if hasattr(actor, "role") and actor.role:
-            role_name = actor.role.name.lower()
-        if role_name not in ("captain", "police chief", "system administrator") \
-                and not actor.is_superuser:
-            raise PermissionDenied(
-                "Only a Captain can submit a verdict at this stage."
-            )
-
         # ── Fetch suspect with row lock ─────────────────────────────
         try:
             suspect = Suspect.objects.select_for_update().select_related(
@@ -1712,15 +1734,6 @@ class VerdictService:
                 "verdicts for critical cases."
             )
 
-        role_name = ""
-        if hasattr(actor, "role") and actor.role:
-            role_name = actor.role.name.lower()
-        if role_name not in ("police chief", "system administrator") \
-                and not actor.is_superuser:
-            raise PermissionDenied(
-                "Only the Police Chief can process this approval."
-            )
-
         # ── Fetch suspect with row lock ─────────────────────────────
         try:
             suspect = Suspect.objects.select_for_update().select_related(
@@ -1856,12 +1869,6 @@ class TrialService:
     records the final verdict and, if guilty, the punishment.
     """
 
-    #: Roles with unrestricted trial visibility.
-    _HIGH_LEVEL_ROLES: frozenset[str] = frozenset({
-        "captain", "police chief", "admin",
-        "system administrator", "judge",
-    })
-
     @staticmethod
     def get_trials_for_suspect(
         suspect_id: int,
@@ -1869,13 +1876,19 @@ class TrialService:
     ) -> QuerySet[Trial]:
         """
         Return all trial records for a given suspect, scoped by the
-        requesting user's role.
+        requesting user's permissions.
         """
-        return Trial.objects.filter(
+        qs = Trial.objects.filter(
             suspect_id=suspect_id,
         ).select_related(
             "judge", "suspect", "case",
         ).order_by("-created_at")
+
+        return apply_permission_scope(
+            qs, requesting_user,
+            scope_rules=TRIAL_SCOPE_RULES,
+            default="none",
+        )
 
     @classmethod
     def list_trials(
@@ -1891,28 +1904,11 @@ class TrialService:
             "judge", "suspect", "case",
         ).order_by("-created_at")
 
-        user = requesting_user
-        role_name = ""
-        if hasattr(user, "role") and user.role:
-            role_name = user.role.name.lower()
-
-        if role_name not in cls._HIGH_LEVEL_ROLES and not user.is_superuser:
-            if role_name == "detective":
-                qs = qs.filter(
-                    Q(case__assigned_detective=user)
-                    | Q(suspect__identified_by=user),
-                )
-            elif role_name == "sergeant":
-                qs = qs.filter(
-                    Q(case__assigned_sergeant=user),
-                )
-            else:
-                # Base users — see only trials on cases
-                # they are associated with.
-                qs = qs.filter(
-                    Q(case__created_by=user)
-                    | Q(case__complainants__user=user),
-                ).distinct()
+        qs = apply_permission_scope(
+            qs, requesting_user,
+            scope_rules=TRIAL_SCOPE_RULES,
+            default="none",
+        )
 
         if filters:
             if "case" in filters:
@@ -2155,26 +2151,11 @@ class BountyTipService:
             "suspect", "case", "informant", "reviewed_by", "verified_by",
         )
 
-        user = requesting_user
-        role_name = ""
-        if hasattr(user, "role") and user.role:
-            role_name = user.role.name.lower()
-
-        high_level_roles = {
-            "captain", "police chief", "admin", "system administrator",
-            "judge", "officer", "police officer",
-        }
-        if role_name not in high_level_roles and not user.is_superuser:
-            if role_name == "detective":
-                qs = qs.filter(
-                    Q(case__assigned_detective=user)
-                    | Q(suspect__identified_by=user)
-                )
-            elif role_name == "sergeant":
-                qs = qs.filter(case__assigned_sergeant=user)
-            else:
-                # Base user / citizen — only their own tips
-                qs = qs.filter(informant=user)
+        qs = apply_permission_scope(
+            qs, requesting_user,
+            scope_rules=BOUNTY_TIP_SCOPE_RULES,
+            default="none",
+        )
 
         if filters:
             if "status" in filters:
@@ -2459,22 +2440,11 @@ class BountyTipService:
         national_id and the exact unique_code. Returns the reward status
         and details. If not found, raises NotFound.
         """
-        allowed_lookup_roles = {
-            "cadet",
-            "police_officer",
-            "detective",
-            "sergeant",
-            "captain",
-            "police_chief",
-            "coroner",
-            "system_admin",
-            "admin",
-        }
-        role_name = get_user_role_name(requesting_user)
-        if role_name not in allowed_lookup_roles:
-            raise PermissionDenied(
-                "Only police ranks can look up bounty rewards.",
-            )
+        require_permission(
+            requesting_user,
+            f"suspects.{SuspectsPerms.CAN_LOOKUP_BOUNTY_REWARD}",
+            message="Only police ranks can look up bounty rewards.",
+        )
 
         tip = BountyTip.objects.select_related(
             "suspect", "case", "informant",
@@ -2522,30 +2492,6 @@ class BailService:
       ``CONVICTED`` criminals. Sergeant approval required.
     """
 
-    #: Role-based scope config for bail visibility.
-    #: Mirrors the pattern used by CaseQueryService's ``CASE_SCOPE_CONFIG``.
-    BAIL_SCOPE_CONFIG: dict[str, Any] = {
-        # Detectives see bails for suspects on their assigned cases
-        "detective":      lambda qs, u: qs.filter(
-                              Q(case__assigned_detective=u) | Q(suspect__identified_by=u)
-                          ),
-        # Sergeants see bails for suspects on cases they supervise
-        "sergeant":       lambda qs, u: qs.filter(
-                              Q(case__assigned_sergeant=u) | Q(approved_by=u)
-                          ),
-        # Senior / admin roles — unrestricted
-        "captain":        lambda qs, u: qs,
-        "police_chief":   lambda qs, u: qs,
-        "system_admin":   lambda qs, u: qs,
-        # Judge — only bails on cases assigned to them
-        "judge":          lambda qs, u: qs.filter(case__assigned_judge=u),
-    }
-
-    # Roles considered at least Sergeant rank or higher for bail authorization
-    _SERGEANT_OR_HIGHER = {
-        "sergeant", "captain", "police_chief", "system_admin",
-    }
-
     @staticmethod
     def _get_suspect_or_404(suspect_id: int) -> Suspect:
         """Fetch suspect with related case, or raise ``NotFound``."""
@@ -2588,12 +2534,12 @@ class BailService:
                 f"arrested. Current status: {suspect_status}."
             )
 
-        # ── Rule 3: Actor must be Sergeant or higher ────────────────────
-        role_name = get_user_role_name(actor)
-        if role_name not in cls._SERGEANT_OR_HIGHER:
-            raise PermissionDenied(
-                "Only a Sergeant or higher rank can set bail amounts."
-            )
+        # ── Rule 3: Actor must have CAN_SET_BAIL_AMOUNT permission ─────
+        require_permission(
+            actor,
+            f"suspects.{SuspectsPerms.CAN_SET_BAIL_AMOUNT}",
+            message="Only a Sergeant or higher rank can set bail amounts.",
+        )
 
     @classmethod
     def get_bails_for_suspect(
@@ -2610,7 +2556,7 @@ class BailService:
         suspect_id : int
             PK of the suspect.
         requesting_user : User
-            Authenticated user; used for role-based scoping.
+            Authenticated user; used for permission-based scoping.
 
         Returns
         -------
@@ -2624,11 +2570,11 @@ class BailService:
             "suspect", "case", "approved_by",
         )
 
-        # Apply role scoping
-        qs = apply_role_filter(
+        # Apply permission-based scoping
+        qs = apply_permission_scope(
             qs,
             requesting_user,
-            scope_config=cls.BAIL_SCOPE_CONFIG,
+            scope_rules=BAIL_SCOPE_RULES,
             default="none",
         )
 
@@ -2642,7 +2588,7 @@ class BailService:
         requesting_user: Any,
     ) -> Bail:
         """
-        Return a single bail record, scoped to the requesting user's role.
+        Return a single bail record, scoped to the requesting user's permissions.
 
         Parameters
         ----------
@@ -2664,10 +2610,10 @@ class BailService:
             suspect_id=suspect_id,
         ).select_related("suspect", "case", "approved_by")
 
-        qs = apply_role_filter(
+        qs = apply_permission_scope(
             qs,
             requesting_user,
-            scope_config=cls.BAIL_SCOPE_CONFIG,
+            scope_rules=BAIL_SCOPE_RULES,
             default="none",
         )
 

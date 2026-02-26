@@ -10,6 +10,8 @@ assignment; hierarchy levels for police ranks).
 from django.contrib.auth.models import AbstractUser, Permission
 from django.db import models
 
+from core.permissions_constants import AccountsPerms
+
 
 class Role(models.Model):
     """
@@ -121,6 +123,9 @@ class User(AbstractUser):
     class Meta:
         verbose_name = "User"
         verbose_name_plural = "Users"
+        permissions = [
+            (AccountsPerms.CAN_MANAGE_USERS, "Admin-level user management"),
+        ]
 
     def __str__(self):
         role_name = self.role.name if self.role else "No Role"
