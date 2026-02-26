@@ -54,6 +54,7 @@ import {
   useBatchSaveCoordinates,
 } from "./useBoardData";
 import type { BoardItem, BoardConnection, BoardNote } from "../../types/board";
+import { ErrorState, LoadingSpinner } from "../../components/ui";
 import css from "./DetectiveBoardPage.module.css";
 
 // ---------------------------------------------------------------------------
@@ -463,14 +464,16 @@ export default function DetectiveBoardPage() {
 
       {/* ── Error ─────────────────────────────────────────────── */}
       {error && (
-        <div className={css.errorBox}>
-          Error: {error instanceof Error ? error.message : String(error)}
-        </div>
+        <ErrorState
+          message={error instanceof Error ? error.message : String(error)}
+          onRetry={() => refetchBoard()}
+          compact
+        />
       )}
 
       {/* ── Loading ───────────────────────────────────────────── */}
       {isLoading && (
-        <div className={css.centerMsg}>Loading board data\u2026</div>
+        <LoadingSpinner label="Loading board data…" />
       )}
 
       {/* ── No board yet ─────────────────────────────────────── */}

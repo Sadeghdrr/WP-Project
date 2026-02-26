@@ -125,3 +125,22 @@
   color: #155724;
   margin: 0 0 1rem;
 }
+
+/* ── Responsive ─────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .container {
+    padding: 1rem;
+  }
+
+  .form {
+    gap: 0.75rem;
+  }
+
+  .btnRow {
+    flex-direction: column;
+  }
+
+  .btnRow button {
+    width: 100%;
+  }
+}

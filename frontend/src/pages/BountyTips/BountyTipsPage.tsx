@@ -135,7 +135,7 @@ export default function BountyTipsPage() {
   const filters: BountyTipFilters = {};
   if (statusFilter) filters.status = statusFilter;
 
-  const { data, isLoading, error } = useBountyTips(filters);
+  const { data, isLoading, error, refetch } = useBountyTips(filters);
 
   if (isLoading) {
     return (
@@ -149,7 +149,7 @@ export default function BountyTipsPage() {
   if (error) {
     return (
       <div className={css.container}>
-        <ErrorState message={error.message} />
+        <ErrorState message={error.message} onRetry={() => refetch()} />
       </div>
     );
   }
@@ -192,6 +192,7 @@ export default function BountyTipsPage() {
           message="There are no bounty tips matching the current filter."
         />
       ) : (
+        <div className={css.tableWrap}>
         <table className={css.table}>
           <thead>
             <tr>
@@ -230,6 +231,7 @@ export default function BountyTipsPage() {
             ))}
           </tbody>
         </table>
+        </div>
       )}
     </div>
   );

@@ -245,3 +245,30 @@
   color: #991b1b;
   font-size: 0.85rem;
 }
+
+/* ── Responsive ─────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .container {
+    padding: 1rem;
+  }
+
+  .form {
+    gap: 0.75rem;
+  }
+
+  .typeCards {
+    grid-template-columns: 1fr;
+  }
+
+  .kvRow {
+    flex-direction: column;
+  }
+
+  .actions {
+    flex-direction: column;
+  }
+
+  .actions button {
+    width: 100%;
+  }
+}

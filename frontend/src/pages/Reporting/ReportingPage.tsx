@@ -47,7 +47,7 @@ export default function ReportingPage() {
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebounce(search, 300);
 
-  const { data, isLoading, error } = useCases(
+  const { data, isLoading, error, refetch } = useCases(
     debouncedSearch ? { search: debouncedSearch } : {},
   );
   const navigate = useNavigate();
@@ -80,7 +80,7 @@ export default function ReportingPage() {
         <div className={css.header}>
           <h1>General Reporting</h1>
         </div>
-        <ErrorState message={error.message} />
+        <ErrorState message={error.message} onRetry={() => refetch()} />
       </div>
     );
   }

@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../../auth/useAuth";
 import { apiGet } from "../../api/client";
 import { API } from "../../api/endpoints";
+import { ErrorState } from "../../components/ui";
 import type { DashboardStats } from "../../types/core";
 import styles from "./HomePage.module.css";
 
@@ -54,6 +55,7 @@ export default function HomePage() {
     data: stats,
     isLoading,
     isError,
+    refetch,
   } = useQuery<DashboardStats>({
     queryKey: [...STATS_QUERY_KEY],
     queryFn: fetchDashboardStats,
@@ -146,9 +148,11 @@ export default function HomePage() {
         )}
 
         {isAuthenticated && isError && (
-          <p className={styles.errorMsg}>
-            Unable to load statistics. Please try again later.
-          </p>
+          <ErrorState
+            message="Unable to load statistics. Please try again later."
+            onRetry={() => refetch()}
+            compact
+          />
         )}
 
         {(!isAuthenticated || (!isLoading && !isError)) && (

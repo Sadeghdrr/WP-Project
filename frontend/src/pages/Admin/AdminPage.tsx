@@ -35,8 +35,8 @@ export default function AdminPage() {
 // ---------------------------------------------------------------------------
 
 function AdminOverview({ currentUser }: { currentUser: string }) {
-  const { data: users, isLoading: usersLoading, error: usersErr } = useUsers();
-  const { data: roles, isLoading: rolesLoading, error: rolesErr } = useRoles();
+  const { data: users, isLoading: usersLoading, error: usersErr, refetch: refetchUsers } = useUsers();
+  const { data: roles, isLoading: rolesLoading, error: rolesErr, refetch: refetchRoles } = useRoles();
 
   const isLoading = usersLoading || rolesLoading;
   const error = usersErr || rolesErr;
@@ -54,7 +54,7 @@ function AdminOverview({ currentUser }: { currentUser: string }) {
       {isLoading ? (
         <LoadingSpinner label="Loading stats…" />
       ) : error ? (
-        <ErrorState message="Failed to load admin overview data." />
+        <ErrorState message="Failed to load admin overview data." onRetry={() => { refetchUsers(); refetchRoles(); }} />
       ) : (
         <>
           <div className={css.statsRow}>

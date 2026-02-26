@@ -208,3 +208,34 @@
   font-size: 0.75rem;
   width: 140px;
 }
+
+/* ── Table scroll wrapper ───────────────────────────────────── */
+
+.tableWrap {
+  overflow-x: auto;
+}
+
+/* ── Responsive ─────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .container {
+    padding: 1rem;
+  }
+
+  .header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .filters {
+    flex-direction: column;
+  }
+
+  .table {
+    min-width: 700px;
+  }
+
+  .actionGroup {
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+}

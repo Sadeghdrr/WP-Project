@@ -139,7 +139,26 @@
   margin-top: 0.5rem;
 }
 
-/* ── Print adjustments ─────────────────────────────────────────────── */
+/* ── Responsive ───────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .container {
+    padding: 1rem;
+  }
+
+  .toolbar {
+    flex-direction: column;
+  }
+
+  .searchInput {
+    width: 100%;
+  }
+
+  .caseTable {
+    min-width: 600px;
+  }
+}
+
+/* ── Print adjustments ───────────────────────────────────────── */────── */
 @media print {
   .toolbar,
   .searchInput {

@@ -101,7 +101,7 @@ function MostWantedCard({
  * Bounty = score × 20,000,000 Rials.
  */
 export default function MostWantedPage() {
-  const { data, isLoading, error } = useMostWanted();
+  const { data, isLoading, error, refetch } = useMostWanted();
 
   if (isLoading) {
     return (
@@ -121,7 +121,7 @@ export default function MostWantedPage() {
   if (error) {
     return (
       <div className={css.container}>
-        <ErrorState message={error.message} />
+        <ErrorState message={error.message} onRetry={() => refetch()} />
       </div>
     );
   }

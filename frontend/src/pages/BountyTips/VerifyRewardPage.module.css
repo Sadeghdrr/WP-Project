@@ -148,3 +148,18 @@
   background: #fff3cd;
   color: #856404;
 }
+
+/* ── Responsive ─────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .container {
+    padding: 1rem;
+  }
+
+  .form {
+    gap: 0.75rem;
+  }
+
+  .resultRow {
+    flex-direction: column;
+  }
+}

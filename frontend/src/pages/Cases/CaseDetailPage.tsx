@@ -11,7 +11,7 @@ import { useCaseDetail, useCaseActions } from "../../hooks/useCases";
 import { useEvidence } from "../../hooks/useEvidence";
 import { useBoardForCase, useCreateBoard } from "../../hooks";
 import { useAuth } from "../../auth/useAuth";
-import { Skeleton, ErrorState } from "../../components/ui";
+import { Skeleton, ErrorState, EmptyState } from "../../components/ui";
 import {
   STATUS_LABELS,
   STATUS_COLORS,
@@ -102,7 +102,14 @@ export default function CaseDetailPage() {
     );
   }
 
-  if (!caseData) return null;
+  if (!caseData) {
+    return (
+      <div className={styles.container}>
+        <Link to="/cases" className={styles.backLink}>← Back to Cases</Link>
+        <EmptyState heading="Case Not Found" message="No data available for this case." />
+      </div>
+    );
+  }
 
   return (
     <div className={styles.container}>
