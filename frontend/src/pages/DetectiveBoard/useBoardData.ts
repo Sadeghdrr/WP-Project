@@ -11,6 +11,7 @@ import {
   getBoardFull,
   listBoards,
   createBoard,
+  deleteBoard,
   createBoardItem,
   createBoardNote,
   updateBoardNote,
@@ -48,6 +49,38 @@ export function useBoardsList() {
         return (data as { results: DetectiveBoardListItem[] }).results;
       }
       return [];
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Board for a specific case (derived from list)
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns the board belonging to a specific case.
+ * Reuses useBoardsList and filters client-side.
+ * Backend enforces at most one board per case.
+ */
+export function useBoardForCase(caseId: number | undefined) {
+  const { data: boards, isLoading, error, refetch } = useBoardsList();
+  const board = boards?.find((b) => b.case === caseId) ?? null;
+  return { board, boards, isLoading, error, refetch };
+}
+
+// ---------------------------------------------------------------------------
+// Delete board
+// ---------------------------------------------------------------------------
+
+export function useDeleteBoard() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (boardId: number) => {
+      const res = await deleteBoard(boardId);
+      if (!res.ok) throw new Error(res.error.message);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [BOARDS_LIST_KEY] });
     },
   });
 }

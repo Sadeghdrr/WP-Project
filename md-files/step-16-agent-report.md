@@ -79,8 +79,46 @@
 | Real-time collaboration | Not required by project-doc; no WebSocket backend support |
 | Undo/redo | Not required; significant client-side state complexity |
 | Editable connection labels | Backend supports it; not required by project-doc |
-| Board deletion UI | Low priority; endpoint exists |
 | Pin Case entity to board | Backend supports `cases.case` CT but creates UI confusion (you're already viewing the case) |
+
+## Fix Pass: Board-Case Integration (Step 16 Follow-Up)
+
+### What Was Broken
+1. **CaseDetailPage had no detective board section** — users had no way to see whether a board existed for a case, or to navigate to the board workspace.
+2. **No create-board UI from case page** — board creation was only available inside the board workspace page itself, which required manual URL navigation.
+3. **Boards created via API (backend) never appeared on the case page** — the case page had zero awareness of the board app.
+
+### How It Was Fixed
+
+#### New files / changes
+| File | Change |
+|------|--------|
+| `frontend/src/pages/Cases/CaseDetailPage.tsx` | Added `DetectiveBoardSection` component: shows board info or "Create" button |
+| `frontend/src/pages/DetectiveBoard/useBoardData.ts` | Added `useBoardForCase(caseId)` hook + `useDeleteBoard()` hook |
+| `frontend/src/hooks/index.ts` | Exported `useBoardForCase` and `useDeleteBoard` |
+| `frontend/docs/detective-board-notes.md` | Added case-board integration documentation |
+
+#### Board-case integration summary
+- `useBoardForCase(caseId)` reuses `useBoardsList()` (fetches `GET /api/board/boards/`) and derives the matching board via `boards.find(b => b.case === caseId)`.
+- `DetectiveBoardSection` renders inside the CaseDetailPage grid, showing:
+  - **If board exists**: Board ID, item count, connection count, created date, and "Open Detective Board" link → `/detective-board/:caseId`
+  - **If no board**: "No detective board exists" message + "Create Detective Board" button (permission-gated)
+  - **Loading/error states**: Proper feedback
+  - **Permission gating**: Section hidden for users without `board.view_detectiveboard` or `board.add_detectiveboard`
+- Board creation from case page: `POST /api/board/boards/` with `{ case: caseId }` → navigate to board workspace on success
+- React Query invalidation ensures board list stays fresh after creation
+
+#### Endpoints used
+- `GET /api/board/boards/` — list boards → client-side filter by case
+- `POST /api/board/boards/` — create board (payload `{ case: int }`, detective auto-assigned)
+- `DELETE /api/board/boards/{id}/` — delete board (hook added, not yet wired to UI)
+
+#### Data flow explanation
+1. User opens `CaseDetailPage` for case #5
+2. `useBoardForCase(5)` calls `GET /api/board/boards/` → returns all visible boards
+3. Finds board where `board.case === 5` → shows board metadata + "Open" link
+4. If no match → shows "Create" button → `POST /api/board/boards/` creates board → navigates to workspace
+5. Workspace page (`/detective-board/5`) also calls `useBoardsList()` which hits the same React Query cache → immediate display
 
 ## Backend Anomalies / Problems (Report Only)
 
@@ -101,3 +139,7 @@ Zero files in `backend/` were modified by this implementation. All changes are i
 | Placement modifiable via drag-and-drop | **Implemented** | React Flow native drag with debounced batch persist |
 | Lines addable and removable | **Implemented** | Add via handle drag; remove via click + confirm |
 | Export as image for report | **Implemented** | PNG export via html-to-image |
+| Case page shows boards | **Implemented** | DetectiveBoardSection on CaseDetailPage |
+| Board creation from case page | **Implemented** | "Create Detective Board" button with backend call |
+| Board opening from case page | **Implemented** | "Open Detective Board" link navigates to workspace |
+| Board list reflects backend truth | **Implemented** | React Query fetches from API on mount; no local-only storage |

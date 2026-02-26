@@ -6,9 +6,10 @@
  */
 
 import { useState, useCallback, useEffect } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import { useCaseDetail, useCaseActions } from "../../hooks/useCases";
 import { useEvidence } from "../../hooks/useEvidence";
+import { useBoardForCase, useCreateBoard } from "../../hooks";
 import { useAuth } from "../../auth/useAuth";
 import { Skeleton, ErrorState } from "../../components/ui";
 import {
@@ -248,6 +249,9 @@ export default function CaseDetailPage() {
         {/* Evidence Section */}
         <EvidenceSection caseId={caseData.id} />
 
+        {/* Detective Board Section */}
+        <DetectiveBoardSection caseId={caseData.id} />
+
         {/* Calculations */}
         {caseData.calculations && (
           <div className={styles.section}>
@@ -350,6 +354,82 @@ function EvidenceSection({ caseId }: { caseId: number }) {
           View All Evidence
         </Link>
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Detective Board Section
+// ---------------------------------------------------------------------------
+
+function DetectiveBoardSection({ caseId }: { caseId: number }) {
+  const navigate = useNavigate();
+  const { permissionSet } = useAuth();
+  const { board, isLoading, error } = useBoardForCase(caseId);
+  const createBoardMut = useCreateBoard();
+
+  const canView = permissionSet.has("board.view_detectiveboard");
+  const canCreate = permissionSet.has("board.add_detectiveboard");
+
+  // Hide section entirely for users with no board permissions
+  if (!canView && !canCreate) return null;
+
+  const handleCreate = () => {
+    createBoardMut.mutate(caseId, {
+      onSuccess: (newBoard) => {
+        navigate(`/detective-board/${caseId}`);
+        void newBoard; // board id used implicitly by navigation
+      },
+    });
+  };
+
+  return (
+    <div className={styles.section}>
+      <h2>Detective Board</h2>
+      {isLoading ? (
+        <p style={{ color: "#6b7280", fontSize: "0.875rem" }}>Loading board info…</p>
+      ) : error ? (
+        <p style={{ color: "#991b1b", fontSize: "0.875rem" }}>
+          Failed to load board info: {error instanceof Error ? error.message : "Unknown error"}
+        </p>
+      ) : board ? (
+        <>
+          <div className={styles.metaGrid}>
+            <MetaItem label="Board ID" value={`#${board.id}`} />
+            <MetaItem label="Items" value={String(board.item_count)} />
+            <MetaItem label="Connections" value={String(board.connection_count)} />
+            <MetaItem label="Created" value={new Date(board.created_at).toLocaleDateString()} />
+          </div>
+          <div style={{ marginTop: "0.75rem" }}>
+            <Link to={`/detective-board/${caseId}`} className={styles.btnPrimary}>
+              Open Detective Board
+            </Link>
+          </div>
+        </>
+      ) : (
+        <>
+          <p style={{ color: "#6b7280", fontSize: "0.875rem" }}>
+            No detective board exists for this case yet.
+          </p>
+          {canCreate && (
+            <div style={{ marginTop: "0.75rem" }}>
+              <button
+                type="button"
+                className={styles.btnPrimary}
+                onClick={handleCreate}
+                disabled={createBoardMut.isPending}
+              >
+                {createBoardMut.isPending ? "Creating…" : "Create Detective Board"}
+              </button>
+              {createBoardMut.isError && (
+                <p style={{ color: "#991b1b", fontSize: "0.875rem", marginTop: "0.5rem" }}>
+                  {createBoardMut.error.message}
+                </p>
+              )}
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }

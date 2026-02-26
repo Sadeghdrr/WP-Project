@@ -28,8 +28,10 @@ export {
 } from "./useSuspects";
 export {
   useBoardsList,
+  useBoardForCase,
   useBoardFull,
   useCreateBoard,
+  useDeleteBoard,
   useCreateBoardItem,
   useCreateNote,
   useUpdateNote,

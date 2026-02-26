@@ -71,5 +71,29 @@
 | Real-time collaboration | Not required by project-doc; backend has no WebSocket support |
 | Undo/redo | Not required; would need significant client-side state machinery |
 | Connection labels (editable) | Backend supports `label` field, but not required by project-doc; kept empty for now |
-| Board deletion from UI | Endpoint exists but not wired — low priority |
 | Pinning the Case itself to the board | Backend supports it (via `cases.case` ContentType) but not shown in pin modal to avoid confusion |
+
+## Case-Board Integration (added in fix pass)
+
+### How case-board relationship works
+- Backend enforces **at most one board per case** (`BoardWorkspaceService.create_board` raises `DomainError` on duplicate).
+- `GET /api/board/boards/` returns all boards visible to the current user. There is **no server-side case filter** — must filter client-side.
+- Frontend uses `useBoardForCase(caseId)` hook: fetches full board list via React Query, derives the matching board via `boards.find(b => b.case === caseId)`.
+
+### Board listing flow (CaseDetailPage)
+1. `DetectiveBoardSection` renders inside the case detail grid
+2. Calls `useBoardForCase(caseId)` → fetches `GET /api/board/boards/`
+3. If board exists → shows Board ID, item count, connection count, created date, and "Open Detective Board" link
+4. If no board → shows "Create Detective Board" button (permission-gated: `board.add_detectiveboard`)
+5. Section hidden entirely for users without `board.view_detectiveboard` or `board.add_detectiveboard` permissions
+
+### Board creation flow (from case page)
+1. User clicks "Create Detective Board"
+2. `POST /api/board/boards/` with `{ case: caseId }`
+3. Backend sets `detective = request.user` automatically
+4. On success → navigate to `/detective-board/:caseId`
+5. React Query automatically invalidates boards list → next case page visit reflects the new board
+
+### Discovered mismatches
+- No backend query-param filtering for boards by case (e.g., `?case=5`). Client-side filter is necessary.
+- Board list endpoint always returns **all** visible boards. For users with many boards this could be inefficient, but acceptable for current scale.
