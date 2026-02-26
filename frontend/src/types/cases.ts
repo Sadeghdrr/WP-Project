@@ -228,3 +228,118 @@ export interface CaseCalculations {
   tracking_threshold: number;
   reward_rials: number;
 }
+
+// ---------------------------------------------------------------------------
+// Case Report (from GET /api/cases/{id}/report/)
+// ---------------------------------------------------------------------------
+
+/** Lightweight person reference in the report payload */
+export interface ReportPersonRef {
+  id: number;
+  full_name: string;
+  role: string | null;
+}
+
+export interface ReportCaseInfo {
+  id: number;
+  title: string;
+  description: string;
+  crime_level: CrimeLevel;
+  crime_level_display: string;
+  status: CaseStatus;
+  status_display: string;
+  creation_type: CaseCreationType;
+  rejection_count: number;
+  incident_date: string | null;
+  location: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface ReportPersonnel {
+  created_by: ReportPersonRef | null;
+  approved_by: ReportPersonRef | null;
+  assigned_detective: ReportPersonRef | null;
+  assigned_sergeant: ReportPersonRef | null;
+  assigned_captain: ReportPersonRef | null;
+  assigned_judge: ReportPersonRef | null;
+}
+
+export interface ReportComplainant {
+  id: number;
+  user: ReportPersonRef | null;
+  is_primary: boolean;
+  status: string;
+  reviewed_by: ReportPersonRef | null;
+}
+
+export interface ReportWitness {
+  id: number;
+  full_name: string;
+  phone_number: string | null;
+  national_id: string | null;
+}
+
+export interface ReportEvidence {
+  id: number;
+  evidence_type: string;
+  title: string;
+  description: string | null;
+  registered_by: ReportPersonRef | null;
+  created_at: string | null;
+}
+
+export interface ReportInterrogation {
+  id: number;
+  detective: ReportPersonRef | null;
+  sergeant: ReportPersonRef | null;
+  detective_guilt_score: number | null;
+  sergeant_guilt_score: number | null;
+  notes: string | null;
+  created_at: string | null;
+}
+
+export interface ReportTrial {
+  id: number;
+  judge: ReportPersonRef | null;
+  verdict: string;
+  punishment_title: string | null;
+  punishment_description: string | null;
+  created_at: string | null;
+}
+
+export interface ReportSuspect {
+  id: number;
+  full_name: string;
+  national_id: string | null;
+  status: string;
+  status_display: string;
+  wanted_since: string | null;
+  days_wanted: number | null;
+  identified_by: ReportPersonRef | null;
+  sergeant_approval_status: string | null;
+  approved_by_sergeant: ReportPersonRef | null;
+  sergeant_rejection_message: string | null;
+  interrogations: ReportInterrogation[];
+  trials: ReportTrial[];
+}
+
+export interface ReportStatusEntry {
+  id: number;
+  from_status: string | null;
+  to_status: string;
+  changed_by: ReportPersonRef | null;
+  message: string | null;
+  created_at: string | null;
+}
+
+export interface CaseReport {
+  case: ReportCaseInfo;
+  personnel: ReportPersonnel;
+  complainants: ReportComplainant[];
+  witnesses: ReportWitness[];
+  evidence: ReportEvidence[];
+  suspects: ReportSuspect[];
+  status_history: ReportStatusEntry[];
+  calculations: CaseCalculations | null;
+}

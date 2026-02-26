@@ -51,6 +51,17 @@ export type {
   CaseListItem,
   CaseDetail,
   CaseCalculations,
+  CaseReport,
+  ReportCaseInfo,
+  ReportPersonnel,
+  ReportPersonRef,
+  ReportComplainant,
+  ReportWitness,
+  ReportEvidence,
+  ReportSuspect,
+  ReportInterrogation,
+  ReportTrial,
+  ReportStatusEntry,
 } from "./cases";
 export type { CrimeLevel, CaseStatus, CaseCreationType, ComplainantStatus } from "./cases";
 

@@ -53,6 +53,9 @@ const MostWantedPage = lazy(
 const ReportingPage = lazy(
   () => import("../pages/Reporting/ReportingPage"),
 );
+const CaseReportView = lazy(
+  () => import("../pages/Reporting/CaseReportView"),
+);
 
 const BountyTipsPage = lazy(
   () => import("../pages/BountyTips/BountyTipsPage"),
@@ -147,6 +150,7 @@ function BoardWithErrorBoundary() {
  *           trial         → TrialPage
  *       /detective-board/:caseId → DetectiveBoardPage
  *       /reports          → ReportingPage
+ *         :caseId         → CaseReportView
  *       /bounty-tips      → BountyTipsPage
  *         new             → SubmitTipPage
  *         verify          → VerifyRewardPage
@@ -209,7 +213,13 @@ const router = createBrowserRouter([
           { path: "/detective-board/:caseId", element: <BoardWithErrorBoundary /> },
 
           // Reporting
-          { path: "/reports", element: s(ReportingPage) },
+          {
+            path: "/reports",
+            children: [
+              { index: true, element: s(ReportingPage) },
+              { path: ":caseId", element: s(CaseReportView) },
+            ],
+          },
 
           // Bounty Tips
           {

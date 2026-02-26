@@ -11,6 +11,7 @@ import { API } from "./endpoints";
 import type {
   CaseListItem,
   CaseDetail,
+  CaseReport,
   CaseCreateComplaintRequest,
   CaseCreateCrimeSceneRequest,
   ReviewDecisionRequest,
@@ -192,4 +193,12 @@ export function assignJudge(
 
 export function fetchStatusLog(caseId: number): Promise<ApiResponse<CaseStatusLog[]>> {
   return apiGet<CaseStatusLog[]>(API.CASE_STATUS_LOG(caseId));
+}
+
+// ---------------------------------------------------------------------------
+// Report
+// ---------------------------------------------------------------------------
+
+export function fetchCaseReport(caseId: number): Promise<ApiResponse<CaseReport>> {
+  return apiGet<CaseReport>(API.CASE_REPORT(caseId));
 }

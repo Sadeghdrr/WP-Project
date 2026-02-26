@@ -1,0 +1,152 @@
+/* ===================================================================
+   General Reporting – Case List & Report View
+   =================================================================== */
+
+/* ── Container ─────────────────────────────────────────────────────── */
+.container {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 1.5rem;
+}
+
+/* ── Page Header ───────────────────────────────────────────────────── */
+.header {
+  margin-bottom: 1.5rem;
+}
+
+.header h1 {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--text-primary, #1a1a2e);
+  margin: 0 0 0.25rem;
+}
+
+.subtitle {
+  font-size: 0.95rem;
+  color: var(--text-secondary, #555);
+  margin: 0;
+}
+
+/* ── Search / Filter Bar ───────────────────────────────────────────── */
+.toolbar {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  margin-bottom: 1.25rem;
+  flex-wrap: wrap;
+}
+
+.searchInput {
+  flex: 1 1 260px;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border, #d0d0d0);
+  border-radius: 6px;
+  font-size: 0.9rem;
+  background: var(--bg-surface, #fff);
+  color: var(--text-primary, #1a1a2e);
+}
+
+.searchInput::placeholder {
+  color: var(--text-secondary, #888);
+}
+
+/* ── Case Table ────────────────────────────────────────────────────── */
+.tableWrap {
+  overflow-x: auto;
+}
+
+.caseTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.caseTable th,
+.caseTable td {
+  padding: 0.6rem 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border, #e0e0e0);
+}
+
+.caseTable th {
+  font-weight: 600;
+  color: var(--text-secondary, #555);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  background: var(--bg-muted, #f6f6f8);
+  position: sticky;
+  top: 0;
+}
+
+.caseTable tbody tr {
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.caseTable tbody tr:hover {
+  background: var(--bg-hover, #f0f0f4);
+}
+
+/* ── Status badge ──────────────────────────────────────────────────── */
+.statusBadge {
+  display: inline-block;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: capitalize;
+  white-space: nowrap;
+  background: var(--bg-muted, #e8e8ec);
+  color: var(--text-primary, #333);
+}
+
+/* ── Crime Level badge ─────────────────────────────────────────────── */
+.crimeBadge {
+  display: inline-block;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.crimeMinor {
+  background: #e3f2fd;
+  color: #1565c0;
+}
+
+.crimeMedium {
+  background: #fff3e0;
+  color: #e65100;
+}
+
+.crimeMajor {
+  background: #fce4ec;
+  color: #c62828;
+}
+
+.crimeCritical {
+  background: #c62828;
+  color: #fff;
+}
+
+/* ── Grid placeholder for skeletons ────────────────────────────────── */
+.skeletonRows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+/* ── Print adjustments ─────────────────────────────────────────────── */
+@media print {
+  .toolbar,
+  .searchInput {
+    display: none;
+  }
+
+  .caseTable tbody tr:hover {
+    background: none;
+  }
+}
