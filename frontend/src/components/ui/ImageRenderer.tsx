@@ -251,9 +251,15 @@ export default function ImageRenderer({
 
   // Resolve the display URL for the lightbox and <img> in non-auth mode
   const displaySrc = requiresAuth ? (blob.url ?? "") : resolvedDirect;
-  const isReady = requiresAuth ? blob.url !== null : directState.loaded;
+  // For direct (non-auth) images the browser handles loading natively — the
+  // <img> must be in the DOM *before* onLoad/onError can ever fire, so we
+  // must never gate rendering on directState.loaded.
+  // isReady = true as soon as there is a resolved URL (button is clickable).
+  // isLoading = false so the conditional in the template falls through to the
+  // actual <img> tag immediately.
+  const isReady = requiresAuth ? blob.url !== null : !!resolvedDirect;
   const hasError = requiresAuth ? blob.error !== null : directState.error;
-  const isLoading = requiresAuth ? blob.loading : !directState.loaded && !directState.error && !!src;
+  const isLoading = requiresAuth ? blob.loading : false;
 
   // ── No-preview (inline) mode ────────────────────────────────
   if (!preview) {
