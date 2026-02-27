@@ -112,7 +112,23 @@ jobs:
             git checkout master
             git pull --ff-only origin master
 
-            # Build and start Docker containers
-            docker compose down
-            docker compose up -d --build
+            # Build and start containers in production mode (single compose file)
+            APP_ENV=prod docker compose --env-file ./.env up -d --build --force-recreate --remove-orphans
+
+            # Fail fast if critical services are not running.
+            sleep 8
+            if ! APP_ENV=prod docker compose ps --status running | grep -q "backend"; then
+              APP_ENV=prod docker compose logs --tail=120 backend
+              exit 1
+            fi
+            if ! APP_ENV=prod docker compose ps --status running | grep -q "frontend"; then
+              APP_ENV=prod docker compose logs --tail=120 frontend
+              exit 1
+            fi
+
             docker image prune -f
+
+            # Reload host nginx if available.
+            if command -v nginx >/dev/null 2>&1; then
+              sudo nginx -t && sudo systemctl reload nginx || true
+            fi
