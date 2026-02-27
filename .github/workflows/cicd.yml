@@ -97,35 +97,22 @@ jobs:
     needs: test
     if: github.ref == 'refs/heads/master' && github.event_name == 'push'
     steps:
-      - name: Configure SSH key
-        env:
-          DEPLOY_SSH_KEY_B64: ${{ secrets.DEPLOY_SSH_KEY_B64 }}
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT || '22' }}
-        run: |
-          mkdir -p ~/.ssh
-          if [ -n "${DEPLOY_SSH_KEY_B64:-}" ]; then
-            printf '%s' "$DEPLOY_SSH_KEY_B64" | base64 -d > ~/.ssh/id_ed25519
-          else
-            printf '%s' "$DEPLOY_SSH_KEY" | tr -d '\r' > ~/.ssh/id_ed25519
-            perl -0777 -i -pe 's/\\n/\n/g' ~/.ssh/id_ed25519
-          fi
-          chmod 600 ~/.ssh/id_ed25519
-          ssh-keygen -y -f ~/.ssh/id_ed25519 >/dev/null
-          ssh-keyscan -p "$DEPLOY_PORT" -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+      - name: Deploy to VM
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USERNAME }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          port: 22
+          script: |
+            cd /opt/wp-project/WP-Project
 
-      - name: Deploy on server
-        env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT || '22' }}
-          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
-        run: |
-          ssh -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" <<EOF
-            set -euo pipefail
-            cd "$DEPLOY_PATH"
+            # Pull latest changes
             git fetch origin
             git checkout master
             git pull --ff-only origin master
-            docker compose --env-file .env up -d --build --remove-orphans
-          EOF
+
+            # Build and start Docker containers
+            docker compose down
+            docker compose up -d --build
+            docker image prune -f
