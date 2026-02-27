@@ -207,11 +207,15 @@ class TestAuthLoginMultiIdentifier(TestCase):
             status.HTTP_400_BAD_REQUEST,
             msg=f"Expected 400 for wrong password. Body: {resp.data}",
         )
-        # Error detail must be present in body
+        # Error message must be present in body as a validation error
         self.assertIn(
-            "detail",
+            "non_field_errors",
             resp.data,
-            msg="Response body must contain a 'detail' error key.",
+            msg="Response body must contain a 'non_field_errors' key.",
+        )
+        self.assertEqual(
+            resp.data["non_field_errors"][0],
+            "Incorrect username, email, phone number, national ID, or password.",
         )
 
     def test_unknown_identifier_rejected(self):
@@ -229,7 +233,11 @@ class TestAuthLoginMultiIdentifier(TestCase):
             status.HTTP_400_BAD_REQUEST,
             msg=f"Expected 400 for unknown identifier. Body: {resp.data}",
         )
-        self.assertIn("detail", resp.data)
+        self.assertIn("non_field_errors", resp.data)
+        self.assertEqual(
+            resp.data["non_field_errors"][0],
+            "Incorrect username, email, phone number, national ID, or password.",
+        )
 
     def test_inactive_user_cannot_login(self):
         """

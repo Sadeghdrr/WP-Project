@@ -150,6 +150,7 @@ export default function DetectiveBoardPage() {
   const [noteTitle, setNoteTitle] = useState("");
   const [noteContent, setNoteContent] = useState("");
   const [editingNote, setEditingNote] = useState<BoardNote | null>(null);
+  const [previewNote, setPreviewNote] = useState<BoardNote | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [editContent, setEditContent] = useState("");
   const [showPinModal, setShowPinModal] = useState(false);
@@ -179,6 +180,14 @@ export default function DetectiveBoardPage() {
       }
     }
     return ids;
+  }, [boardState]);
+
+  const noteById = useMemo(() => {
+    const notes = new Map<number, BoardNote>();
+    for (const note of boardState?.notes ?? []) {
+      notes.set(note.id, note);
+    }
+    return notes;
   }, [boardState]);
 
   // Handler: re-pin a note that was previously removed from the board
@@ -382,6 +391,33 @@ export default function DetectiveBoardPage() {
     [deleteNoteMut],
   );
 
+  const openNotePreview = useCallback((note: BoardNote) => {
+    setPreviewNote(note);
+  }, []);
+
+  const handleNodeClick = useCallback(
+    (_e: React.MouseEvent, node: Node) => {
+      const item = (node.data as BoardItemNodeData | undefined)?.boardItem;
+      const summary = item?.content_object_summary;
+      if (!summary || summary.model !== "boardnote") return;
+
+      const note = noteById.get(summary.object_id);
+      if (note) {
+        setPreviewNote(note);
+      }
+    },
+    [noteById],
+  );
+
+  const handlePreviewBackdropClick = useCallback(
+    (e: React.MouseEvent) => {
+      if ((e.target as HTMLElement).dataset.backdrop) {
+        setPreviewNote(null);
+      }
+    },
+    [],
+  );
+
   // ── Pin entity (add item) ──────────────────────────────────────
   const handlePinEntity = useCallback(
     (entity: { content_type_id: number | null; object_id: number }) => {
@@ -538,6 +574,7 @@ export default function DetectiveBoardPage() {
               onEdgesChange={onEdgesChange}
               onConnect={onConnect}
               onEdgeClick={handleEdgeClick}
+              onNodeClick={handleNodeClick}
               nodeTypes={memoNodeTypes}
               fitView
               fitViewOptions={{ padding: 0.2 }}
@@ -655,6 +692,13 @@ export default function DetectiveBoardPage() {
                       <button
                         type="button"
                         className={css.noteMiniBtn}
+                        onClick={() => openNotePreview(n)}
+                      >
+                        View
+                      </button>
+                      <button
+                        type="button"
+                        className={css.noteMiniBtn}
                         onClick={() => startEditNote(n)}
                       >
                         Edit
@@ -706,6 +750,10 @@ export default function DetectiveBoardPage() {
                   case
                 </li>
                 <li>
+                  <strong>Open note</strong>: click a note on the canvas or
+                  press View in the sidebar
+                </li>
+                <li>
                   <strong>Export</strong>: download the board as a PNG image
                 </li>
               </ul>
@@ -730,6 +778,33 @@ export default function DetectiveBoardPage() {
           isPinning={createBoardItemMut.isPending}
           onClose={() => setShowPinModal(false)}
         />
+      )}
+
+      {previewNote && (
+        <div
+          className={css.modalBackdrop}
+          data-backdrop="1"
+          onClick={handlePreviewBackdropClick}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Board note content"
+        >
+          <div className={css.modal}>
+            <h2 className={css.modalTitle}>{previewNote.title}</h2>
+            <div className={css.notePreviewBody}>
+              {previewNote.content || "This note has no content."}
+            </div>
+            <div className={css.modalFooter}>
+              <button
+                type="button"
+                className={css.btnPrimary}
+                onClick={() => setPreviewNote(null)}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

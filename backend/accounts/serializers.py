@@ -179,7 +179,11 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 
         if user is None:
             raise serializers.ValidationError(
-                {"detail": "Invalid credentials."},
+                {
+                    "non_field_errors": [
+                        "Incorrect username, email, phone number, national ID, or password."
+                    ]
+                },
                 code="authentication",
             )
 

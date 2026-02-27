@@ -201,6 +201,14 @@
   word-break: break-word;
 }
 
+.notePreviewBody {
+  color: #5d4037;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .noteActions {
   display: flex;
   gap: 4px;

@@ -5,7 +5,7 @@
  *   1. Renders the login form with identifier + password fields
  *   2. Submit button is disabled when fields are empty
  *   3. Redirects to /dashboard when user is already authenticated
- *   4. Displays backend error message on login failure
+ *   4. Displays the backend login error message on failure
  *   5. Calls login with correct credentials on submit
  */
 
@@ -117,10 +117,13 @@ describe("LoginPage", () => {
   });
 
   it("displays error message on login failure", async () => {
-    const authValue = mockUseAuth({
+    mockUseAuth({
       login: vi.fn().mockResolvedValue({
         ok: false,
-        error: { message: "Invalid credentials" },
+        error: {
+          message:
+            "Incorrect username, email, phone number, national ID, or password.",
+        },
       }),
     });
     renderLogin();
@@ -134,7 +137,11 @@ describe("LoginPage", () => {
     fireEvent.click(screen.getByRole("button", { name: /sign in/i }));
 
     await waitFor(() => {
-      expect(screen.getByText("Invalid credentials")).toBeInTheDocument();
+      expect(
+        screen.getByText(
+          "Incorrect username, email, phone number, national ID, or password.",
+        ),
+      ).toBeInTheDocument();
     });
   });
 

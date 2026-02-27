@@ -193,7 +193,9 @@ function normaliseError(body: unknown, status: number): ApiError {
     if (hasFields) {
       // Use non_field_errors as the main message if present
       const nonField = fieldErrors["non_field_errors"];
-      const message = nonField?.[0] ?? "Validation error";
+      const firstFieldMessage = Object.values(fieldErrors)
+        .find((messages) => messages.length > 0)?.[0];
+      const message = nonField?.[0] ?? firstFieldMessage ?? "Validation error";
       return {
         message,
         fieldErrors,
