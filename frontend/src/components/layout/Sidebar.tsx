@@ -31,7 +31,7 @@ const NAV_SECTIONS: readonly NavSection[] = [
   {
     title: "Investigation",
     links: [
-      { to: "/reports", label: "Reporting" },
+      { to: "/reports", label: "Reporting", permissions: [P.CASES.CAN_VIEW_CASE_REPORT] },
       { to: "/bounty-tips", label: "Bounty Tips" },
     ],
   },
@@ -63,7 +63,13 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
       <aside
         className={`${styles.sidebar} ${open ? styles.sidebarOpen : ""}`}
       >
-        {NAV_SECTIONS.map((section) => (
+        {NAV_SECTIONS.map((section) => {
+          const allowedLinks = section.links.filter((link) => {
+            if (!link.permissions) return true;
+            return canAny(permissionSet, [...link.permissions]);
+          });
+          if (allowedLinks.length === 0) return null;
+          return (
           <div key={section.title} className={styles.section}>
             <div className={styles.sectionTitle}>{section.title}</div>
             {section.links.map((link) => {
@@ -89,7 +95,7 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
               );
             })}
           </div>
-        ))}
+        )})}
       </aside>
     </>
   );
