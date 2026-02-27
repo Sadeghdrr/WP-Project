@@ -53,7 +53,12 @@ function BoardItemNodeInner({ data, selected }: NodeProps) {
 
   return (
     <div className={selected ? css.cardSelected : css.card}>
-      <Handle type="target" position={Position.Top} style={HANDLE_STYLE} />
+      <Handle
+        id="top"
+        type="target"
+        position={Position.Top}
+        style={HANDLE_STYLE}
+      />
 
       <div className={css.row}>
         <span className={css.icon}>{icon}</span>
@@ -77,7 +82,12 @@ function BoardItemNodeInner({ data, selected }: NodeProps) {
         </button>
       )}
 
-      <Handle type="source" position={Position.Bottom} style={HANDLE_STYLE} />
+      <Handle
+        id="bottom"
+        type="source"
+        position={Position.Bottom}
+        style={HANDLE_STYLE}
+      />
     </div>
   );
 }

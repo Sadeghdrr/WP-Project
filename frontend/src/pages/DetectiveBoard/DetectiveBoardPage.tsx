@@ -82,15 +82,22 @@ function toNodes(
   }));
 }
 
-function toEdges(connections: BoardConnection[]): Edge[] {
-  return connections.map((c) => ({
+function toEdge(c: BoardConnection): Edge {
+  return {
     id: `conn-${c.id}`,
     source: String(c.from_item),
     target: String(c.to_item),
     sourceHandle: "bottom",
     targetHandle: "top",
+    label: c.label || undefined,
+    type: "default",
+    style: DEFAULT_EDGE_OPTS.style,
     data: { connectionId: c.id },
-  }));
+  };
+}
+
+function toEdges(connections: BoardConnection[]): Edge[] {
+  return connections.map(toEdge);
 }
 
 // ---------------------------------------------------------------------------
@@ -279,23 +286,39 @@ export default function DetectiveBoardPage() {
   const onConnect: OnConnect = useCallback(
     (connection: Connection) => {
       if (!boardId || !connection.source || !connection.target) return;
+      const tempId = `temp-${Date.now()}-${connection.source}-${connection.target}`;
+      const optimisticEdge: Edge = {
+        id: tempId,
+        source: connection.source,
+        target: connection.target,
+        sourceHandle: connection.sourceHandle ?? "bottom",
+        targetHandle: connection.targetHandle ?? "top",
+        type: "default",
+        style: DEFAULT_EDGE_OPTS.style,
+      };
+
       // Optimistically add edge
-      setEdges((eds) =>
-        addEdge(
-          {
-            ...connection,
-            id: `temp-${Date.now()}`,
-          },
-          eds,
-        ),
-      );
+      setEdges((eds) => addEdge(optimisticEdge, eds));
       createConnMut.mutate(
         {
           from_item: Number(connection.source),
           to_item: Number(connection.target),
           label: "",
         },
-        { onError: () => refetchBoard() },
+        {
+          onSuccess: (createdConnection) => {
+            setEdges((eds) =>
+              eds.map((edge) =>
+                edge.id === tempId ? toEdge(createdConnection) : edge,
+              ),
+            );
+            refetchBoard();
+          },
+          onError: () => {
+            setEdges((eds) => eds.filter((edge) => edge.id !== tempId));
+            refetchBoard();
+          },
+        },
       );
     },
     [boardId, createConnMut, setEdges, refetchBoard],
@@ -307,10 +330,15 @@ export default function DetectiveBoardPage() {
       const connId = edge.data?.connectionId as number | undefined;
       if (!connId || !boardId) return;
       if (confirm("Delete this connection?")) {
-        deleteConnMut.mutate(connId);
+        deleteConnMut.mutate(connId, {
+          onSuccess: () => {
+            setEdges((eds) => eds.filter((existing) => existing.id !== edge.id));
+          },
+          onError: () => refetchBoard(),
+        });
       }
     },
-    [boardId, deleteConnMut],
+    [boardId, deleteConnMut, setEdges, refetchBoard],
   );
 
   // ── Create note ─────────────────────────────────────────────────
