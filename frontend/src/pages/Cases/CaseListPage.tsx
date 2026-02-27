@@ -19,7 +19,8 @@ import {
 import type { CaseFilters } from "../../api/cases";
 import type { CaseStatus, CrimeLevel } from "../../types";
 import styles from "./CaseListPage.module.css";
-
+import { P } from "../../auth/permissions";
+import {useAuth} from "../../auth";
 // Status options for filter dropdown
 const STATUS_OPTIONS: { value: CaseStatus; label: string }[] = [
   { value: "complaint_registered", label: "Complaint Registered" },
@@ -50,7 +51,7 @@ const CRIME_LEVEL_OPTIONS: { value: CrimeLevel; label: string }[] = [
 
 const CREATION_TYPE_OPTIONS = [
   { value: "complaint", label: "Complaint" },
-  { value: "crime_scene", label: "Crime Scene" },
+  { value: "crime_scene", label: "Crime Scene", anyPermission: P.CASES.CAN_CREATE_CRIME_SCENE },
 ];
 
 // Badge component
@@ -93,6 +94,12 @@ function CrimeLevelBadge({ level }: { level: CrimeLevel }) {
 }
 
 export default function CaseListPage() {
+  const { permissionSet } = useAuth();
+  const visibleCreationOptions = CREATION_TYPE_OPTIONS.filter((opt) => {
+    if (!opt.anyPermission) return true;
+    return permissionSet.has(opt.anyPermission);
+  });
+
   const navigate = useNavigate();
 
   // Filter state
@@ -132,12 +139,15 @@ export default function CaseListPage() {
           <p>View, filter, and manage cases and complaint statuses</p>
         </div>
         <div className={styles.headerActions}>
-          <Link to="/cases/new/complaint" className={styles.btnPrimary}>
-            + File Complaint
-          </Link>
-          <Link to="/cases/new/crime-scene" className={styles.btnPrimary}>
-            + Crime Scene
-          </Link>
+          {visibleCreationOptions.map((opt) => (
+            <Link
+              key={opt.value}
+              to={`/cases/new/${opt.value === "crime_scene" ? "crime-scene" : opt.value}`}
+              className={styles.btnPrimary}
+            >
+              + {opt.label}
+            </Link>
+          ))}
         </div>
       </div>
 
@@ -194,7 +204,7 @@ export default function CaseListPage() {
             onChange={(e) => setCreationTypeFilter(e.target.value)}
           >
             <option value="">All Types</option>
-            {CREATION_TYPE_OPTIONS.map((opt) => (
+            {visibleCreationOptions.map((opt) => (
               <option key={opt.value} value={opt.value}>
                 {opt.label}
               </option>

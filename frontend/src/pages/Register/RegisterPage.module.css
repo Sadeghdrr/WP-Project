@@ -68,6 +68,9 @@
   line-height: 1.5;
   background: var(--color-surface);
   transition: border-color var(--transition-fast);
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .input:focus {

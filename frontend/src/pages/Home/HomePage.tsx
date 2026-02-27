@@ -67,9 +67,7 @@ export default function HomePage() {
   const statCards: StatDef[] = [
     { label: "Total Cases", value: stats?.total_cases },
     { label: "Active Cases", value: stats?.active_cases, accent: "warning" },
-    { label: "Closed Cases", value: stats?.closed_cases, accent: "success" },
     { label: "Total Suspects", value: stats?.total_suspects },
-    { label: "Evidence Items", value: stats?.total_evidence },
     { label: "Employees", value: stats?.total_employees },
   ];
 

@@ -12,6 +12,7 @@ import { useEvidence } from "../../hooks/useEvidence";
 import { useBoardForCase, useCreateBoard } from "../../hooks";
 import { useAuth } from "../../auth/useAuth";
 import { Skeleton, ErrorState, EmptyState } from "../../components/ui";
+import * as casesApi from "../../api/cases";
 import {
   STATUS_LABELS,
   STATUS_COLORS,
@@ -499,12 +500,42 @@ function WorkflowPanel({
   setActionMessage,
   setToast,
 }: WorkflowPanelProps) {
+  const navigate = useNavigate();
   const actions = useCaseActions(caseData.id);
+
+  // State for assign_detective user selection
+  const [assignUserId, setAssignUserId] = useState("");
+  const [showAssignModal, setShowAssignModal] = useState(false);
+
+  // State for edit & resubmit
+  const [showEditForm, setShowEditForm] = useState(false);
+  const [editTitle, setEditTitle] = useState(caseData.title);
+  const [editDescription, setEditDescription] = useState(caseData.description);
+  const [editLocation, setEditLocation] = useState(caseData.location || "");
+  const [editIncidentDate, setEditIncidentDate] = useState(
+    caseData.incident_date ? new Date(caseData.incident_date).toISOString().slice(0, 16) : ""
+  );
+  const [editSubmitting, setEditSubmitting] = useState(false);
 
   const availableActions = getAvailableActions(caseData.status, permissionSet);
 
+  /** Redirect actions => navigate to /cases after success (prevents 404) */
+  const REDIRECT_ACTIONS = new Set([
+    "cadet_approve", "officer_approve", "approve_crime_scene",
+    "cadet_reforward", "forward_judiciary", "close_case",
+  ]);
+
   const handleAction = useCallback(
     async (action: WorkflowAction) => {
+      if (action.key === "assign_detective") {
+        setAssignUserId("");
+        setShowAssignModal(true);
+        return;
+      }
+      if (action.key === "resubmit") {
+        setShowEditForm(true);
+        return;
+      }
       if (action.needsMessage) {
         setModalAction(action);
         setActionMessage("");
@@ -515,6 +546,47 @@ function WorkflowPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [caseData.id, caseData.status],
   );
+
+  const handleAssignDetective = async () => {
+    const uid = Number(assignUserId);
+    if (!uid || isNaN(uid)) return;
+    try {
+      await actions.assignDetective.mutateAsync({ user_id: uid });
+      setToast({ message: "Detective assigned successfully", type: "success" });
+      setShowAssignModal(false);
+    } catch (err) {
+      setToast({
+        message: err instanceof Error ? err.message : "Failed to assign detective",
+        type: "error",
+      });
+    }
+  };
+
+  const handleEditAndResubmit = async () => {
+    setEditSubmitting(true);
+    try {
+      // Step 1: PUT /api/cases/{id} — update case data
+      const updateRes = await casesApi.updateCase(caseData.id, {
+        title: editTitle.trim(),
+        description: editDescription.trim(),
+        ...(editLocation.trim() ? { location: editLocation.trim() } : {}),
+        ...(editIncidentDate ? { incident_date: editIncidentDate } : {}),
+      });
+      if (!updateRes.ok) throw new Error(updateRes.error.message);
+
+      // Step 2: POST /api/cases/{id}/resubmit
+      await actions.resubmitComplaint.mutateAsync({});
+      setToast({ message: "Case updated and resubmitted successfully", type: "success" });
+      setShowEditForm(false);
+    } catch (err) {
+      setToast({
+        message: err instanceof Error ? err.message : "Resubmit failed",
+        type: "error",
+      });
+    } finally {
+      setEditSubmitting(false);
+    }
+  };
 
   const executeAction = async (action: WorkflowAction, message: string) => {
     try {
@@ -542,6 +614,9 @@ function WorkflowPanel({
           break;
         case "approve_crime_scene":
           await actions.approveCrimeScene.mutateAsync();
+          break;
+        case "assign_detective":
+          // Handled by handleAssignDetective
           break;
         case "declare_suspects":
           await actions.declareSuspects.mutateAsync();
@@ -571,6 +646,10 @@ function WorkflowPanel({
           throw new Error(`Unknown action: ${action.key}`);
       }
       setToast({ message: `Action "${action.label}" completed successfully`, type: "success" });
+      // Redirect when the user may lose access to the case after this action
+      if (REDIRECT_ACTIONS.has(action.key)) {
+        navigate("/cases");
+      }
     } catch (err) {
       setToast({
         message: err instanceof Error ? err.message : "Action failed",
@@ -589,7 +668,8 @@ function WorkflowPanel({
     actions.declareSuspects.isPending ||
     actions.sergeantReview.isPending ||
     actions.forwardToJudiciary.isPending ||
-    actions.transitionCase.isPending;
+    actions.transitionCase.isPending ||
+    actions.assignDetective.isPending;
 
   if (isTerminalStatus(caseData.status)) {
     return (
@@ -666,6 +746,130 @@ function WorkflowPanel({
                 type="button"
               >
                 {isAnyLoading ? "Processing..." : "Confirm"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Assign detective modal */}
+      {showAssignModal && (
+        <div className={styles.modalOverlay} onClick={() => setShowAssignModal(false)}>
+          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+            <h3>Assign Detective</h3>
+            <label style={{ fontSize: "0.875rem", color: "#6b7280", marginBottom: "0.5rem", display: "block" }}>
+              Enter the User ID of the detective to assign:
+            </label>
+            <input
+              type="number"
+              placeholder="User ID"
+              value={assignUserId}
+              onChange={(e) => setAssignUserId(e.target.value)}
+              autoFocus
+              style={{
+                width: "100%",
+                padding: "0.5rem 0.75rem",
+                border: "1px solid #d1d5db",
+                borderRadius: "0.375rem",
+                fontSize: "0.9375rem",
+                boxSizing: "border-box",
+              }}
+            />
+            <div className={styles.modalActions}>
+              <button
+                className={styles.btnDefault}
+                onClick={() => setShowAssignModal(false)}
+                type="button"
+              >
+                Cancel
+              </button>
+              <button
+                className={styles.btnPrimary}
+                onClick={handleAssignDetective}
+                disabled={!assignUserId || isAnyLoading}
+                type="button"
+              >
+                {actions.assignDetective.isPending ? "Assigning…" : "Assign"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit & Resubmit form */}
+      {showEditForm && (
+        <div className={styles.modalOverlay} onClick={() => setShowEditForm(false)}>
+          <div className={styles.modal} onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560 }}>
+            <h3>Edit &amp; Resubmit Complaint</h3>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+              <div>
+                <label style={{ fontSize: "0.875rem", fontWeight: 500 }}>Title *</label>
+                <input
+                  type="text"
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  style={{
+                    width: "100%", padding: "0.5rem 0.75rem",
+                    border: "1px solid #d1d5db", borderRadius: "0.375rem",
+                    fontSize: "0.9375rem", boxSizing: "border-box",
+                  }}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: "0.875rem", fontWeight: 500 }}>Description *</label>
+                <textarea
+                  value={editDescription}
+                  onChange={(e) => setEditDescription(e.target.value)}
+                  rows={4}
+                  style={{
+                    width: "100%", padding: "0.5rem 0.75rem",
+                    border: "1px solid #d1d5db", borderRadius: "0.375rem",
+                    fontSize: "0.9375rem", boxSizing: "border-box", resize: "vertical",
+                  }}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: "0.875rem", fontWeight: 500 }}>Location</label>
+                <input
+                  type="text"
+                  value={editLocation}
+                  onChange={(e) => setEditLocation(e.target.value)}
+                  style={{
+                    width: "100%", padding: "0.5rem 0.75rem",
+                    border: "1px solid #d1d5db", borderRadius: "0.375rem",
+                    fontSize: "0.9375rem", boxSizing: "border-box",
+                  }}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: "0.875rem", fontWeight: 500 }}>Incident Date</label>
+                <input
+                  type="datetime-local"
+                  value={editIncidentDate}
+                  onChange={(e) => setEditIncidentDate(e.target.value)}
+                  style={{
+                    width: "100%", padding: "0.5rem 0.75rem",
+                    border: "1px solid #d1d5db", borderRadius: "0.375rem",
+                    fontSize: "0.9375rem", boxSizing: "border-box",
+                  }}
+                />
+              </div>
+            </div>
+            <div className={styles.modalActions}>
+              <button
+                className={styles.btnDefault}
+                onClick={() => setShowEditForm(false)}
+                type="button"
+              >
+                Cancel
+              </button>
+              <button
+                className={styles.btnPrimary}
+                onClick={handleEditAndResubmit}
+                disabled={editSubmitting || !editTitle.trim() || !editDescription.trim()}
+                type="button"
+              >
+                {editSubmitting ? "Resubmitting…" : "Save & Resubmit"}
               </button>
             </div>
           </div>

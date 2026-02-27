@@ -1,7 +1,7 @@
 import { useState, useCallback } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
-import { createEvidence as createEvidenceApi } from "../../api/evidence";
+import { createEvidence as createEvidenceApi, uploadFile as uploadFileApi } from "../../api/evidence";
 import { EVIDENCE_QUERY_KEY } from "../../hooks/useEvidence";
 import {
   EVIDENCE_TYPE_LABELS,
@@ -66,6 +66,18 @@ export default function AddEvidencePage() {
   const [docDetails, setDocDetails] = useState<KVPair[]>([
     { key: "", value: "" },
   ]);
+
+  // ─── File upload fields ────────────────────────────────────
+  const [files, setFiles] = useState<{ file: File; fileType: string; caption: string }[]>([]);
+
+  const addFileEntry = () =>
+    setFiles((prev) => [...prev, { file: null as unknown as File, fileType: "image", caption: "" }]);
+  const removeFileEntry = (idx: number) =>
+    setFiles((prev) => prev.filter((_, i) => i !== idx));
+  const updateFileEntry = (idx: number, field: string, value: unknown) =>
+    setFiles((prev) =>
+      prev.map((f, i) => (i === idx ? { ...f, [field]: value } : f)),
+    );
 
   // ─── Submission state ──────────────────────────────────────
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -203,7 +215,22 @@ export default function AddEvidencePage() {
         setGeneralError(res.error.message);
         return;
       }
-      // Success — invalidate evidence queries and navigate
+      // Success — upload attached files if any
+      const validFiles = files.filter((f) => f.file);
+      for (const entry of validFiles) {
+        try {
+          await uploadFileApi(
+            res.data.id,
+            entry.file,
+            entry.fileType,
+            entry.caption || undefined,
+          );
+        } catch {
+          // Non-fatal: evidence is created, file upload failed
+          setGeneralError("Evidence created, but some file uploads failed.");
+        }
+      }
+      // Invalidate evidence queries and navigate
       queryClient.invalidateQueries({ queryKey: EVIDENCE_QUERY_KEY });
       navigate(`/cases/${caseId}/evidence/${res.data.id}`);
     } catch (err: unknown) {
@@ -441,6 +468,71 @@ export default function AddEvidencePage() {
         {/* ── XOR validation error (vehicle) ────────────────── */}
         {fieldErrors._xor && (
           <div className={css.generalError}>{fieldErrors._xor}</div>
+        )}
+
+        {/* ── File Attachments ───────────────────────────────── */}
+        {evidenceType && (
+          <div className={css.fieldGroup}>
+            <label>File Attachments</label>
+            {files.map((entry, idx) => (
+              <div key={idx} style={{ display: "flex", gap: "0.5rem", alignItems: "flex-end", marginBottom: "0.5rem", flexWrap: "wrap" }}>
+                <div style={{ flex: "1 1 200px" }}>
+                  <label style={{ fontSize: "0.75rem", color: "#6b7280" }}>File</label>
+                  <input
+                    type="file"
+                    onChange={(e) =>
+                      updateFileEntry(idx, "file", e.target.files?.[0] ?? null)
+                    }
+                    style={{ width: "100%" }}
+                  />
+                </div>
+                <div style={{ flex: "0 0 120px" }}>
+                  <label style={{ fontSize: "0.75rem", color: "#6b7280" }}>Type</label>
+                  <select
+                    value={entry.fileType}
+                    onChange={(e) => updateFileEntry(idx, "fileType", e.target.value)}
+                    style={{ width: "100%", padding: "0.4rem", borderRadius: "0.375rem", border: "1px solid #d1d5db" }}
+                  >
+                    <option value="image">Image</option>
+                    <option value="video">Video</option>
+                    <option value="audio">Audio</option>
+                    <option value="document">Document</option>
+                  </select>
+                </div>
+                <div style={{ flex: "1 1 150px" }}>
+                  <label style={{ fontSize: "0.75rem", color: "#6b7280" }}>Caption</label>
+                  <input
+                    type="text"
+                    value={entry.caption}
+                    onChange={(e) => updateFileEntry(idx, "caption", e.target.value)}
+                    placeholder="Optional"
+                    style={{ width: "100%", padding: "0.4rem", borderRadius: "0.375rem", border: "1px solid #d1d5db", boxSizing: "border-box" }}
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => removeFileEntry(idx)}
+                  style={{ padding: "0.4rem 0.6rem", background: "#fee2e2", color: "#991b1b", border: "none", borderRadius: "0.375rem", cursor: "pointer" }}
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={addFileEntry}
+              style={{
+                padding: "0.4rem 0.75rem",
+                background: "#f3f4f6",
+                border: "1px solid #d1d5db",
+                borderRadius: "0.375rem",
+                cursor: "pointer",
+                fontSize: "0.875rem",
+              }}
+            >
+              + Add File
+            </button>
+          </div>
         )}
 
         {/* ── General error ──────────────────────────────────── */}

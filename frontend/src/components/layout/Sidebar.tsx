@@ -41,14 +41,8 @@ const NAV_SECTIONS: readonly NavSection[] = [
       {
         to: "/admin",
         label: "Admin Panel",
-        permissions: [
-          P.ACCOUNTS.VIEW_USER,
-          P.ACCOUNTS.VIEW_ROLE,
-          P.ACCOUNTS.CHANGE_USER,
-          P.ACCOUNTS.CHANGE_ROLE,
-        ],
+        permissions: [P.ACCOUNTS.CAN_MANAGE_USERS],
       },
-
     ],
   },
 ];

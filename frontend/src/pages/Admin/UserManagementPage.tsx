@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { LoadingSpinner, ErrorState, EmptyState, Skeleton } from "../../components/ui";
 import { useAuth } from "../../auth";
@@ -317,11 +317,14 @@ function UserDetailPanel({
   );
   const [selectedRoleId, setSelectedRoleId] = useState<number | "">(initialRoleId);
 
-  // Sync when user data changes (different user selected)
-  const userRoleId = user?.role_detail?.id ?? "";
-  if (selectedRoleId !== userRoleId && userRoleId !== "") {
-    setSelectedRoleId(userRoleId);
-  }
+  // Track which user we last synced for — only reset dropdown when switching users
+  const lastSyncedUserId = useRef<number | null>(null);
+  useEffect(() => {
+    if (user && user.id !== lastSyncedUserId.current) {
+      lastSyncedUserId.current = user.id;
+      setSelectedRoleId(user.role_detail ? user.role_detail.id : "");
+    }
+  }, [user]);
 
   const handleAssignRole = async () => {
     if (selectedRoleId === "") return;

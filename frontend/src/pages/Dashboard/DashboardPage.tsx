@@ -142,7 +142,6 @@ function StatsOverview({ stats }: { stats: DashboardStats }) {
     { label: "Suspects", value: stats.total_suspects, accent: styles.statInfo },
     { label: "Evidence", value: stats.total_evidence, accent: "" },
     { label: "Employees", value: stats.total_employees, accent: "" },
-    { label: "Unassigned Evidence", value: stats.unassigned_evidence_count, accent: stats.unassigned_evidence_count > 0 ? styles.statDanger : "" },
   ];
 
   return (

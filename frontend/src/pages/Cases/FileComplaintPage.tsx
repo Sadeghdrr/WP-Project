@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useCreateComplaintCase } from "../../hooks/useCases";
+import { submitForReview } from "../../api/cases";
 import type { CrimeLevel, CaseDetail } from "../../types";
 import css from "./FileComplaintPage.module.css";
 
@@ -41,7 +42,13 @@ export default function FileComplaintPage() {
         ...(location.trim() ? { location: location.trim() } : {}),
       },
       {
-        onSuccess: (data: CaseDetail) => {
+        onSuccess: async (data: CaseDetail) => {
+          // Step 2: Submit the created case for review
+          try {
+            await submitForReview(data.id);
+          } catch {
+            // If submit fails, still navigate — user can submit from detail page
+          }
           navigate(`/cases/${data.id}`);
         },
         onError: (err: Error) => setFormError(err.message),
