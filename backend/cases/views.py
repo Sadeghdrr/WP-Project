@@ -58,7 +58,6 @@ from .serializers import (
     CrimeSceneCaseCreateSerializer,
     OfficerReviewSerializer,
     ResubmitComplaintSerializer,
-    SergeantReviewSerializer,
 )
 from .services import (
     CaseAssignmentService,
@@ -489,111 +488,6 @@ class CaseViewSet(viewsets.ViewSet):
         """
         case = self._get_case(pk)
         case = CaseWorkflowService.approve_crime_scene_case(case, request.user)
-        out = CaseDetailSerializer(case, context={"request": request})
-        return Response(out.data, status=status.HTTP_200_OK)
-
-    @action(detail=True, methods=["post"], url_path="declare-suspects")
-    @extend_schema(
-        summary="Declare suspects identified",
-        description=(
-            "Detective declares suspects have been identified and escalates to "
-            "Sergeant review. Requires Detective role."
-        ),
-        request=None,
-        responses={
-            200: OpenApiResponse(response=CaseDetailSerializer, description="Suspects declared, sent for Sergeant review."),
-            403: OpenApiResponse(description="Permission denied. Requires Detective role."),
-        },
-        tags=["Cases – Workflow"],
-    )
-    def declare_suspects(self, request: Request, pk: int = None) -> Response:
-        """
-        POST /api/cases/{id}/declare-suspects/
-
-        Detective declares suspects identified and escalates to Sergeant review.
-        (INVESTIGATION → SUSPECT_IDENTIFIED → SERGEANT_REVIEW)
-
-        Steps
-        -----
-        1. ``case = self._get_case(pk)``.
-        2. Delegate to ``CaseWorkflowService.declare_suspects_identified(case, request.user)``.
-        3. Return HTTP 200 with ``CaseDetailSerializer``.
-        """
-        case = self._get_case(pk)
-        case = CaseWorkflowService.declare_suspects_identified(case, request.user)
-        out = CaseDetailSerializer(case, context={"request": request})
-        return Response(out.data, status=status.HTTP_200_OK)
-
-    @action(detail=True, methods=["post"], url_path="sergeant-review")
-    @extend_schema(
-        summary="Sergeant reviews suspect list",
-        description=(
-            "Sergeant approves arrest of suspects or rejects and returns to Detective. "
-            "Requires Sergeant role."
-        ),
-        request=SergeantReviewSerializer,
-        responses={
-            200: OpenApiResponse(response=CaseDetailSerializer, description="Sergeant review processed."),
-            400: OpenApiResponse(description="Validation error (missing rejection message)."),
-            403: OpenApiResponse(description="Permission denied. Requires Sergeant role."),
-        },
-        tags=["Cases – Workflow"],
-    )
-    def sergeant_review(self, request: Request, pk: int = None) -> Response:
-        """
-        POST /api/cases/{id}/sergeant-review/
-
-        Sergeant approves arrest or rejects and returns to Detective.
-
-        Steps
-        -----
-        1. ``case = self._get_case(pk)``.
-        2. Validate with ``SergeantReviewSerializer``.
-        3. Delegate to ``CaseWorkflowService.process_sergeant_review``.
-        4. Return HTTP 200 with ``CaseDetailSerializer``.
-        """
-        case = self._get_case(pk)
-        serializer = SergeantReviewSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        case = CaseWorkflowService.process_sergeant_review(
-            case,
-            serializer.validated_data["decision"],
-            serializer.validated_data.get("message", ""),
-            request.user,
-        )
-        out = CaseDetailSerializer(case, context={"request": request})
-        return Response(out.data, status=status.HTTP_200_OK)
-
-    @action(detail=True, methods=["post"], url_path="forward-judiciary")
-    @extend_schema(
-        summary="Forward case to judiciary",
-        description=(
-            "Captain or Police Chief forwards the case to the judiciary for trial. "
-            "For critical-level crimes, Police Chief approval is required. "
-            "Requires Captain or Police Chief role."
-        ),
-        request=None,
-        responses={
-            200: OpenApiResponse(response=CaseDetailSerializer, description="Case forwarded to judiciary."),
-            403: OpenApiResponse(description="Permission denied. Requires Captain or Police Chief."),
-        },
-        tags=["Cases – Workflow"],
-    )
-    def forward_judiciary(self, request: Request, pk: int = None) -> Response:
-        """
-        POST /api/cases/{id}/forward-judiciary/
-
-        Captain or Chief forwards the case to the judiciary system.
-        For critical cases the flow passes through CHIEF_REVIEW first.
-
-        Steps
-        -----
-        1. ``case = self._get_case(pk)``.
-        2. Delegate to ``CaseWorkflowService.forward_to_judiciary(case, request.user)``.
-        3. Return HTTP 200 with ``CaseDetailSerializer``.
-        """
-        case = self._get_case(pk)
-        case = CaseWorkflowService.forward_to_judiciary(case, request.user)
         out = CaseDetailSerializer(case, context={"request": request})
         return Response(out.data, status=status.HTTP_200_OK)
 

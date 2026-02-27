@@ -14,9 +14,6 @@ Route Hierarchy
   POST /api/cases/{id}/cadet-review/       → cadet approve/reject
   POST /api/cases/{id}/officer-review/     → officer approve/reject
   POST /api/cases/{id}/approve-crime-scene/→ superior approves crime-scene case
-  POST /api/cases/{id}/sergeant-review/   → sergeant approve/reject suspects
-  POST /api/cases/{id}/declare-suspects/  → detective declares suspects identified
-  POST /api/cases/{id}/forward-judiciary/ → captain/chief forwards to judiciary
   POST /api/cases/{id}/transition/        → generic centralized transition
 
   ── Assignment @actions ─────────────────────────────────────────

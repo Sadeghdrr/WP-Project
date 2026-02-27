@@ -13,7 +13,7 @@ validation lives here.
 
 ViewSets
 --------
-- ``SuspectViewSet``     — CRUD + workflow actions (approve, issue-warrant,
+- ``SuspectViewSet``     — CRUD + workflow actions (approve,
                            arrest, transition-status, most-wanted).
 - ``InterrogationViewSet`` — Nested under suspects for interrogation CRUD.
 - ``TrialViewSet``         — Nested under suspects for trial CRUD.
@@ -46,7 +46,6 @@ from .models import (
 )
 from .serializers import (
     ArrestPayloadSerializer,
-    ArrestWarrantSerializer,
     BailCreateSerializer,
     BailDetailSerializer,
     BailListSerializer,
@@ -499,86 +498,6 @@ class SuspectViewSet(viewsets.ViewSet):
                 "rejection_message", "",
             ),
         )
-        output = SuspectDetailSerializer(suspect)
-        return Response(output.data, status=status.HTTP_200_OK)
-
-    @action(detail=True, methods=["post"], url_path="issue-warrant")
-    @extend_schema(
-        summary="Issue arrest warrant",
-        description=(
-            "Sergeant issues an arrest warrant for an approved suspect. "
-            "The suspect must be approved and in WANTED status. Requires Sergeant role."
-        ),
-        request=ArrestWarrantSerializer,
-        responses={
-            200: OpenApiResponse(response=SuspectDetailSerializer, description="Warrant issued."),
-            400: OpenApiResponse(description="Suspect not approved or not in WANTED status."),
-            403: OpenApiResponse(description="Permission denied. Requires CAN_ISSUE_ARREST_WARRANT."),
-        },
-        tags=["Suspects – Workflow"],
-    )
-    def issue_warrant(self, request: Request, pk: int = None) -> Response:
-        """
-        POST /api/suspects/{id}/issue-warrant/
-
-        **Sergeant issues an arrest warrant for an approved suspect.**
-
-        Steps
-        -----
-        1. Validate ``request.data`` with ``ArrestWarrantSerializer``.
-        2. If invalid, return HTTP 400.
-        3. Delegate to ``ArrestAndWarrantService.issue_arrest_warrant(
-               suspect_id=pk,
-               issuing_sergeant=request.user,
-               warrant_reason=validated_data["warrant_reason"],
-               priority=validated_data.get("priority", "normal"),
-           )``.
-        4. Serialize result with ``SuspectDetailSerializer``.
-        5. Return HTTP 200.
-
-        Error Handling
-        --------------
-        - HTTP 400 if suspect is not approved or not in WANTED status.
-        - HTTP 403 if lacking ``CAN_ISSUE_ARREST_WARRANT`` permission.
-
-        Example Request
-        ---------------
-        ::
-
-            POST /api/suspects/12/issue-warrant/
-            {
-                "warrant_reason": "Strong forensic evidence.",
-                "priority": "high"
-            }
-        """
-        serializer = ArrestWarrantSerializer(data=request.data)
-        if not serializer.is_valid():
-            return Response(
-                serializer.errors, status=status.HTTP_400_BAD_REQUEST,
-            )
-        try:
-            suspect = ArrestAndWarrantService.issue_arrest_warrant(
-                suspect_id=pk,
-                issuing_sergeant=request.user,
-                warrant_reason=serializer.validated_data["warrant_reason"],
-                priority=serializer.validated_data.get("priority", "normal"),
-            )
-        except PermissionDenied as exc:
-            return Response(
-                {"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN,
-            )
-        except NotFound as exc:
-            return Response(
-                {"detail": str(exc)}, status=status.HTTP_404_NOT_FOUND,
-            )
-        except InvalidTransition as exc:
-            return Response(
-                {"detail": str(exc)}, status=status.HTTP_409_CONFLICT,
-            )
-        except DomainError as exc:
-            return Response(
-                {"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST,
-            )
         output = SuspectDetailSerializer(suspect)
         return Response(output.data, status=status.HTTP_200_OK)
 

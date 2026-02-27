@@ -53,12 +53,6 @@ class CaseStatus(models.TextChoices):
     # ── Common statuses (after case is officially opened) ────────────
     OPEN = "open", "Open"
     INVESTIGATION = "investigation", "Under Investigation"
-    SUSPECT_IDENTIFIED = "suspect_identified", "Suspect Identified"
-    SERGEANT_REVIEW = "sergeant_review", "Under Sergeant Review"
-    ARREST_ORDERED = "arrest_ordered", "Arrest Ordered"
-    INTERROGATION = "interrogation", "Under Interrogation"
-    CAPTAIN_REVIEW = "captain_review", "Under Captain Review"
-    CHIEF_REVIEW = "chief_review", "Under Chief Review"
     JUDICIARY = "judiciary", "Referred to Judiciary"
     CLOSED = "closed", "Closed"
 

@@ -41,23 +41,14 @@ The two creation paths share a common post-opening pipeline:
   COMMON PIPELINE (after OPEN)
   ─────────────────────────────
   OPEN → INVESTIGATION         (detective assigned)
-  INVESTIGATION → SUSPECT_IDENTIFIED
-  SUSPECT_IDENTIFIED → SERGEANT_REVIEW
-  SERGEANT_REVIEW → ARREST_ORDERED  (sergeant approves)
-  SERGEANT_REVIEW → INVESTIGATION   (sergeant rejects; case back to detective)
-  ARREST_ORDERED → INTERROGATION
-  INTERROGATION → CAPTAIN_REVIEW
-  CAPTAIN_REVIEW → CHIEF_REVIEW     (only if crime_level == CRITICAL)
-  CAPTAIN_REVIEW → JUDICIARY        (non-critical cases)
-  CHIEF_REVIEW → JUDICIARY          (critical; chief approves)
+  INVESTIGATION → JUDICIARY    (auto-triggered when ALL suspects reach UNDER_TRIAL)
   JUDICIARY → CLOSED
 
 Permission constants used here (from ``core.permissions_constants.CasesPerms``):
   - CAN_REVIEW_COMPLAINT    → Cadet
   - CAN_APPROVE_CASE        → Officer (complaint) / Superior (crime-scene)
   - CAN_ASSIGN_DETECTIVE    → Sergeant / Captain
-  - CAN_CHANGE_CASE_STATUS  → Detective, Sergeant, Captain, Chief
-  - CAN_FORWARD_TO_JUDICIARY→ Captain, Chief
+  - CAN_CHANGE_CASE_STATUS  → Generic status transitions
   - CAN_APPROVE_CRITICAL_CASE → Police Chief
 """
 
@@ -123,16 +114,11 @@ ALLOWED_TRANSITIONS: dict[tuple[str, str], set[str]] = {
     # ── Crime-scene workflow ────────────────────────────────────────
     (CaseStatus.PENDING_APPROVAL, CaseStatus.OPEN): {CasesPerms.CAN_APPROVE_CASE},
     # ── Common investigation pipeline ──────────────────────────────
+    # Suspect lifecycle is handled independently at the suspect level.
+    # Case transitions to JUDICIARY automatically when all suspects
+    # reach UNDER_TRIAL status.
     (CaseStatus.OPEN, CaseStatus.INVESTIGATION): {CasesPerms.CAN_ASSIGN_DETECTIVE},
-    (CaseStatus.INVESTIGATION, CaseStatus.SUSPECT_IDENTIFIED): {CasesPerms.CAN_CHANGE_CASE_STATUS},
-    (CaseStatus.SUSPECT_IDENTIFIED, CaseStatus.SERGEANT_REVIEW): {CasesPerms.CAN_CHANGE_CASE_STATUS},
-    (CaseStatus.SERGEANT_REVIEW, CaseStatus.ARREST_ORDERED): {CasesPerms.CAN_CHANGE_CASE_STATUS},
-    (CaseStatus.SERGEANT_REVIEW, CaseStatus.INVESTIGATION): {CasesPerms.CAN_CHANGE_CASE_STATUS},
-    (CaseStatus.ARREST_ORDERED, CaseStatus.INTERROGATION): {CasesPerms.CAN_CHANGE_CASE_STATUS},
-    (CaseStatus.INTERROGATION, CaseStatus.CAPTAIN_REVIEW): {CasesPerms.CAN_CHANGE_CASE_STATUS},
-    (CaseStatus.CAPTAIN_REVIEW, CaseStatus.CHIEF_REVIEW): {CasesPerms.CAN_APPROVE_CRITICAL_CASE},
-    (CaseStatus.CAPTAIN_REVIEW, CaseStatus.JUDICIARY): {CasesPerms.CAN_FORWARD_TO_JUDICIARY},
-    (CaseStatus.CHIEF_REVIEW, CaseStatus.JUDICIARY): {CasesPerms.CAN_FORWARD_TO_JUDICIARY},
+    (CaseStatus.INVESTIGATION, CaseStatus.JUDICIARY): {CasesPerms.CAN_CHANGE_CASE_STATUS},
     (CaseStatus.JUDICIARY, CaseStatus.CLOSED): {CasesPerms.CAN_CHANGE_CASE_STATUS},
 }
 
@@ -582,11 +568,8 @@ class CaseWorkflowService:
         django.core.exceptions.ValidationError
             - If ``(case.status, target_status)`` is not a key in
               ``ALLOWED_TRANSITIONS`` (illegal transition).
-            - If ``target_status == CHIEF_REVIEW`` but
-              ``case.crime_level != CrimeLevel.CRITICAL``.
             - If ``message`` is blank on a rejection transition
-              (``RETURNED_TO_COMPLAINANT``, ``RETURNED_TO_CADET``,
-              ``INVESTIGATION`` from ``SERGEANT_REVIEW``).
+              (``RETURNED_TO_COMPLAINANT``, ``RETURNED_TO_CADET``).
 
         Implementation Contract
         -----------------------
@@ -595,9 +578,8 @@ class CaseWorkflowService:
         3. required_perms = ALLOWED_TRANSITIONS[key]
         4. If not any(requesting_user.has_perm(f"cases.{p}") for p in required_perms) → raise PermissionError.
         5. Extra guards:
-           a. CHIEF_REVIEW target: assert case.crime_level == CRITICAL.
-           b. Rejection targets: assert message is non-blank.
-           c. VOIDED path: handled separately by _auto_void.
+           a. Rejection targets: assert message is non-blank.
+           b. VOIDED path: handled separately by _auto_void.
         6. prev_status = case.status
         7. case.status = target_status
         8. case.save(update_fields=["status", "updated_at"])
@@ -642,20 +624,10 @@ class CaseWorkflowService:
             )
 
         # 4. Extra guards
-        # a. CHIEF_REVIEW target requires CRITICAL crime level
-        if target_status == CaseStatus.CHIEF_REVIEW:
-            if case.crime_level != CrimeLevel.CRITICAL:
-                raise InvalidTransition(
-                    current=case.status,
-                    target=target_status,
-                    reason="Only critical-level cases require Chief Review.",
-                )
-
-        # b. Rejection transitions require non-blank message
+        # a. Rejection transitions require non-blank message
         _rejection_transitions = {
             (CaseStatus.CADET_REVIEW, CaseStatus.RETURNED_TO_COMPLAINANT),
             (CaseStatus.OFFICER_REVIEW, CaseStatus.RETURNED_TO_CADET),
-            (CaseStatus.SERGEANT_REVIEW, CaseStatus.INVESTIGATION),
         }
         if key in _rejection_transitions and not message.strip():
             raise DomainError(
@@ -1008,180 +980,6 @@ class CaseWorkflowService:
         )
 
     @staticmethod
-    @transaction.atomic
-    def declare_suspects_identified(
-        case: Case,
-        requesting_user: Any,
-    ) -> Case:
-        """
-        **Detective declares the primary suspects and moves the case to
-        Sergeant review.**
-
-        Transitions: ``INVESTIGATION`` → ``SUSPECT_IDENTIFIED`` →
-        (immediately or via a second call) ``SERGEANT_REVIEW``.
-
-        In this draft the two transitions are combined: the detective calls
-        this method once after linking suspects via the suspects app.
-
-        Parameters
-        ----------
-        case : Case
-            Case in ``INVESTIGATION`` status.
-        requesting_user : User
-            Must be ``case.assigned_detective``.
-
-        Returns
-        -------
-        Case
-            Case moved to ``SERGEANT_REVIEW``.
-
-        Implementation Contract
-        -----------------------
-        1. Assert case.status == INVESTIGATION.
-        2. Assert requesting_user == case.assigned_detective.
-        3. transition_state(case, SUSPECT_IDENTIFIED, requesting_user).
-        4. transition_state(case, SERGEANT_REVIEW, requesting_user).
-        5. Return case.
-        """
-        if case.status != CaseStatus.INVESTIGATION:
-            raise InvalidTransition(
-                current=case.status,
-                target=CaseStatus.SUSPECT_IDENTIFIED,
-                reason="Case must be in INVESTIGATION status.",
-            )
-
-        if requesting_user != case.assigned_detective:
-            raise PermissionDenied(
-                "Only the assigned detective can declare suspects."
-            )
-
-        case = CaseWorkflowService.transition_state(
-            case, CaseStatus.SUSPECT_IDENTIFIED, requesting_user,
-        )
-        case = CaseWorkflowService.transition_state(
-            case, CaseStatus.SERGEANT_REVIEW, requesting_user,
-        )
-        return case
-
-    @staticmethod
-    @transaction.atomic
-    def process_sergeant_review(
-        case: Case,
-        decision: str,
-        message: str,
-        requesting_user: Any,
-    ) -> Case:
-        """
-        **Sergeant approves or rejects the detective's suspect declaration.**
-
-        Decision ``"approve"`` → ``ARREST_ORDERED``.
-        Decision ``"reject"``  → ``INVESTIGATION`` (case returned to detective
-        with a rejection message, per §4.4).
-
-        Parameters
-        ----------
-        case : Case
-            Case in ``SERGEANT_REVIEW`` status.
-        decision : str
-            ``"approve"`` or ``"reject"``.
-        message : str
-            Required on rejection (the objection returned to detective).
-        requesting_user : User
-            Must be ``case.assigned_sergeant`` and have
-            ``CAN_CHANGE_CASE_STATUS`` permission.
-
-        Returns
-        -------
-        Case
-            Updated case.
-
-        Implementation Contract
-        -----------------------
-        1. Assert case.status == SERGEANT_REVIEW.
-        2. Assert requesting_user == case.assigned_sergeant.
-        3. If "approve": transition to ARREST_ORDERED.
-        4. If "reject":  transition to INVESTIGATION with non-blank message.
-        5. Return case.
-        """
-        if case.status != CaseStatus.SERGEANT_REVIEW:
-            raise InvalidTransition(
-                current=case.status,
-                target="approve/reject",
-                reason="Case must be in SERGEANT_REVIEW status.",
-            )
-
-        if requesting_user != case.assigned_sergeant:
-            raise PermissionDenied(
-                "Only the assigned sergeant can perform this review."
-            )
-
-        if decision == "approve":
-            case = CaseWorkflowService.transition_state(
-                case, CaseStatus.ARREST_ORDERED, requesting_user,
-            )
-        else:
-            case = CaseWorkflowService.transition_state(
-                case, CaseStatus.INVESTIGATION, requesting_user, message,
-            )
-        return case
-
-    @staticmethod
-    @transaction.atomic
-    def forward_to_judiciary(
-        case: Case,
-        requesting_user: Any,
-    ) -> Case:
-        """
-        **Captain (or Chief for critical cases) forwards the case to the
-        judiciary system.**
-
-        Transitions:
-        - Non-critical: ``CAPTAIN_REVIEW`` → ``JUDICIARY``
-        - Critical:     ``CHIEF_REVIEW``   → ``JUDICIARY``
-
-        Parameters
-        ----------
-        case : Case
-            Case in ``CAPTAIN_REVIEW`` or ``CHIEF_REVIEW``.
-        requesting_user : User
-            Must have ``CAN_FORWARD_TO_JUDICIARY``; for critical cases also
-            needs ``CAN_APPROVE_CRITICAL_CASE``.
-
-        Returns
-        -------
-        Case
-            Case now in ``JUDICIARY`` status.
-
-        Implementation Contract
-        -----------------------
-        1. Assert case.status in (CAPTAIN_REVIEW, CHIEF_REVIEW).
-        2. If case.status == CAPTAIN_REVIEW and case.crime_level == CRITICAL:
-           transition to CHIEF_REVIEW first.
-        3. transition_state(case, JUDICIARY, requesting_user).
-        4. Return case.
-        """
-        if case.status not in (CaseStatus.CAPTAIN_REVIEW, CaseStatus.CHIEF_REVIEW):
-            raise InvalidTransition(
-                current=case.status,
-                target=CaseStatus.JUDICIARY,
-                reason="Case must be in CAPTAIN_REVIEW or CHIEF_REVIEW.",
-            )
-
-        # Critical cases must go through CHIEF_REVIEW first
-        if (
-            case.status == CaseStatus.CAPTAIN_REVIEW
-            and case.crime_level == CrimeLevel.CRITICAL
-        ):
-            case = CaseWorkflowService.transition_state(
-                case, CaseStatus.CHIEF_REVIEW, requesting_user,
-            )
-
-        case = CaseWorkflowService.transition_state(
-            case, CaseStatus.JUDICIARY, requesting_user,
-        )
-        return case
-
-    @staticmethod
     def _dispatch_notifications(
         case: Case,
         new_status: str,
@@ -1194,7 +992,7 @@ class CaseWorkflowService:
         Called internally by ``transition_state``.  Must NOT be called
         directly from views.
 
-        Notification routing table (to be implemented):
+        Notification routing table:
         ┌──────────────────────────┬────────────────────────────────────┐
         │ new_status               │ recipient(s)                       │
         ├──────────────────────────┼────────────────────────────────────┤
@@ -1202,11 +1000,6 @@ class CaseWorkflowService:
         │ OFFICER_REVIEW           │ assigned officer / first officer   │
         │ OPEN                     │ case created_by                    │
         │ INVESTIGATION            │ assigned_detective                 │
-        │ SUSPECT_IDENTIFIED       │ assigned_sergeant                  │
-        │ SERGEANT_REVIEW          │ assigned_sergeant                  │
-        │ ARREST_ORDERED           │ assigned_detective                 │
-        │ CAPTAIN_REVIEW           │ assigned_captain                   │
-        │ CHIEF_REVIEW             │ police chief                       │
         │ JUDICIARY                │ assigned_judge                     │
         │ CLOSED                   │ case created_by, detective         │
         └──────────────────────────┴────────────────────────────────────┘
@@ -1248,21 +1041,6 @@ class CaseWorkflowService:
             if case.assigned_detective:
                 recipients = [case.assigned_detective]
             event_type = "assignment_changed"
-
-        elif new_status in (
-            CaseStatus.SUSPECT_IDENTIFIED,
-            CaseStatus.SERGEANT_REVIEW,
-        ):
-            if case.assigned_sergeant:
-                recipients = [case.assigned_sergeant]
-
-        elif new_status == CaseStatus.ARREST_ORDERED:
-            if case.assigned_detective:
-                recipients = [case.assigned_detective]
-
-        elif new_status == CaseStatus.CAPTAIN_REVIEW:
-            if case.assigned_captain:
-                recipients = [case.assigned_captain]
 
         elif new_status == CaseStatus.JUDICIARY:
             if case.assigned_judge:

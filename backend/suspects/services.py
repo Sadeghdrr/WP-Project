@@ -464,7 +464,19 @@ class SuspectProfileService:
         for key, value in validated_data.items():
             setattr(suspect, key, value)
 
+        # If the suspect was previously rejected by the sergeant,
+        # reset approval status to "pending" so the sergeant can
+        # re-review after the detective's edits.
+        if suspect.sergeant_approval_status == "rejected":
+            suspect.sergeant_approval_status = "pending"
+            suspect.sergeant_rejection_message = ""
+
         update_fields = list(validated_data.keys()) + ["updated_at"]
+        if "sergeant_approval_status" not in update_fields:
+            update_fields.extend([
+                "sergeant_approval_status",
+                "sergeant_rejection_message",
+            ])
         suspect.save(update_fields=update_fields)
         return suspect
 
@@ -740,6 +752,19 @@ class ArrestAndWarrantService:
                 "approved_by_sergeant",
                 "updated_at",
             ])
+
+            # Auto-create arrest warrant on approval
+            if not suspect.warrants.filter(
+                status=Warrant.WarrantStatus.ACTIVE,
+            ).exists():
+                Warrant.objects.create(
+                    suspect=suspect,
+                    reason=f"Auto-issued upon sergeant approval by {sergeant_user.get_full_name()}.",
+                    issued_by=sergeant_user,
+                    status=Warrant.WarrantStatus.ACTIVE,
+                    priority="normal",
+                )
+
             NotificationService.create(
                 actor=sergeant_user,
                 recipients=detective,
@@ -750,6 +775,7 @@ class ArrestAndWarrantService:
                     "case_id": suspect.case_id,
                     "case_title": suspect.case.title,
                     "approved_by": sergeant_user.get_full_name(),
+                    "message": "Suspect approved and arrest warrant issued.",
                 },
                 related_object=suspect,
             )
@@ -1536,7 +1562,60 @@ class VerdictService:
        moves to UNDER_TRIAL.
     5. Police Chief approves → suspect moves to UNDER_TRIAL.
     6. Police Chief rejects → suspect reverts to UNDER_INTERROGATION.
+    7. When ALL suspects of a case reach UNDER_TRIAL, the case
+       auto-transitions to JUDICIARY.
     """
+
+    @staticmethod
+    def _maybe_transition_case_to_judiciary(case) -> None:
+        """
+        Check if every suspect linked to *case* has reached UNDER_TRIAL.
+        If so, automatically transition the case status to JUDICIARY.
+
+        This is called after a suspect is moved to UNDER_TRIAL (by
+        captain verdict for non-critical cases, or chief approval for
+        critical cases).
+        """
+        from cases.models import CaseStatus, CaseStatusLog
+
+        # Only trigger when the case is still in INVESTIGATION
+        if case.status != CaseStatus.INVESTIGATION:
+            return
+
+        all_suspects = Suspect.objects.filter(case=case)
+        if not all_suspects.exists():
+            return
+
+        # Check that every suspect is UNDER_TRIAL (or beyond: CONVICTED, ACQUITTED, RELEASED)
+        terminal_or_trial = {
+            SuspectStatus.UNDER_TRIAL,
+            SuspectStatus.CONVICTED,
+            SuspectStatus.ACQUITTED,
+            SuspectStatus.RELEASED,
+        }
+        if all_suspects.exclude(status__in=terminal_or_trial).exists():
+            return
+
+        # All suspects are at trial or beyond — move case to JUDICIARY
+        prev_status = case.status
+        case.status = CaseStatus.JUDICIARY
+        case.save(update_fields=["status", "updated_at"])
+
+        CaseStatusLog.objects.create(
+            case=case,
+            from_status=prev_status,
+            to_status=CaseStatus.JUDICIARY,
+            changed_by=None,
+            message=(
+                "Auto-transitioned: all suspects have reached trial stage."
+            ),
+        )
+
+        logger.info(
+            "Case %s (pk=%d) auto-transitioned to JUDICIARY — "
+            "all suspects are UNDER_TRIAL or beyond.",
+            case.title, case.id,
+        )
 
     @staticmethod
     @transaction.atomic
@@ -1695,6 +1774,9 @@ class VerdictService:
                 actor, verdict, suspect.full_name, suspect.id,
             )
 
+            # Check if all suspects are now at trial → auto-transition case
+            VerdictService._maybe_transition_case_to_judiciary(case)
+
         return suspect
 
     @staticmethod
@@ -1796,6 +1878,9 @@ class VerdictService:
                 "(pk=%d) — forwarded to trial",
                 actor, suspect.full_name, suspect.id,
             )
+
+            # Check if all suspects are now at trial → auto-transition case
+            VerdictService._maybe_transition_case_to_judiciary(case)
 
         elif decision == "reject":
             if not notes.strip():

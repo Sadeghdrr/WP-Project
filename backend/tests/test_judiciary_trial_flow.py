@@ -58,8 +58,8 @@ class TestJudiciaryTrialFlow(TestCase):
         _grant(cls.judge_role, "view_suspect", "suspects")
         _grant(cls.judge_role, "can_scope_all_suspects", "suspects")
         _grant(cls.captain_role, "can_render_verdict", "suspects")
-        _grant(cls.captain_role, "can_forward_to_judiciary", "cases")
         _grant(cls.captain_role, "can_change_case_status", "cases")
+        _grant(cls.captain_role, "can_forward_to_judiciary", "cases")
         _grant(cls.captain_role, "add_casecomplainant", "cases")
         _grant(cls.captain_role, "add_evidence", "evidence")
         _grant(cls.captain_role, "can_scope_all_cases", "cases")
@@ -151,7 +151,7 @@ class TestJudiciaryTrialFlow(TestCase):
             description="Fixture for trial state-gate transition test.",
             crime_level=CrimeLevel.LEVEL_2,
             creation_type=CaseCreationType.CRIME_SCENE,
-            status=CaseStatus.CAPTAIN_REVIEW,
+            status=CaseStatus.INVESTIGATION,
             created_by=cls.captain_user,
             assigned_captain=cls.captain_user,
             assigned_judge=cls.judge_user,

@@ -15,7 +15,6 @@ Route Hierarchy
   ── Suspect Workflow @actions ───────────────────────────────────
   GET    /api/suspects/most-wanted/                    → Most Wanted listing
   POST   /api/suspects/{id}/approve/                   → Sergeant approve/reject
-  POST   /api/suspects/{id}/issue-warrant/             → Sergeant issue warrant
   POST   /api/suspects/{id}/arrest/                    → execute arrest
   POST   /api/suspects/{id}/transition-status/         → generic status transition
 
@@ -23,6 +22,8 @@ Route Hierarchy
   GET    /api/suspects/{suspect_pk}/interrogations/       → list interrogations
   POST   /api/suspects/{suspect_pk}/interrogations/       → create interrogation
   GET    /api/suspects/{suspect_pk}/interrogations/{id}/  → retrieve interrogation
+ POST    /api/suspects/{id}/captain-verdict/
+ POST    /api/suspects/{id}/chief-approval/
 
   ── Nested: Trials ──────────────────────────────────────────────
   GET    /api/suspects/{suspect_pk}/trials/                → list trials

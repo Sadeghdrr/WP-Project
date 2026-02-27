@@ -547,33 +547,6 @@ class OfficerReviewSerializer(serializers.Serializer):
         return attrs
 
 
-class SergeantReviewSerializer(serializers.Serializer):
-    """
-    Request body for ``POST /api/cases/{id}/sergeant-review/``.
-
-    ``decision`` ``"reject"`` means the sergeant objects and the case
-    is returned to the detective with a mandatory message (§4.4).
-    """
-
-    DECISION_CHOICES = [("approve", "Approve"), ("reject", "Reject")]
-
-    decision = serializers.ChoiceField(choices=DECISION_CHOICES)
-    message = serializers.CharField(
-        required=False,
-        allow_blank=True,
-        default="",
-        max_length=2000,
-    )
-
-    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        """Require message on reject."""
-        if attrs["decision"] == "reject" and not attrs.get("message"):
-            raise serializers.ValidationError(
-                {"message": "A rejection reason is required."}
-            )
-        return attrs
-
-
 class AssignPersonnelSerializer(serializers.Serializer):
     """
     Generic request body for personnel assignment endpoints.

@@ -227,22 +227,6 @@ class TestSuspectWorkflow(TestCase):
         )
         return response.data
 
-    def issue_warrant_as_sergeant(
-        self,
-        suspect_id: int,
-        *,
-        reason: str = "Strong forensic evidence links suspect to the case.",
-        priority: str = "high",
-    ):
-        sergeant_token = self.login(self.sergeant_user, self.sergeant_password)
-        self.auth(sergeant_token)
-        issue_url = reverse("suspect-issue-warrant", kwargs={"pk": suspect_id})
-        return self.client.post(
-            issue_url,
-            {"warrant_reason": reason, "priority": priority},
-            format="json",
-        )
-
     def arrest_as_user(
         self,
         suspect_id: int,
@@ -271,16 +255,7 @@ class TestSuspectWorkflow(TestCase):
     def create_arrested_suspect(self, *, full_name: str = "Interrogation Candidate") -> int:
         suspect_id = self.create_suspect_as_detective(full_name=full_name)["id"]
         self.approve_suspect_as_sergeant(suspect_id)
-        warrant_response = self.issue_warrant_as_sergeant(
-            suspect_id,
-            reason="Prepared for interrogation workflow.",
-            priority="high",
-        )
-        self.assertIn(
-            warrant_response.status_code,
-            (status.HTTP_200_OK, status.HTTP_201_CREATED),
-            msg=f"Warrant setup failed: {warrant_response.data}",
-        )
+        # Warrant is auto-created on sergeant approval — proceed to arrest
         arrest_response = self.arrest_as_user(
             suspect_id,
             arrest_location="Central Station",
@@ -302,17 +277,7 @@ class TestSuspectWorkflow(TestCase):
         case = self.create_case(crime_level=crime_level)
         suspect_id = self.create_suspect_as_detective(case=case, full_name=full_name)["id"]
         self.approve_suspect_as_sergeant(suspect_id)
-
-        warrant_response = self.issue_warrant_as_sergeant(
-            suspect_id,
-            reason="Prepared for verdict gate scenario.",
-            priority="high",
-        )
-        self.assertIn(
-            warrant_response.status_code,
-            (status.HTTP_200_OK, status.HTTP_201_CREATED),
-            msg=f"Warrant setup failed for verdict flow: {warrant_response.data}",
-        )
+        # Warrant is auto-created on sergeant approval — proceed to arrest
 
         arrest_response = self.arrest_as_user(
             suspect_id,
@@ -653,111 +618,21 @@ class TestSuspectWorkflow(TestCase):
             msg=f"Expected 400/409 for already-processed approval. Body: {second_response.data}",
         )
 
-    def test_sergeant_can_issue_warrant_for_approved_suspect(self):
-        suspect_id = self.create_suspect_as_detective(full_name="Warrant Candidate")["id"]
+    def test_auto_warrant_created_on_sergeant_approval(self):
+        """Approving a suspect auto-creates an active arrest warrant."""
+        suspect_id = self.create_suspect_as_detective(full_name="Auto Warrant Candidate")["id"]
         self.approve_suspect_as_sergeant(suspect_id)
-
-        response = self.issue_warrant_as_sergeant(
-            suspect_id,
-            reason="Witness statement and DNA evidence confirm probable cause.",
-            priority="critical",
-        )
-        self.assertIn(
-            response.status_code,
-            (status.HTTP_200_OK, status.HTTP_201_CREATED),
-            msg=f"Expected 200/201 for warrant issue. Body: {response.data}",
-        )
-        self.assertEqual(response.data["id"], suspect_id)
-        self.assertEqual(response.data["sergeant_approval_status"], "approved")
 
         warrants = Warrant.objects.filter(suspect_id=suspect_id)
         self.assertEqual(warrants.count(), 1)
         warrant = warrants.first()
         self.assertEqual(warrant.status, Warrant.WarrantStatus.ACTIVE)
-        self.assertEqual(warrant.priority, "critical")
-        self.assertEqual(
-            warrant.reason,
-            "Witness statement and DNA evidence confirm probable cause.",
-        )
         self.assertEqual(warrant.issued_by_id, self.sergeant_user.id)
-
-    def test_duplicate_warrant_is_prevented_for_same_suspect(self):
-        suspect_id = self.create_suspect_as_detective(full_name="Duplicate Warrant Suspect")["id"]
-        self.approve_suspect_as_sergeant(suspect_id)
-
-        first_issue = self.issue_warrant_as_sergeant(suspect_id, priority="high")
-        self.assertIn(first_issue.status_code, (status.HTTP_200_OK, status.HTTP_201_CREATED))
-        self.assertEqual(
-            Warrant.objects.filter(
-                suspect_id=suspect_id,
-                status=Warrant.WarrantStatus.ACTIVE,
-            ).count(),
-            1,
-        )
-
-        second_issue = self.issue_warrant_as_sergeant(suspect_id, priority="high")
-        self.assertIn(
-            second_issue.status_code,
-            (status.HTTP_400_BAD_REQUEST, status.HTTP_409_CONFLICT),
-            msg=f"Expected 400/409 on duplicate warrant issue. Body: {second_issue.data}",
-        )
-        self.assertEqual(
-            Warrant.objects.filter(suspect_id=suspect_id).count(),
-            1,
-            msg="Duplicate warrant call must not create additional warrant rows.",
-        )
-
-    def test_issue_warrant_before_sergeant_approval_is_rejected(self):
-        suspect_id = self.create_suspect_as_detective(full_name="Unapproved Suspect")["id"]
-
-        response = self.issue_warrant_as_sergeant(
-            suspect_id,
-            reason="Attempting issue before approval should fail.",
-            priority="normal",
-        )
-        self.assertIn(
-            response.status_code,
-            (status.HTTP_400_BAD_REQUEST, status.HTTP_409_CONFLICT),
-            msg=f"Expected 400/409 when warrant issued before approval. Body: {response.data}",
-        )
-        self.assertEqual(
-            Warrant.objects.filter(suspect_id=suspect_id).count(),
-            0,
-            msg="No warrant should be created when suspect is not approved.",
-        )
-
-    def test_non_sergeant_cannot_issue_warrant(self):
-        suspect_id = self.create_suspect_as_detective(full_name="Permission Test Suspect")["id"]
-        self.approve_suspect_as_sergeant(suspect_id)
-
-        captain_token = self.login(self.captain_user, self.captain_password)
-        self.auth(captain_token)
-        issue_url = reverse("suspect-issue-warrant", kwargs={"pk": suspect_id})
-        response = self.client.post(
-            issue_url,
-            {"warrant_reason": "Captain tries to issue.", "priority": "high"},
-            format="json",
-        )
-        self.assertEqual(
-            response.status_code,
-            status.HTTP_403_FORBIDDEN,
-            msg=f"Expected 403 when non-sergeant issues warrant. Body: {response.data}",
-        )
-        self.assertEqual(Warrant.objects.filter(suspect_id=suspect_id).count(), 0)
 
     def test_arrest_with_warrant_succeeds(self):
         suspect_id = self.create_suspect_as_detective(full_name="Arrest With Warrant")["id"]
         self.approve_suspect_as_sergeant(suspect_id)
-        warrant_issue = self.issue_warrant_as_sergeant(
-            suspect_id,
-            reason="Probable cause confirmed by witness and forensic report.",
-            priority="high",
-        )
-        self.assertIn(
-            warrant_issue.status_code,
-            (status.HTTP_200_OK, status.HTTP_201_CREATED),
-            msg=f"Warrant issuance setup failed: {warrant_issue.data}",
-        )
+        # Warrant is auto-created on approval
 
         arrest_response = self.arrest_as_user(
             suspect_id,
@@ -790,57 +665,29 @@ class TestSuspectWorkflow(TestCase):
         self.assertIn("Arrest location: Hollywood Blvd, Los Angeles", arrest_log.notes)
         self.assertIn("Warrant", arrest_log.notes)
 
-    def test_arrest_without_warrant_requires_justification_then_succeeds(self):
-        suspect_id = self.create_suspect_as_detective(full_name="Warrantless Arrest Candidate")["id"]
-        self.approve_suspect_as_sergeant(suspect_id)
+    def test_arrest_unapproved_suspect_fails(self):
+        """Attempting to arrest a suspect that hasn't been approved should fail."""
+        suspect_id = self.create_suspect_as_detective(full_name="Unapproved Arrest Candidate")["id"]
+        # No approval → no auto-warrant → arrest must fail
 
-        missing_justification = self.arrest_as_user(
+        response = self.arrest_as_user(
             suspect_id,
             arrest_location="Downtown LA",
-            arrest_notes="No warrant exists for this suspect yet.",
+            arrest_notes="Attempting without approval.",
         )
-        self.assertEqual(
-            missing_justification.status_code,
-            status.HTTP_400_BAD_REQUEST,
-            msg=f"Expected 400 without warrant justification. Body: {missing_justification.data}",
-        )
-        self.assertIn("detail", missing_justification.data)
         self.assertIn(
-            "warrant_override_justification",
-            str(missing_justification.data["detail"]),
+            response.status_code,
+            (status.HTTP_400_BAD_REQUEST, status.HTTP_409_CONFLICT),
+            msg=f"Expected 400/409 for unapproved suspect arrest. Body: {response.data}",
         )
-        self.assertEqual(Warrant.objects.filter(suspect_id=suspect_id).count(), 0)
         suspect = Suspect.objects.get(pk=suspect_id)
         self.assertEqual(suspect.status, SuspectStatus.WANTED)
         self.assertIsNone(suspect.arrested_at)
 
-        with_justification = self.arrest_as_user(
-            suspect_id,
-            arrest_location="Downtown LA",
-            arrest_notes="Suspect caught fleeing scene.",
-            warrant_override_justification="Suspect caught in the act; immediate arrest required.",
-        )
-        self.assertIn(
-            with_justification.status_code,
-            (status.HTTP_200_OK, status.HTTP_201_CREATED),
-            msg=f"Expected success with warrant override justification. Body: {with_justification.data}",
-        )
-        self.assertEqual(with_justification.data["status"], SuspectStatus.ARRESTED)
-
-        suspect.refresh_from_db()
-        self.assertEqual(suspect.status, SuspectStatus.ARRESTED)
-        self.assertIsNotNone(suspect.arrested_at)
-        arrest_log = SuspectStatusLog.objects.filter(
-            suspect_id=suspect_id,
-            to_status=SuspectStatus.ARRESTED,
-        ).latest("created_at")
-        self.assertIn("Warrantless arrest", arrest_log.notes)
-        self.assertIn("override", arrest_log.notes)
-
     def test_non_authorized_role_cannot_arrest_suspect(self):
         suspect_id = self.create_suspect_as_detective(full_name="Unauthorized Arrest Attempt")["id"]
         self.approve_suspect_as_sergeant(suspect_id)
-        self.issue_warrant_as_sergeant(suspect_id, reason="Ready for arrest flow.", priority="high")
+        # Warrant is auto-created on approval
 
         response = self.arrest_as_user(
             suspect_id,
@@ -861,7 +708,7 @@ class TestSuspectWorkflow(TestCase):
     def test_cannot_arrest_already_arrested_suspect(self):
         suspect_id = self.create_suspect_as_detective(full_name="Double Arrest Candidate")["id"]
         self.approve_suspect_as_sergeant(suspect_id)
-        self.issue_warrant_as_sergeant(suspect_id, reason="First arrest path.", priority="normal")
+        # Warrant is auto-created on approval
 
         first_arrest = self.arrest_as_user(
             suspect_id,
