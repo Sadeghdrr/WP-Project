@@ -366,7 +366,6 @@ function WorkflowPanel({ suspect, caseId, permissionSet, setToast, onActionCompl
   const isAnyLoading =
     actions.approve.isPending ||
     actions.arrest.isPending ||
-    actions.transitionStatus.isPending ||
     actions.captainVerdict.isPending ||
     actions.chiefApproval.isPending ||
     actions.updateSuspect.isPending ||
@@ -408,15 +407,9 @@ function WorkflowPanel({ suspect, caseId, permissionSet, setToast, onActionCompl
         case "arrest":
           setActiveModal("arrest");
           return;
-        case "begin_interrogation":
-          await actions.transitionStatus.mutateAsync({ target_status: "under_interrogation" });
-          break;
         case "create_interrogation":
           setActiveModal("create_interrogation");
           return;
-        case "send_to_captain":
-          await actions.transitionStatus.mutateAsync({ target_status: "pending_captain_verdict" });
-          break;
         case "captain_guilty":
           setActiveModal("captain_guilty");
           return;

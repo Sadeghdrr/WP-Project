@@ -122,19 +122,6 @@ export function arrestSuspect(
   return apiPost<Suspect>(API.SUSPECT_ARREST(id), data);
 }
 
-export interface TransitionStatusRequest {
-  target_status: string;
-  notes?: string;
-}
-
-/** Generic suspect status transition. */
-export function transitionSuspectStatus(
-  id: number,
-  data: TransitionStatusRequest,
-): Promise<ApiResponse<Suspect>> {
-  return apiPost<Suspect>(API.SUSPECT_TRANSITION(id), data);
-}
-
 export interface CaptainVerdictRequest {
   verdict: "guilty" | "innocent";
   notes: string;
@@ -210,4 +197,67 @@ export function createBail(
   data: Omit<BailCreateRequest, "suspect">,
 ): Promise<ApiResponse<Bail>> {
   return apiPost<Bail>(API.suspectBails(suspectId), data);
+}
+
+// ---------------------------------------------------------------------------
+// Most Wanted
+// ---------------------------------------------------------------------------
+
+/** Fetch public most-wanted list (ranked by score). */
+export function fetchMostWanted(): Promise<ApiResponse<MostWantedEntry[]>> {
+  return apiGet<MostWantedEntry[]>(API.MOST_WANTED);
+}
+
+// ---------------------------------------------------------------------------
+// Bounty Tips — List / Detail
+// ---------------------------------------------------------------------------
+
+/** List bounty tips (role-scoped on backend). */
+export function fetchBountyTips(
+  filters: BountyTipFilters = {},
+): Promise<ApiResponse<BountyTipListItem[]>> {
+  return apiGet<BountyTipListItem[]>(`${API.BOUNTY_TIPS}${buildQuery(filters)}`);
+}
+
+/** Fetch a single bounty tip detail. */
+export function fetchBountyTipDetail(id: number): Promise<ApiResponse<BountyTip>> {
+  return apiGet<BountyTip>(API.bountyTip(id));
+}
+
+// ---------------------------------------------------------------------------
+// Bounty Tips — Create / Review / Verify
+// ---------------------------------------------------------------------------
+
+/** Submit a new bounty tip (citizen). */
+export function createBountyTip(
+  data: BountyTipCreateRequest,
+): Promise<ApiResponse<BountyTip>> {
+  return apiPost<BountyTip>(API.BOUNTY_TIPS, data);
+}
+
+/** Officer reviews a bounty tip (accept / reject). */
+export function reviewBountyTip(
+  id: number,
+  data: BountyTipReviewRequest,
+): Promise<ApiResponse<BountyTip>> {
+  return apiPost<BountyTip>(API.bountyTipReview(id), data);
+}
+
+/** Detective verifies a bounty tip (verify / reject). */
+export function verifyBountyTip(
+  id: number,
+  data: BountyTipVerifyRequest,
+): Promise<ApiResponse<BountyTip>> {
+  return apiPost<BountyTip>(API.bountyTipVerify(id), data);
+}
+
+// ---------------------------------------------------------------------------
+// Reward Lookup
+// ---------------------------------------------------------------------------
+
+/** Look up bounty reward by national ID + unique code. */
+export function lookupReward(
+  data: BountyVerifyLookupRequest,
+): Promise<ApiResponse<BountyVerifyLookupResponse>> {
+  return apiPost<BountyVerifyLookupResponse>(API.BOUNTY_REWARD_LOOKUP, data);
 }

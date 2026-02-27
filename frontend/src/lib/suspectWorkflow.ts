@@ -131,19 +131,20 @@ function getActionsForState(
     ];
   }
 
-  // Arrested → begin interrogation
+  // Arrested → create an interrogation which auto-transitions to under_interrogation
   if (status === "arrested") {
     return [
       {
-        key: "begin_interrogation",
-        label: "Begin Interrogation",
+        key: "create_interrogation",
+        label: "Create Interrogation",
         variant: "primary",
+        needsForm: true,
         requiredPermissions: ["suspects.can_conduct_interrogation"],
       },
     ];
   }
 
-  // Under interrogation → create interrogation records, then send to captain
+  // Under interrogation → record more interrogations + captain can render verdict directly
   if (status === "under_interrogation") {
     return [
       {
@@ -154,15 +155,23 @@ function getActionsForState(
         requiredPermissions: ["suspects.can_conduct_interrogation"],
       },
       {
-        key: "send_to_captain",
-        label: "Send to Captain Review",
-        variant: "default",
-        requiredPermissions: ["suspects.can_conduct_interrogation"],
+        key: "captain_guilty",
+        label: "Verdict: Guilty",
+        variant: "danger",
+        needsForm: true,
+        requiredPermissions: ["suspects.can_render_verdict"],
+      },
+      {
+        key: "captain_innocent",
+        label: "Verdict: Innocent",
+        variant: "primary",
+        needsForm: true,
+        requiredPermissions: ["suspects.can_render_verdict"],
       },
     ];
   }
 
-  // Pending captain verdict
+  // Pending captain verdict (same captain verdict actions)
   if (status === "pending_captain_verdict") {
     return [
       {

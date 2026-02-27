@@ -166,12 +166,6 @@ export function useSuspectActions(suspectId: number, caseId?: number) {
     onSuccess: invalidate,
   });
 
-  const transitionStatus = useMutation({
-    mutationFn: (data: suspectsApi.TransitionStatusRequest) =>
-      suspectsApi.transitionSuspectStatus(suspectId, data).then(throwOnErr),
-    onSuccess: invalidate,
-  });
-
   const captainVerdict = useMutation({
     mutationFn: (data: suspectsApi.CaptainVerdictRequest) =>
       suspectsApi.submitCaptainVerdict(suspectId, data).then(throwOnErr),
@@ -220,7 +214,6 @@ export function useSuspectActions(suspectId: number, caseId?: number) {
   return {
     approve,
     arrest,
-    transitionStatus,
     captainVerdict,
     chiefApproval,
     updateSuspect,

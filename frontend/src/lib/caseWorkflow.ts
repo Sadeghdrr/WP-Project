@@ -164,13 +164,7 @@ export const STATUS_ACTIONS: Partial<Record<CaseStatus, WorkflowAction[]>> = {
   investigation: [
     // Suspect lifecycle is managed per-suspect.
     // Case auto-transitions to judiciary when all suspects reach under_trial.
-    // Manual override is available for authorized users:
-    {
-      key: "transition_judiciary",
-      label: "Forward to Judiciary",
-      variant: "primary",
-      requiredPermissions: ["cases.can_forward_to_judiciary"],
-    },
+    // No manual action needed — transition is automatic.
   ],
   judiciary: [
     {

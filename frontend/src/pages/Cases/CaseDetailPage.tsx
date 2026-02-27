@@ -852,9 +852,6 @@ function WorkflowPanel({
         case "assign_detective":
           // Handled by handleAssignDetective
           break;
-        case "transition_judiciary":
-          await actions.transitionCase.mutateAsync({ target_status: "judiciary" });
-          break;
         case "close_case":
           await actions.transitionCase.mutateAsync({ target_status: "closed" });
           break;
