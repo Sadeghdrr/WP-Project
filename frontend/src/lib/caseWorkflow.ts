@@ -180,11 +180,44 @@ export const STATUS_ACTIONS: Partial<Record<CaseStatus, WorkflowAction[]>> = {
     },
   ],
   investigation: [
-    // Suspect lifecycle is managed per-suspect.
-    // Case auto-transitions to judiciary when all suspects reach under_trial.
-    // No manual action needed — transition is automatic.
+    {
+      key: "assign_sergeant",
+      label: "Assign Sergeant",
+      variant: "primary",
+      requiredPermissions: ["cases.can_assign_detective"],
+    },
+    {
+      key: "assign_captain",
+      label: "Assign Captain",
+      variant: "primary",
+      requiredPermissions: ["cases.can_assign_detective"],
+    },
+    {
+      key: "assign_judge",
+      label: "Assign Judge",
+      variant: "primary",
+      requiredPermissions: ["cases.can_forward_to_judiciary"],
+    },
   ],
   judiciary: [
+    {
+      key: "assign_sergeant",
+      label: "Assign Sergeant",
+      variant: "primary",
+      requiredPermissions: ["cases.can_assign_detective"],
+    },
+    {
+      key: "assign_captain",
+      label: "Assign Captain",
+      variant: "primary",
+      requiredPermissions: ["cases.can_assign_detective"],
+    },
+    {
+      key: "assign_judge",
+      label: "Assign Judge",
+      variant: "primary",
+      requiredPermissions: ["cases.can_forward_to_judiciary"],
+    },
     {
       key: "close_case",
       label: "Close Case",

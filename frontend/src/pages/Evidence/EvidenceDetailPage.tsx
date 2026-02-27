@@ -216,6 +216,7 @@ export default function EvidenceDetailPage() {
   const canVerify =
     isBiological &&
     !bioEvidence?.is_verified &&
+    bioEvidence?.verified_by === null &&
     permissionSet.has("evidence.can_verify_evidence");
 
   return (
@@ -242,10 +243,10 @@ export default function EvidenceDetailPage() {
             {isBiological && (
               <span
                 className={`${css.badge} ${
-                  bioEvidence?.is_verified ? css.badgeGreen : css.badgeAmber
+                  bioEvidence?.is_verified ? css.badgeGreen : bioEvidence?.verified_by === null ? css.badgeAmber : css.badgeRed
                 }`}
               >
-                {bioEvidence?.is_verified ? "Verified" : "Pending Verification"}
+                {bioEvidence?.is_verified ? "Verified" : bioEvidence?.verified_by === null ? "Pending Approval" : "Rejected"}
               </span>
             )}
           </div>

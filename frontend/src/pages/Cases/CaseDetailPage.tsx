@@ -737,9 +737,9 @@ function WorkflowPanel({
   const navigate = useNavigate();
   const actions = useCaseActions(caseData.id);
 
-  // State for assign_detective user selection
+  // State for personnel assignment modals (detective / sergeant / captain / judge)
   const [assignUserId, setAssignUserId] = useState("");
-  const [showAssignModal, setShowAssignModal] = useState(false);
+  const [pendingAssignKey, setPendingAssignKey] = useState<string | null>(null);
 
   // State for edit & resubmit
   const [showEditForm, setShowEditForm] = useState(false);
@@ -761,9 +761,14 @@ function WorkflowPanel({
 
   const handleAction = useCallback(
     async (action: WorkflowAction) => {
-      if (action.key === "assign_detective") {
+      if (
+        action.key === "assign_detective" ||
+        action.key === "assign_sergeant" ||
+        action.key === "assign_captain" ||
+        action.key === "assign_judge"
+      ) {
         setAssignUserId("");
-        setShowAssignModal(true);
+        setPendingAssignKey(action.key);
         return;
       }
       if (action.key === "resubmit") {
@@ -781,16 +786,33 @@ function WorkflowPanel({
     [caseData.id, caseData.status],
   );
 
-  const handleAssignDetective = async () => {
+  const ASSIGN_LABELS: Record<string, string> = {
+    assign_detective: "Detective",
+    assign_sergeant: "Sergeant",
+    assign_captain: "Captain",
+    assign_judge: "Judge",
+  };
+
+  const handleAssignUser = async () => {
+    if (!pendingAssignKey) return;
     const uid = Number(assignUserId);
     if (!uid || isNaN(uid)) return;
+    const roleLabel = ASSIGN_LABELS[pendingAssignKey] ?? "Personnel";
     try {
-      await actions.assignDetective.mutateAsync({ user_id: uid });
-      setToast({ message: "Detective assigned successfully", type: "success" });
-      setShowAssignModal(false);
+      if (pendingAssignKey === "assign_detective") {
+        await actions.assignDetective.mutateAsync({ user_id: uid });
+      } else if (pendingAssignKey === "assign_sergeant") {
+        await actions.assignSergeant.mutateAsync({ user_id: uid });
+      } else if (pendingAssignKey === "assign_captain") {
+        await actions.assignCaptain.mutateAsync({ user_id: uid });
+      } else if (pendingAssignKey === "assign_judge") {
+        await actions.assignJudge.mutateAsync({ user_id: uid });
+      }
+      setToast({ message: `${roleLabel} assigned successfully`, type: "success" });
+      setPendingAssignKey(null);
     } catch (err) {
       setToast({
-        message: err instanceof Error ? err.message : "Failed to assign detective",
+        message: err instanceof Error ? err.message : `Failed to assign ${roleLabel.toLowerCase()}`,
         type: "error",
       });
     }
@@ -850,7 +872,10 @@ function WorkflowPanel({
           await actions.approveCrimeScene.mutateAsync();
           break;
         case "assign_detective":
-          // Handled by handleAssignDetective
+        case "assign_sergeant":
+        case "assign_captain":
+        case "assign_judge":
+          // Handled by handleAssignUser via modal
           break;
         case "close_case":
           await actions.transitionCase.mutateAsync({ target_status: "closed" });
@@ -879,7 +904,10 @@ function WorkflowPanel({
     actions.officerReview.isPending ||
     actions.approveCrimeScene.isPending ||
     actions.transitionCase.isPending ||
-    actions.assignDetective.isPending;
+    actions.assignDetective.isPending ||
+    actions.assignSergeant.isPending ||
+    actions.assignCaptain.isPending ||
+    actions.assignJudge.isPending;
 
   if (isTerminalStatus(caseData.status)) {
     return (
@@ -915,6 +943,14 @@ function WorkflowPanel({
                 : action.variant === "primary"
                   ? styles.btnPrimary
                   : styles.btnDefault;
+
+            const alreadyAssigned =
+              (action.key === "assign_sergeant" && !!caseData.assigned_sergeant) ||
+              (action.key === "assign_captain"  && !!caseData.assigned_captain)  ||
+              (action.key === "assign_judge"    && !!caseData.assigned_judge);
+
+            if (alreadyAssigned) return null;
+
             return (
               <button
                 key={action.key}
@@ -962,13 +998,13 @@ function WorkflowPanel({
         </div>
       )}
 
-      {/* Assign detective modal */}
-      {showAssignModal && (
-        <div className={styles.modalOverlay} onClick={() => setShowAssignModal(false)}>
+      {/* Assign personnel modal (detective / sergeant / captain / judge) */}
+      {pendingAssignKey && (
+        <div className={styles.modalOverlay} onClick={() => setPendingAssignKey(null)}>
           <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
-            <h3>Assign Detective</h3>
+            <h3>Assign {ASSIGN_LABELS[pendingAssignKey] ?? "Personnel"}</h3>
             <label style={{ fontSize: "0.875rem", color: "#6b7280", marginBottom: "0.5rem", display: "block" }}>
-              Enter the User ID of the detective to assign:
+              Enter the User ID of the {(ASSIGN_LABELS[pendingAssignKey] ?? "personnel").toLowerCase()} to assign:
             </label>
             <input
               type="number"
@@ -988,18 +1024,18 @@ function WorkflowPanel({
             <div className={styles.modalActions}>
               <button
                 className={styles.btnDefault}
-                onClick={() => setShowAssignModal(false)}
+                onClick={() => setPendingAssignKey(null)}
                 type="button"
               >
                 Cancel
               </button>
               <button
                 className={styles.btnPrimary}
-                onClick={handleAssignDetective}
+                onClick={handleAssignUser}
                 disabled={!assignUserId || isAnyLoading}
                 type="button"
               >
-                {actions.assignDetective.isPending ? "Assigning…" : "Assign"}
+                {isAnyLoading ? "Assigning…" : "Assign"}
               </button>
             </div>
           </div>

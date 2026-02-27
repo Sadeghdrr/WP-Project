@@ -15,7 +15,7 @@ export default function Header({ onMenuToggle }: HeaderProps) {
 
   function handleLogout() {
     logout();
-    navigate("/login", { replace: true });
+    navigate("/", { replace: true });
   }
 
   return (
@@ -46,22 +46,6 @@ export default function Header({ onMenuToggle }: HeaderProps) {
           }
         >
           Dashboard
-        </NavLink>
-        <NavLink
-          to="/cases"
-          className={({ isActive }) =>
-            `${styles.navLink} ${isActive ? styles.navLinkActive : ""}`
-          }
-        >
-          Cases
-        </NavLink>
-        <NavLink
-          to="/most-wanted"
-          className={({ isActive }) =>
-            `${styles.navLink} ${isActive ? styles.navLinkActive : ""}`
-          }
-        >
-          Most Wanted
         </NavLink>
 
         {user ? (

@@ -100,10 +100,10 @@ export default function FileComplaintPage() {
             value={crimeLevel}
             onChange={(e) => setCrimeLevel(Number(e.target.value) as CrimeLevel)}
           >
-            <option value={1}>Level 1 — Minor</option>
-            <option value={2}>Level 2 — Moderate</option>
-            <option value={3}>Level 3 — Serious</option>
-            <option value={4}>Level 4 — Critical</option>
+            <option value={1}>Level 3 — Minor</option>
+            <option value={2}>Level 2 — Medium</option>
+            <option value={3}>Level 1 — Major</option>
+            <option value={4}>Critical</option>
           </select>
         </div>
 

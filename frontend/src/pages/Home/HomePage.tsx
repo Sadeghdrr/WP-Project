@@ -83,47 +83,6 @@ export default function HomePage() {
         </p>
       </section>
 
-      {/* ── About / Introduction ─────────────────────────────────────── */}
-      <section className={styles.intro}>
-        <h2 className={styles.sectionTitle}>About the Department</h2>
-        <p className={styles.introText}>
-          The Los Angeles Police Department (LAPD) is the primary law
-          enforcement agency for the city of Los Angeles. Our officers and
-          detectives work around the clock to investigate crimes, collect
-          evidence, apprehend suspects, and ensure justice is served through
-          fair judicial proceedings.
-        </p>
-        <p className={styles.introText}>
-          This system supports the department's daily operations by providing a
-          centralised platform for filing complaints, managing active
-          investigations, cataloguing physical and digital evidence, tracking
-          suspect information, and coordinating bail and trial processes.
-        </p>
-      </section>
-
-      {/* ── Duties ───────────────────────────────────────────────────── */}
-      <section className={styles.duties}>
-        <h2 className={styles.sectionTitle}>Core Duties</h2>
-        <ul className={styles.dutyList}>
-          <li className={styles.dutyItem}>
-            <strong>Case Management</strong> — File complaints, open
-            investigations, assign officers, and track case progress.
-          </li>
-          <li className={styles.dutyItem}>
-            <strong>Evidence Handling</strong> — Catalogue, verify, and
-            maintain chain-of-custody for all types of evidence.
-          </li>
-          <li className={styles.dutyItem}>
-            <strong>Suspect Identification</strong> — Record suspect details,
-            issue arrest warrants, and manage most-wanted lists.
-          </li>
-          <li className={styles.dutyItem}>
-            <strong>Judicial Coordination</strong> — Schedule interrogations,
-            coordinate trials, and process bail applications.
-          </li>
-        </ul>
-      </section>
-
       {/* ── Statistics ───────────────────────────────────────────────── */}
       <section className={styles.statsSection}>
         <h2 className={styles.sectionTitle}>Department Overview</h2>
@@ -162,6 +121,46 @@ export default function HomePage() {
             ))}
           </div>
         )}
+      </section>
+
+      {/* ── Duties ───────────────────────────────────────────────────── */}
+      <section className={styles.duties}>
+        <h2 className={styles.sectionTitle}>Core Duties</h2>
+        <ul className={styles.dutyList}>
+          <li className={styles.dutyItem}>
+            <strong>Case Management</strong> — File complaints, open
+            investigations, assign officers, and track case progress.
+          </li>
+          <li className={styles.dutyItem}>
+            <strong>Evidence Handling</strong> — Catalogue, verify, and
+            maintain chain-of-custody for all types of evidence.
+          </li>
+          <li className={styles.dutyItem}>
+            <strong>Suspect Identification</strong> — Record suspect details,
+            issue arrest warrants, and manage most-wanted lists.
+          </li>
+          <li className={styles.dutyItem}>
+            <strong>Judicial Coordination</strong> — Schedule interrogations,
+            coordinate trials, and process bail applications.
+          </li>
+        </ul>
+      </section>
+      {/* ── About / Introduction ─────────────────────────────────────── */}
+      <section className={styles.intro}>
+        <h2 className={styles.sectionTitle}>About the Department</h2>
+        <p className={styles.introText}>
+          The Los Angeles Police Department (LAPD) is the primary law
+          enforcement agency for the city of Los Angeles. Our officers and
+          detectives work around the clock to investigate crimes, collect
+          evidence, apprehend suspects, and ensure justice is served through
+          fair judicial proceedings.
+        </p>
+        <p className={styles.introText}>
+          This system supports the department's daily operations by providing a
+          centralised platform for filing complaints, managing active
+          investigations, cataloguing physical and digital evidence, tracking
+          suspect information, and coordinating bail and trial processes.
+        </p>
       </section>
     </div>
   );
