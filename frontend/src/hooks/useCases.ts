@@ -137,22 +137,6 @@ export function useCaseActions(caseId: number) {
     onSuccess: invalidate,
   });
 
-  const declareSuspects = useMutation({
-    mutationFn: () => casesApi.declareSuspects(caseId).then(throwOnError),
-    onSuccess: invalidate,
-  });
-
-  const sergeantReview = useMutation({
-    mutationFn: (data: ReviewDecisionRequest) =>
-      casesApi.sergeantReview(caseId, data).then(throwOnError),
-    onSuccess: invalidate,
-  });
-
-  const forwardToJudiciary = useMutation({
-    mutationFn: () => casesApi.forwardToJudiciary(caseId).then(throwOnError),
-    onSuccess: invalidate,
-  });
-
   const transitionCase = useMutation({
     mutationFn: (data: CaseGenericTransitionRequest) =>
       casesApi.transitionCase(caseId, data).then(throwOnError),
@@ -189,9 +173,6 @@ export function useCaseActions(caseId: number) {
     cadetReview,
     officerReview,
     approveCrimeScene,
-    declareSuspects,
-    sergeantReview,
-    forwardToJudiciary,
     transitionCase,
     assignDetective,
     assignSergeant,

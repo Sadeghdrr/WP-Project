@@ -21,12 +21,6 @@ export const STATUS_LABELS: Record<CaseStatus, string> = {
   pending_approval: "Pending Approval",
   open: "Open",
   investigation: "Under Investigation",
-  suspect_identified: "Suspect Identified",
-  sergeant_review: "Under Sergeant Review",
-  arrest_ordered: "Arrest Ordered",
-  interrogation: "Under Interrogation",
-  captain_review: "Under Captain Review",
-  chief_review: "Under Chief Review",
   judiciary: "Referred to Judiciary",
   closed: "Closed",
 };
@@ -50,12 +44,6 @@ export const STATUS_COLORS: Record<CaseStatus, StatusColor> = {
   pending_approval: "yellow",
   open: "green",
   investigation: "blue",
-  suspect_identified: "purple",
-  sergeant_review: "blue",
-  arrest_ordered: "orange",
-  interrogation: "blue",
-  captain_review: "blue",
-  chief_review: "blue",
   judiciary: "purple",
   closed: "gray",
 };
@@ -174,61 +162,11 @@ export const STATUS_ACTIONS: Partial<Record<CaseStatus, WorkflowAction[]>> = {
     },
   ],
   investigation: [
+    // Suspect lifecycle is managed per-suspect.
+    // Case auto-transitions to judiciary when all suspects reach under_trial.
+    // Manual override is available for authorized users:
     {
-      key: "declare_suspects",
-      label: "Declare Suspects",
-      variant: "primary",
-      requiredPermissions: ["cases.can_change_case_status"],
-    },
-  ],
-  sergeant_review: [
-    {
-      key: "sergeant_approve",
-      label: "Approve Arrest",
-      variant: "primary",
-      requiredPermissions: ["cases.can_change_case_status"],
-    },
-    {
-      key: "sergeant_reject",
-      label: "Reject (Return to Investigation)",
-      variant: "danger",
-      needsMessage: true,
-      requiredPermissions: ["cases.can_change_case_status"],
-    },
-  ],
-  arrest_ordered: [
-    {
-      key: "transition_interrogation",
-      label: "Begin Interrogation",
-      variant: "primary",
-      requiredPermissions: ["cases.can_change_case_status"],
-    },
-  ],
-  interrogation: [
-    {
-      key: "transition_captain_review",
-      label: "Send to Captain Review",
-      variant: "primary",
-      requiredPermissions: ["cases.can_change_case_status"],
-    },
-  ],
-  captain_review: [
-    {
-      key: "forward_judiciary",
-      label: "Forward to Judiciary",
-      variant: "primary",
-      requiredPermissions: ["cases.can_forward_to_judiciary"],
-    },
-    {
-      key: "escalate_chief",
-      label: "Escalate to Chief",
-      variant: "default",
-      requiredPermissions: ["cases.can_approve_critical_case"],
-    },
-  ],
-  chief_review: [
-    {
-      key: "forward_judiciary",
+      key: "transition_judiciary",
       label: "Forward to Judiciary",
       variant: "primary",
       requiredPermissions: ["cases.can_forward_to_judiciary"],
