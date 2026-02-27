@@ -59,9 +59,9 @@ export default function HomePage() {
   } = useQuery<DashboardStats>({
     queryKey: [...STATS_QUERY_KEY],
     queryFn: fetchDashboardStats,
-    enabled: isAuthenticated,
+    enabled: authStatus !== "loading",
     staleTime: 5 * 60 * 1000, // 5 min
-    retry: 1,
+    retry: isAuthenticated ? 1 : 0,
   });
 
   const statCards: StatDef[] = [
@@ -128,15 +128,9 @@ export default function HomePage() {
       <section className={styles.statsSection}>
         <h2 className={styles.sectionTitle}>Department Overview</h2>
 
-        {!isAuthenticated && (
-          <p className={styles.authHint}>
-            Sign in to see live department statistics.
-          </p>
-        )}
-
-        {isAuthenticated && isLoading && (
+        {isLoading && (
           <div className={styles.stats}>
-            {Array.from({ length: 6 }).map((_, i) => (
+            {Array.from({ length: 4 }).map((_, i) => (
               <div key={i} className={`${styles.statCard} ${styles.skeleton}`}>
                 <p className={styles.statValue}>&nbsp;</p>
                 <p className={styles.statLabel}>&nbsp;</p>
@@ -145,7 +139,7 @@ export default function HomePage() {
           </div>
         )}
 
-        {isAuthenticated && isError && (
+        {!isLoading && isError && isAuthenticated && (
           <ErrorState
             message="Unable to load statistics. Please try again later."
             onRetry={() => refetch()}
@@ -153,7 +147,7 @@ export default function HomePage() {
           />
         )}
 
-        {(!isAuthenticated || (!isLoading && !isError)) && (
+        {!isLoading && (!isError || !isAuthenticated) && (
           <div className={styles.stats}>
             {statCards.map((s) => (
               <div

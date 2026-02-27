@@ -406,6 +406,88 @@
   background: #b91c1c;
 }
 
+/* ── Edit mode ──────────────────────────────────────────────── */
+
+.btnEdit {
+  padding: 0.4rem 0.9rem;
+  background: var(--color-primary, #4f46e5);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background 0.2s;
+  white-space: nowrap;
+}
+
+.btnEdit:hover { background: #4338ca; }
+.btnEdit:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btnCancel {
+  padding: 0.4rem 0.9rem;
+  background: #e5e7eb;
+  color: #374151;
+  border: none;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background 0.2s;
+  white-space: nowrap;
+}
+
+.btnCancel:hover { background: #d1d5db; }
+
+.editForm {
+  background: var(--color-bg, #fff);
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 1.25rem;
+  margin-bottom: 1.5rem;
+}
+
+.editForm h2 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0 0 1rem;
+  color: var(--text-primary, #1a1a2e);
+}
+
+.editField {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-bottom: 0.75rem;
+}
+
+.editField label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-secondary, #6b7280);
+}
+
+.editField input,
+.editField textarea {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 0.9375rem;
+  width: 100%;
+  box-sizing: border-box;
+  font-family: inherit;
+  background: #fff;
+}
+
+.editField input:focus,
+.editField textarea:focus {
+  outline: none;
+  border-color: var(--color-primary, #4f46e5);
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.12);
+}
+
+.editField textarea { resize: vertical; }
+
 /* ── Toast ──────────────────────────────────────────────────── */
 
 .toast {

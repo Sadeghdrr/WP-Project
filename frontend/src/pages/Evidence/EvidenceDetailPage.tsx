@@ -135,6 +135,38 @@ export default function EvidenceDetailPage() {
     showToast,
   ]);
 
+  // ── Edit mode ───────────────────────────────────────────────
+  const [isEditing, setIsEditing] = useState(false);
+  const [editTitle, setEditTitle] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+
+  const startEditing = useCallback(() => {
+    if (!evidence) return;
+    setEditTitle(evidence.title);
+    setEditDescription(evidence.description);
+    setIsEditing(true);
+  }, [evidence]);
+
+  const handleEditSave = useCallback(async () => {
+    if (!numericId) return;
+    try {
+      await actions.updateEvidence.mutateAsync({
+        id: numericId,
+        data: {
+          title: editTitle.trim(),
+          description: editDescription.trim(),
+        },
+      });
+      showToast("Evidence updated successfully");
+      setIsEditing(false);
+    } catch (err) {
+      showToast(
+        err instanceof Error ? err.message : "Update failed",
+        "error",
+      );
+    }
+  }, [numericId, editTitle, editDescription, actions.updateEvidence, showToast]);
+
   // ── Delete ─────────────────────────────────────────────────
   const handleDelete = useCallback(async () => {
     if (!numericId) return;
@@ -199,24 +231,78 @@ export default function EvidenceDetailPage() {
           {EVIDENCE_TYPE_ICONS[evidence.evidence_type] ?? "📦"}{" "}
           {evidence.title}
         </h1>
-        <div className={css.badges}>
-          <span
-            className={`${css.badge} ${COLOR_CSS[typeColor] ?? css.badgeGray}`}
-          >
-            {evidence.evidence_type_display ??
-              EVIDENCE_TYPE_LABELS[evidence.evidence_type]}
-          </span>
-          {isBiological && (
+        <div style={{ display: "flex", gap: "0.75rem", alignItems: "center", flexWrap: "wrap" }}>
+          <div className={css.badges}>
             <span
-              className={`${css.badge} ${
-                bioEvidence?.is_verified ? css.badgeGreen : css.badgeAmber
-              }`}
+              className={`${css.badge} ${COLOR_CSS[typeColor] ?? css.badgeGray}`}
             >
-              {bioEvidence?.is_verified ? "Verified" : "Pending Verification"}
+              {evidence.evidence_type_display ??
+                EVIDENCE_TYPE_LABELS[evidence.evidence_type]}
             </span>
+            {isBiological && (
+              <span
+                className={`${css.badge} ${
+                  bioEvidence?.is_verified ? css.badgeGreen : css.badgeAmber
+                }`}
+              >
+                {bioEvidence?.is_verified ? "Verified" : "Pending Verification"}
+              </span>
+            )}
+          </div>
+          {permissionSet.has("evidence.change_evidence") && (
+            <div style={{ display: "flex", gap: "0.5rem" }}>
+              {!isEditing ? (
+                <button className={css.btnEdit} onClick={startEditing} type="button">
+                  ✏️ Edit
+                </button>
+              ) : (
+                <>
+                  <button
+                    className={css.btnCancel}
+                    onClick={() => setIsEditing(false)}
+                    type="button"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    className={css.btnEdit}
+                    onClick={handleEditSave}
+                    disabled={!editTitle.trim() || actions.updateEvidence.isPending}
+                    type="button"
+                  >
+                    {actions.updateEvidence.isPending ? "Saving…" : "Save Changes"}
+                  </button>
+                </>
+              )}
+            </div>
           )}
         </div>
       </div>
+
+      {/* ── Inline Edit Form ──────────────────────────────────── */}
+      {isEditing && (
+        <div className={css.editForm}>
+          <h2>Edit Evidence</h2>
+          <div className={css.editField}>
+            <label>Title *</label>
+            <input
+              type="text"
+              value={editTitle}
+              onChange={(e) => setEditTitle(e.target.value)}
+              placeholder="Evidence title"
+            />
+          </div>
+          <div className={css.editField}>
+            <label>Description</label>
+            <textarea
+              value={editDescription}
+              onChange={(e) => setEditDescription(e.target.value)}
+              rows={4}
+              placeholder="Describe the evidence…"
+            />
+          </div>
+        </div>
+      )}
 
       {/* ── Verification Panel (biological, not yet verified, coroner) ── */}
       {canVerify && (

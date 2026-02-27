@@ -74,6 +74,51 @@ export default function CaseDetailPage() {
   const [modalAction, setModalAction] = useState<WorkflowAction | null>(null);
   const [actionMessage, setActionMessage] = useState("");
 
+  // ── Edit mode state ──────────────────────────────────────────────────────
+  const [isEditing, setIsEditing] = useState(false);
+  const [editTitle, setEditTitle] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editLocation, setEditLocation] = useState("");
+  const [editIncidentDate, setEditIncidentDate] = useState("");
+  const [editSaving, setEditSaving] = useState(false);
+
+  const startEditing = useCallback(() => {
+    if (!caseData) return;
+    setEditTitle(caseData.title);
+    setEditDescription(caseData.description);
+    setEditLocation(caseData.location || "");
+    setEditIncidentDate(
+      caseData.incident_date
+        ? new Date(caseData.incident_date).toISOString().slice(0, 16)
+        : "",
+    );
+    setIsEditing(true);
+  }, [caseData]);
+
+  const handleCaseSave = useCallback(async () => {
+    if (!caseData) return;
+    setEditSaving(true);
+    try {
+      const res = await casesApi.updateCase(caseData.id, {
+        title: editTitle.trim(),
+        description: editDescription.trim(),
+        ...(editLocation.trim() ? { location: editLocation.trim() } : {}),
+        ...(editIncidentDate ? { incident_date: editIncidentDate } : {}),
+      });
+      if (!res.ok) throw new Error(res.error.message);
+      await refetch();
+      setIsEditing(false);
+      setToast({ message: "Case updated successfully", type: "success" });
+    } catch (err) {
+      setToast({
+        message: err instanceof Error ? err.message : "Update failed",
+        type: "error",
+      });
+    } finally {
+      setEditSaving(false);
+    }
+  }, [caseData, editTitle, editDescription, editLocation, editIncidentDate, refetch]);
+
   if (isLoading) {
     return (
       <div className={styles.container}>
@@ -128,6 +173,33 @@ export default function CaseDetailPage() {
             </span>
           </div>
         </div>
+        {permissionSet.has("cases.change_case") && !isTerminalStatus(caseData.status) && (
+          <div style={{ display: "flex", gap: "0.5rem", alignSelf: "flex-start" }}>
+            {!isEditing ? (
+              <button className={styles.btnDefault} onClick={startEditing} type="button">
+                ✏️ Edit Case
+              </button>
+            ) : (
+              <>
+                <button
+                  className={styles.btnDefault}
+                  onClick={() => setIsEditing(false)}
+                  type="button"
+                >
+                  Cancel
+                </button>
+                <button
+                  className={styles.btnPrimary}
+                  onClick={handleCaseSave}
+                  disabled={editSaving || !editTitle.trim()}
+                  type="button"
+                >
+                  {editSaving ? "Saving…" : "Save Changes"}
+                </button>
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Workflow Action Panel */}
@@ -140,6 +212,70 @@ export default function CaseDetailPage() {
         setActionMessage={setActionMessage}
         setToast={setToast}
       />
+
+      {/* Inline case edit form */}
+      {isEditing && (
+        <div className={styles.section} style={{ marginBottom: "1.5rem" }}>
+          <h2 style={{ marginBottom: "1rem" }}>Edit Case</h2>
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+            <div>
+              <label style={{ fontSize: "0.85rem", fontWeight: 600, display: "block", marginBottom: "0.25rem" }}>Title *</label>
+              <input
+                type="text"
+                value={editTitle}
+                onChange={(e) => setEditTitle(e.target.value)}
+                style={{
+                  width: "100%", padding: "0.5rem 0.75rem",
+                  border: "1px solid #d1d5db", borderRadius: "6px",
+                  fontSize: "0.9375rem", boxSizing: "border-box",
+                }}
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: "0.85rem", fontWeight: 600, display: "block", marginBottom: "0.25rem" }}>Description</label>
+              <textarea
+                value={editDescription}
+                onChange={(e) => setEditDescription(e.target.value)}
+                rows={4}
+                style={{
+                  width: "100%", padding: "0.5rem 0.75rem",
+                  border: "1px solid #d1d5db", borderRadius: "6px",
+                  fontSize: "0.9375rem", boxSizing: "border-box", resize: "vertical",
+                  fontFamily: "inherit",
+                }}
+              />
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
+              <div>
+                <label style={{ fontSize: "0.85rem", fontWeight: 600, display: "block", marginBottom: "0.25rem" }}>Location</label>
+                <input
+                  type="text"
+                  value={editLocation}
+                  onChange={(e) => setEditLocation(e.target.value)}
+                  style={{
+                    width: "100%", padding: "0.5rem 0.75rem",
+                    border: "1px solid #d1d5db", borderRadius: "6px",
+                    fontSize: "0.9375rem", boxSizing: "border-box",
+                  }}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: "0.85rem", fontWeight: 600, display: "block", marginBottom: "0.25rem" }}>Incident Date</label>
+                <input
+                  type="datetime-local"
+                  value={editIncidentDate}
+                  onChange={(e) => setEditIncidentDate(e.target.value)}
+                  style={{
+                    width: "100%", padding: "0.5rem 0.75rem",
+                    border: "1px solid #d1d5db", borderRadius: "6px",
+                    fontSize: "0.9375rem", boxSizing: "border-box",
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Grid */}
       <div className={styles.grid}>

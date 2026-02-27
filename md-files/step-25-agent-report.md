@@ -98,3 +98,36 @@ None observed. All required endpoints exist and accept the expected payloads:
 - ✅ TypeScript compilation passes with no errors
 - ✅ IDE diagnostics show no errors on all modified files
 - ✅ All 9 bugs addressed with root-cause fixes (not workarounds)
+
+---
+
+## Addendum: Additional Fixes (Edit + Dashboard)
+
+### New Scope
+Three additional issues were resolved in a follow-up pass:
+
+#### Fix A: Evidence Edit (PATCH /api/evidence/{id}/)
+- **File**: `frontend/src/pages/Evidence/EvidenceDetailPage.tsx`
+- **CSS**: `frontend/src/pages/Evidence/EvidenceDetailPage.module.css`
+- **Root cause**: No edit capability existed on the detail page — only delete
+- **Solution**: Added `isEditing` state + `handleEditSave` callback. "✏️ Edit" button in header (gated by `evidence.change_evidence` permission) toggles an inline edit form below the header. Form edits `title` and `description` via `actions.updateEvidence.mutateAsync`. On success the query cache is invalidated and edit mode exits.
+- **New CSS classes**: `.btnEdit`, `.btnCancel`, `.editForm`, `.editField`
+
+#### Fix B: Case Edit (PATCH /api/cases/{id}/)
+- **File**: `frontend/src/pages/Cases/CaseDetailPage.tsx`
+- **Root cause**: No standalone edit capability (the Edit & Resubmit workflow modal was only accessible during resubmit flow)
+- **Solution**: Added `isEditing` + edit state (title, description, location, incident_date) as hooks above the early `isLoading`/`error` guards. "✏️ Edit Case" button in `detailHeader` right side (gated by `cases.change_case` + non-terminal status). When editing, an inline form section appears between the workflow panel and the data grid. Save calls `casesApi.updateCase()` (PATCH) then `refetch()`.
+
+#### Fix C: Dashboard API for Unauthenticated Users
+- **File**: `frontend/src/pages/Home/HomePage.tsx`
+- **Root cause**: `enabled: isAuthenticated` prevented the `GET /api/core/dashboard/` call when auth status was not `"authenticated"`
+- **Solution**: Changed to `enabled: authStatus !== "loading"` — fetches stats as soon as auth state resolves (regardless of outcome). `retry: isAuthenticated ? 1 : 0` prevents retry loops for unauthenticated 403 responses. UI updated: skeleton shows for all users while loading; error state only shown to authenticated users; removed "Sign in to see statistics" hint since stats are attempted regardless.
+
+### Addendum File Changes
+
+| File | Change |
+|------|--------|
+| `frontend/src/pages/Evidence/EvidenceDetailPage.tsx` | Inline edit mode with PATCH |
+| `frontend/src/pages/Evidence/EvidenceDetailPage.module.css` | Edit button + form styles |
+| `frontend/src/pages/Cases/CaseDetailPage.tsx` | Inline edit mode with PATCH |
+| `frontend/src/pages/Home/HomePage.tsx` | Dashboard API enabled for all auth states |
