@@ -3,8 +3,8 @@ Integration tests for scenario 3.3: Cadet reviews complainant + case.
 
 Reference docs:
 - md-files/project-doc.md §4.2.1 (complaint flow and Cadet responsibilities)
-- md-files/swagger_documentation_report.md §3.2 (cadet-review, complainant-review)
-- md-files/cases_services_complaint_flow_report.md §3.1 Steps 3-4
+- md-files/24-swagger_documentation_report.md §3.2 (cadet-review, complainant-review)
+- md-files/16-cases_services_complaint_flow_report.md §3.1 Steps 3-4
 """
 
 from __future__ import annotations

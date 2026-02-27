@@ -3,9 +3,9 @@ Integration tests for scenario 3.6: officer rejects and returns case to cadet.
 
 Reference docs:
 - md-files/project-doc.md §4.2.1 (officer rejection goes back to cadet)
-- md-files/swagger_documentation_report.md §3.2
+- md-files/24-swagger_documentation_report.md §3.2
   (POST /api/cases/{id}/officer-review/, OfficerReviewSerializer)
-- md-files/cases_services_complaint_flow_report.md §3.2
+- md-files/16-cases_services_complaint_flow_report.md §3.2
   (officer reject -> returned_to_cadet, cadet can move back to officer_review)
 """
 

@@ -3,9 +3,9 @@ Integration tests for scenario 3.2: submit complaint case to Cadet Review.
 
 Reference docs:
 - md-files/project-doc.md §4.2.1 (complaint submission then Cadet review)
-- md-files/swagger_documentation_report.md §3.2
+- md-files/24-swagger_documentation_report.md §3.2
   (POST /api/cases/{id}/submit/, GET /api/cases/{id}/status-log/)
-- md-files/cases_services_complaint_flow_report.md §3.1 Step 2
+- md-files/16-cases_services_complaint_flow_report.md §3.1 Step 2
   (submit: 200 OK, status becomes "cadet_review")
 """
 

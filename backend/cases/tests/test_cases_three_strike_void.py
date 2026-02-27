@@ -4,9 +4,9 @@ Integration tests for scenario 3.5: three-strike rejection -> VOIDED.
 Reference docs:
 - md-files/project-doc.md §4.2.1
   (if complainant submits false/incomplete info 3 times, case is voided)
-- md-files/swagger_documentation_report.md §3.2
+- md-files/24-swagger_documentation_report.md §3.2
   (POST /api/cases/{id}/cadet-review/, POST /api/cases/{id}/resubmit/)
-- md-files/cases_services_complaint_flow_report.md §3.3
+- md-files/16-cases_services_complaint_flow_report.md §3.3
   (reject/resubmit cycles and auto-void after third reject)
 """
 

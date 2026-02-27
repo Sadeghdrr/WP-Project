@@ -2,7 +2,7 @@
 Integration tests — Detective Board & Suspects Flow (Scenarios 6.1–6.8).
 
 Business-flow reference : md-files/project-doc.md  §4.4, §4.5, §4.7
-API endpoint reference  : md-files/swagger_documentation_report.md  §3.5, §3.3
+API endpoint reference  : md-files/24-swagger_documentation_report.md  §3.5, §3.3
 Board service impl      : backend/board/services.py
 
 All scenarios share ONE class so fixtures are created once via setUpTestData
@@ -161,7 +161,7 @@ class TestBoardAndSuspectsFlow(TestCase):
     All tests share the same setUpTestData fixtures for performance, and
     each test is isolated via Django's per-test transaction rollback.
 
-    Endpoint reference: swagger_documentation_report.md §3.5
+    Endpoint reference: 24-swagger_documentation_report.md §3.5
     Board URL names (drf-nested-routers, basename="detective-board"):
         detective-board-list   →  POST  /api/boards/
         detective-board-detail →  GET   /api/boards/{id}/
@@ -271,7 +271,7 @@ class TestBoardAndSuspectsFlow(TestCase):
 
         Payload:  {"identifier": <username>, "password": <str>}
         Response: {"access": <str>, "refresh": <str>}
-        Reference: swagger_documentation_report.md §3.1 — LoginView.post
+        Reference: 24-swagger_documentation_report.md §3.1 — LoginView.post
         """
         url = reverse("accounts:login")
         response = self.client.post(
@@ -299,7 +299,7 @@ class TestBoardAndSuspectsFlow(TestCase):
         """
         POST /api/boards/ with a case FK payload.
 
-        Reference: swagger_documentation_report.md §3.5 — DetectiveBoardViewSet.create
+        Reference: 24-swagger_documentation_report.md §3.5 — DetectiveBoardViewSet.create
         Request schema: DetectiveBoardCreateUpdateSerializer → {"case": <int>}
         """
         payload = {"case": case_pk if case_pk is not None else self.case.pk}
@@ -313,7 +313,7 @@ class TestBoardAndSuspectsFlow(TestCase):
         """
         GET /api/boards/{id}/ — retrieve board detail.
 
-        Reference: swagger_documentation_report.md §3.5 — DetectiveBoardViewSet.retrieve
+        Reference: 24-swagger_documentation_report.md §3.5 — DetectiveBoardViewSet.retrieve
         """
         return self.client.get(
             reverse("detective-board-detail", kwargs={"pk": board_id}),
@@ -555,7 +555,7 @@ class TestBoardAndSuspectsFlow(TestCase):
             { id, case, detective, items[], connections[], notes[],
               created_at, updated_at }
 
-        Reference: swagger_documentation_report.md §3.5
+        Reference: 24-swagger_documentation_report.md §3.5
                    DetectiveBoardViewSet.full_state → GET /api/boards/{id}/full/
         """
         return self.client.get(
@@ -571,7 +571,7 @@ class TestBoardAndSuspectsFlow(TestCase):
         note as a BoardItem (content_type=board.boardnote, object_id=note.pk)
         so the board's items list grows by 1 simultaneously.
 
-        Reference: swagger_documentation_report.md §3.5 — BoardNoteViewSet.create
+        Reference: 24-swagger_documentation_report.md §3.5 — BoardNoteViewSet.create
                    board/services.py — BoardNoteService.create_note
         """
         return self.client.post(
@@ -584,7 +584,7 @@ class TestBoardAndSuspectsFlow(TestCase):
         """
         POST /api/boards/{board_pk}/connections/ — draw a red-line connection.
 
-        Reference: swagger_documentation_report.md §3.5
+        Reference: 24-swagger_documentation_report.md §3.5
                    BoardConnectionViewSet.create
         """
         return self.client.post(
@@ -609,7 +609,7 @@ class TestBoardAndSuspectsFlow(TestCase):
             created_at, updated_at
 
         Reference:
-          - swagger_documentation_report.md §3.5
+          - 24-swagger_documentation_report.md §3.5
             DetectiveBoardViewSet.full_state → 200, FullBoardStateSerializer
           - project-doc.md §4.4 — board must expose items, connections, notes
         """
@@ -734,7 +734,7 @@ class TestBoardAndSuspectsFlow(TestCase):
             id, from_item, to_item, label, created_at, updated_at
 
         Reference:
-          - swagger_documentation_report.md §3.5
+          - 24-swagger_documentation_report.md §3.5
             BoardConnectionViewSet.create → POST /api/boards/{id}/connections/
           - board/serializers.py — BoardConnectionInlineSerializer
         """
@@ -807,7 +807,7 @@ class TestBoardAndSuspectsFlow(TestCase):
 
         Reference:
           - board/services.py    — BoardWorkspaceService.get_board_snapshot
-          - board_services_report.md §1 Read Access table
+          - 20-board_services_report.md §1 Read Access table
         """
         # Detective creates the board
         self._login_as(self.detective_user.username, self.detective_password)
@@ -843,7 +843,7 @@ class TestBoardAndSuspectsFlow(TestCase):
               "position_y": <float>
             }
 
-        Reference: swagger_documentation_report.md §3.5
+        Reference: 24-swagger_documentation_report.md §3.5
                    BoardItemViewSet.create → POST /api/boards/{board_pk}/items/
         """
         return self.client.post(
@@ -1127,7 +1127,7 @@ class TestBoardAndSuspectsFlow(TestCase):
 
         Reference:
           - board/services.py    — _can_edit_board / _enforce_edit
-          - board_services_report.md §1 Write (Edit) Access table
+          - 20-board_services_report.md §1 Write (Edit) Access table
         """
         # Detective creates the board
         self._login_as(self.detective_user.username, self.detective_password)
@@ -1366,7 +1366,7 @@ class TestBoardAndSuspectsFlow(TestCase):
 
         Reference:
           - board/services.py — _can_edit_board / _enforce_edit
-          - board_services_report.md §1 Write (Edit) Access table
+          - 20-board_services_report.md §1 Write (Edit) Access table
         """
         self._login_as(self.detective_user.username, self.detective_password)
         board_id, item1_id, item2_id = self._setup_board_with_two_items()

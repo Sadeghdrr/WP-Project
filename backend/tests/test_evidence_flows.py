@@ -8,7 +8,7 @@ To run this file inside Docker:
     docker compose exec backend python manage.py test tests.test_evidence_flows
 
 Business-flow reference : md-files/project-doc.md §4.3
-API reference           : md-files/swagger_documentation_report.md §3.4
+API reference           : md-files/24-swagger_documentation_report.md §3.4
 Service reference       : evidence/services.py   EvidenceProcessingService
 Model reference         : evidence/models.py
 
@@ -227,7 +227,7 @@ class TestEvidenceFlows(TestCase):
         Endpoint: accounts:login  (POST /api/accounts/auth/login/)
         Payload:  {"identifier": <username|national_id|phone|email>, "password": str}
         Response: {"access": str, "refresh": str, …}
-        Reference: swagger_documentation_report.md §3.1 — LoginView.post
+        Reference: 24-swagger_documentation_report.md §3.1 — LoginView.post
         """
         url = reverse("accounts:login")
         response = self.client.post(
@@ -247,7 +247,7 @@ class TestEvidenceFlows(TestCase):
         Attach the Bearer token to every subsequent request on self.client.
 
         Scheme: Authorization: Bearer <token>
-        Reference: swagger_documentation_report.md §3.1 — SimpleJWT
+        Reference: 24-swagger_documentation_report.md §3.1 — SimpleJWT
         """
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
 
@@ -307,7 +307,7 @@ class TestEvidenceFlows(TestCase):
           owner_full_name) are absent from the response
 
         Reference:
-            swagger_documentation_report.md §3.4 — EvidenceViewSet.create
+            24-swagger_documentation_report.md §3.4 — EvidenceViewSet.create
             evidence/serializers.py  TestimonyEvidenceDetailSerializer (response)
         """
         self._login_as(self.detective_user.username, self.detective_password)
@@ -369,7 +369,7 @@ class TestEvidenceFlows(TestCase):
           2. Present in the database (TestimonyEvidence ORM query).
 
         Reference:
-            swagger_documentation_report.md §3.4 — EvidenceViewSet.retrieve
+            24-swagger_documentation_report.md §3.4 — EvidenceViewSet.retrieve
         """
         self._login_as(self.detective_user.username, self.detective_password)
         payload = self._testimony_payload()
@@ -541,7 +541,7 @@ class TestEvidenceFlows(TestCase):
         - Testimony/vehicle/identity-specific fields are absent
 
         Reference:
-            swagger_documentation_report.md §3.4 — EvidenceViewSet.create
+            24-swagger_documentation_report.md §3.4 — EvidenceViewSet.create
             evidence/serializers.py  BiologicalEvidenceDetailSerializer
         """
         self._login_as(self.detective_user.username, self.detective_password)
@@ -592,7 +592,7 @@ class TestEvidenceFlows(TestCase):
         - Subsequent GET /api/evidence/{id}/files/ lists the uploaded file id
 
         Reference:
-            swagger_documentation_report.md §3.4 — EvidenceViewSet.files
+            24-swagger_documentation_report.md §3.4 — EvidenceViewSet.files
             evidence/services.py  EvidenceFileService.upload_file
                 → creates CustodyAction.CHECKED_IN log entry
         """
@@ -653,7 +653,7 @@ class TestEvidenceFlows(TestCase):
         Reference:
             evidence/services.py  EvidenceFileService.upload_file
             evidence/services.py  ChainOfCustodyService.get_chain_of_custody
-            swagger_documentation_report.md §3.4 — EvidenceViewSet.chain_of_custody
+            24-swagger_documentation_report.md §3.4 — EvidenceViewSet.chain_of_custody
         """
         evid_id = self._create_biological_evidence(
             title="Bio Evidence — Custody Log Test"
@@ -734,7 +734,7 @@ class TestEvidenceFlows(TestCase):
                       bio_evidence.forensic_result = forensic_result
                       bio_evidence.verified_by = examiner_user
                 → creates CustodyAction.ANALYSED log entry
-            swagger_documentation_report.md §3.4 — EvidenceViewSet.verify
+            24-swagger_documentation_report.md §3.4 — EvidenceViewSet.verify
         """
         evid_id = self._create_biological_evidence(
             title="Bio Evidence — Coroner Approval Test"
@@ -1990,7 +1990,7 @@ class TestEvidenceFlows(TestCase):
         Reference:
             evidence/views.py   EvidenceViewSet.link_case
             evidence/services.py EvidenceProcessingService.link_evidence_to_case
-            swagger_documentation_report.md §3.4 — link-case action
+            24-swagger_documentation_report.md §3.4 — link-case action
         """
         self._login_as(self.detective_user.username, self.detective_password)
 

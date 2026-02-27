@@ -112,7 +112,7 @@ class TestAuthRegistrationFlow(TestCase):
         POST to the registration endpoint with valid data returns HTTP 201.
 
         project-doc §4.1: "Every user creates an account … with a 'base user' role."
-        accounts_api_report.md §1: POST /auth/register/ → 201 Created (AllowAny).
+        02-accounts_api_report.md §1: POST /auth/register/ → 201 Created (AllowAny).
         """
         payload = _registration_payload()
         response = self.client.post(self.register_url, payload, format="json")
@@ -131,7 +131,7 @@ class TestAuthRegistrationFlow(TestCase):
             first_name, last_name, is_active, date_joined,
             role, role_detail, permissions.
 
-        Reference: accounts_api_report.md §4 (Me endpoint example shows
+        Reference: 02-accounts_api_report.md §4 (Me endpoint example shows
         the same serializer shape; RegisterView reuses UserDetailSerializer).
         """
         payload = _registration_payload(
@@ -291,7 +291,7 @@ class TestAuthRegistrationFlow(TestCase):
         project-doc §4.1:
             "Every user creates an account in the system with a 'base user' role."
 
-        accounts_api_report.md §1:
+        02-accounts_api_report.md §1:
             POST /auth/register/ → "defaults to 'Base User' role"
 
         accounts/services.py — UserRegistrationService.register_user step 3:

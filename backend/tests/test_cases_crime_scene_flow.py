@@ -2,8 +2,8 @@
 Integration tests — Crime-Scene Case Creation Flow (Scenarios 4.1–4.5).
 
 Business-flow reference : md-files/project-doc.md  §4.2.2
-API endpoint reference  : md-files/swagger_documentation_report.md  §3.2
-Service implementation  : md-files/cases_services_crime_scene_flow_report.md
+API endpoint reference  : md-files/24-swagger_documentation_report.md  §3.2
+Service implementation  : md-files/17-cases_services_crime_scene_flow_report.md
 
 All scenarios share this single class so fixtures are created once and
 the whole file can be run as one suite:
@@ -137,7 +137,7 @@ class TestCrimeSceneCaseFlow(TestCase):
             _assign_permission_to_role(role, "can_create_crime_scene", app_label="cases")
 
         # Captain and Chief can approve crime-scene cases.
-        # Reference: cases_services_crime_scene_flow_report.md §1 "Who Can Approve?"
+        # Reference: 17-cases_services_crime_scene_flow_report.md §1 "Who Can Approve?"
         for role in (cls.captain_role, cls.chief_role):
             _assign_permission_to_role(role, "can_approve_case", app_label="cases")
 
@@ -211,7 +211,7 @@ class TestCrimeSceneCaseFlow(TestCase):
         Login endpoint: accounts/urls.py → path("auth/login/", ...)
         Payload schema: {"identifier": <username|national_id|phone|email>, "password": <str>}
         Response schema: {"access": <str>, "refresh": <str>, ...}
-        Reference: swagger_documentation_report.md §3.1 — LoginView.post
+        Reference: 24-swagger_documentation_report.md §3.1 — LoginView.post
         """
         url = reverse("accounts:login")
         response = self.client.post(
@@ -231,7 +231,7 @@ class TestCrimeSceneCaseFlow(TestCase):
         Set the Bearer token on the shared APIClient.
 
         Scheme: Authorization: Bearer <token>
-        Reference: swagger_documentation_report.md §3.1 — SimpleJWT
+        Reference: 24-swagger_documentation_report.md §3.1 — SimpleJWT
         """
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
 
@@ -245,7 +245,7 @@ class TestCrimeSceneCaseFlow(TestCase):
         POST the given payload to POST /api/cases/.
 
         If no payload is provided, _VALID_PAYLOAD is used.
-        Reference: swagger_documentation_report.md §3.2 — CaseViewSet.create
+        Reference: 24-swagger_documentation_report.md §3.2 — CaseViewSet.create
         """
         data = payload if payload is not None else self._VALID_PAYLOAD
         return self.client.post(reverse("case-list"), data, format="json")
@@ -261,8 +261,8 @@ class TestCrimeSceneCaseFlow(TestCase):
         Reference:
           - project-doc.md §4.2.2 — "a police rank (other than Cadet) can
             register a crime scene"
-          - cases_services_crime_scene_flow_report.md §4.1 Officer Path
-          - swagger_documentation_report.md §3.2 — CaseViewSet.create → 201
+          - 17-cases_services_crime_scene_flow_report.md §4.1 Officer Path
+          - 24-swagger_documentation_report.md §3.2 — CaseViewSet.create → 201
         """
         self._login_as(self.officer_user.username, self.officer_password)
         response = self._create_crime_scene_case()
@@ -277,7 +277,7 @@ class TestCrimeSceneCaseFlow(TestCase):
         """
         Scenario 4.1 (step B): Response body must include a case 'id' field.
 
-        Reference: swagger_documentation_report.md §3.2 — CaseDetailSerializer fields
+        Reference: 24-swagger_documentation_report.md §3.2 — CaseDetailSerializer fields
         """
         self._login_as(self.officer_user.username, self.officer_password)
         response = self._create_crime_scene_case()
@@ -300,7 +300,7 @@ class TestCrimeSceneCaseFlow(TestCase):
 
         Reference:
           - project-doc.md §4.2.2 — "only one superior rank needs to approve"
-          - cases_services_crime_scene_flow_report.md §1 Approval Rules Table
+          - 17-cases_services_crime_scene_flow_report.md §1 Approval Rules Table
           - cases/models.py CaseStatus.PENDING_APPROVAL = "pending_approval"
         """
         self._login_as(self.officer_user.username, self.officer_password)
@@ -322,7 +322,7 @@ class TestCrimeSceneCaseFlow(TestCase):
         all submitted fields are correctly stored in the database.
 
         Reference:
-          - swagger_documentation_report.md §3.2 — CaseViewSet.retrieve → 200
+          - 24-swagger_documentation_report.md §3.2 — CaseViewSet.retrieve → 200
           - cases/serializers.py CaseDetailSerializer fields
         """
         self._login_as(self.officer_user.username, self.officer_password)
@@ -375,7 +375,7 @@ class TestCrimeSceneCaseFlow(TestCase):
         must appear in the case detail response under 'witnesses'.
 
         Reference:
-          - cases_services_crime_scene_flow_report.md §3 Witness Validation Rules
+          - 17-cases_services_crime_scene_flow_report.md §3 Witness Validation Rules
           - cases/serializers.py CaseWitnessSerializer
         """
         self._login_as(self.officer_user.username, self.officer_password)
@@ -407,7 +407,7 @@ class TestCrimeSceneCaseFlow(TestCase):
         Reference:
           - cases/services.py CaseCreationService.create_crime_scene_case
             (creates CaseStatusLog with from_status="" and to_status=PENDING_APPROVAL)
-          - swagger_documentation_report.md §3.2 — CaseViewSet.status_log
+          - 24-swagger_documentation_report.md §3.2 — CaseViewSet.status_log
         """
         self._login_as(self.officer_user.username, self.officer_password)
         create_response = self._create_crime_scene_case()
@@ -532,8 +532,8 @@ class TestCrimeSceneCaseFlow(TestCase):
     # Approvers: Captain ✅  Chief ✅  (both have can_approve_case in setUpTestData)
     # Blocked:   Officer ❌  (can_approve_case NOT assigned to officer role)
     #
-    # Ref: swagger_documentation_report.md §3.2 — CaseViewSet.approve_crime_scene
-    # Ref: cases_services_crime_scene_flow_report.md §1 "Who Can Approve?"
+    # Ref: 24-swagger_documentation_report.md §3.2 — CaseViewSet.approve_crime_scene
+    # Ref: 17-cases_services_crime_scene_flow_report.md §1 "Who Can Approve?"
 
     def _create_pending_case_as_officer(self) -> int:
         """
@@ -568,8 +568,8 @@ class TestCrimeSceneCaseFlow(TestCase):
         /api/cases/{id}/approve-crime-scene/ and receives HTTP 200.
 
         Reference:
-          - swagger_documentation_report.md §3.2 — approve_crime_scene → 200
-          - cases_services_crime_scene_flow_report.md §1 "Who Can Approve?"
+          - 24-swagger_documentation_report.md §3.2 — approve_crime_scene → 200
+          - 17-cases_services_crime_scene_flow_report.md §1 "Who Can Approve?"
         """
         case_id = self._create_pending_case_as_officer()
 
@@ -634,7 +634,7 @@ class TestCrimeSceneCaseFlow(TestCase):
 
         Reference:
           - cases/services.py transition_state: creates CaseStatusLog entry
-          - swagger_documentation_report.md §3.2 — CaseViewSet.status_log
+          - 24-swagger_documentation_report.md §3.2 — CaseViewSet.status_log
         """
         case_id = self._create_pending_case_as_officer()
 
@@ -692,7 +692,7 @@ class TestCrimeSceneCaseFlow(TestCase):
         where it auto-approves). Here the Chief is approving someone else's case.
 
         Reference:
-          - cases_services_crime_scene_flow_report.md §1 "Who Can Approve?" → Chief ✅
+          - 17-cases_services_crime_scene_flow_report.md §1 "Who Can Approve?" → Chief ✅
           - cases/services.py ALLOWED_TRANSITIONS: PENDING_APPROVAL → OPEN
             requires CAN_APPROVE_CASE — Chief role has this in setUpTestData.
         """
@@ -743,7 +743,7 @@ class TestCrimeSceneCaseFlow(TestCase):
 
         Business rule: Only roles with can_approve_case may approve.
         Officer role was intentionally NOT granted can_approve_case in
-        setUpTestData (see cases_services_crime_scene_flow_report.md §1).
+        setUpTestData (see 17-cases_services_crime_scene_flow_report.md §1).
 
         The domain PermissionDenied exception is mapped to 403 by the
         registered exception handler in:
@@ -812,14 +812,14 @@ class TestCrimeSceneCaseFlow(TestCase):
     # Expected: 201 Created, status="open", approved_by=chief.pk
     # No call to approve-crime-scene/ is required or needed.
     #
-    # Ref: swagger_documentation_report.md §3.2 — CaseViewSet.create → 201
-    # Ref: cases_services_crime_scene_flow_report.md §4.2 Chief Path
+    # Ref: 24-swagger_documentation_report.md §3.2 — CaseViewSet.create → 201
+    # Ref: 17-cases_services_crime_scene_flow_report.md §4.2 Chief Path
 
     def test_chief_creates_crime_scene_case_returns_201(self) -> None:
         """
         Scenario 4.3 (step A): POST /api/cases/ as Police Chief returns HTTP 201.
 
-        Reference: swagger_documentation_report.md §3.2 — CaseViewSet.create
+        Reference: 24-swagger_documentation_report.md §3.2 — CaseViewSet.create
         """
         self._login_as(self.chief_user.username, self.chief_password)
         response = self._create_crime_scene_case()
@@ -889,7 +889,7 @@ class TestCrimeSceneCaseFlow(TestCase):
         satisfying the approval requirement via auto-approval.
 
         Reference:
-          - cases_services_crime_scene_flow_report.md §1 Approval Rules Table:
+          - 17-cases_services_crime_scene_flow_report.md §1 Approval Rules Table:
             "Police Chief → OPEN, Auto approved_by = Set to creator"
         """
         self._login_as(self.chief_user.username, self.chief_password)
@@ -910,7 +910,7 @@ class TestCrimeSceneCaseFlow(TestCase):
         Scenario 4.3 (persistence check): GET /api/cases/{id}/ confirms that
         status="open" and approved_by=chief are stored in the database.
 
-        Reference: swagger_documentation_report.md §3.2 — CaseViewSet.retrieve
+        Reference: 24-swagger_documentation_report.md §3.2 — CaseViewSet.retrieve
         """
         self._login_as(self.chief_user.username, self.chief_password)
         create_response = self._create_crime_scene_case()

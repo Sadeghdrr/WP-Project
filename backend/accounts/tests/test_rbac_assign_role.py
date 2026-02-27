@@ -3,8 +3,8 @@ Integration tests — 2.4 Assign role to a user.
 
 Requirement reference:
   - md-files/project-doc.md §4.1 (admin assigns roles after registration)
-  - md-files/accounts_api_report.md (PATCH /users/{id}/assign-role/)
-  - md-files/accounts_services_rbac_report.md (authorization behavior)
+  - md-files/02-accounts_api_report.md (PATCH /users/{id}/assign-role/)
+  - md-files/14-accounts_services_rbac_report.md (authorization behavior)
 
 Engineering constraints:
   - django.test.TestCase + rest_framework.test.APIClient.

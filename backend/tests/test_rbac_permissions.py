@@ -6,22 +6,22 @@ Requirement reference: md-files/project-doc.md §2.2
     able to add a new role, delete existing roles, or modify them."
     Permissions are the building blocks that are assigned to Roles (RBAC).
 
-Roles/RBAC reference: md-files/rbac_implementation_report.md
+Roles/RBAC reference: md-files/00-rbac_implementation_report.md
     "Added a ManyToManyField named `permissions` to the Role model, linking
     it to Django's Permission model."
 
-API reference: md-files/accounts_api_report.md §1 (Endpoint Table)
+API reference: md-files/02-accounts_api_report.md §1 (Endpoint Table)
     GET /api/accounts/permissions/
         "List all available Django permissions."
         "Access Level: Authenticated (Admin in practice)"
 
-Swagger reference: md-files/swagger_documentation_report.md §3.1
+Swagger reference: md-files/24-swagger_documentation_report.md §3.1
     PermissionListView  GET  /api/accounts/permissions/  Tag: Roles
 
 Endpoint under test: GET /api/accounts/permissions/
                      (named URL: accounts:permission-list)
 
-Response shape (accounts_api_report.md + PermissionSerializer):
+Response shape (02-accounts_api_report.md + PermissionSerializer):
     [
         {
             "id":            <int>,
@@ -40,7 +40,7 @@ Permission class on the view: IsAuthenticated
 
 Token scheme: Bearer <JWT access token>
     Login response: {"access": "...", "refresh": "...", "user": {...}}
-    (accounts_api_report.md §3 Multi-Field Login Design)
+    (02-accounts_api_report.md §3 Multi-Field Login Design)
 """
 
 from __future__ import annotations
@@ -86,7 +86,7 @@ class TestRBACPermissionsList(TestCase):
         able to add a new role, delete existing roles, or modify them."
         (Requires knowing which permissions exist → this endpoint.)
 
-    Covers RBAC report: rbac_implementation_report.md
+    Covers RBAC report: 00-rbac_implementation_report.md
         Permissions are assigned to Roles via a ManyToManyField; the admin
         needs to list all available Django permissions to build the picker.
     """
@@ -137,7 +137,7 @@ class TestRBACPermissionsList(TestCase):
             Request:  {"identifier": "<username>", "password": "<password>"}
             Response: {"access": "<jwt>", "refresh": "...", "user": {...}}
 
-        Reference: accounts_api_report.md §3 Multi-Field Login Design
+        Reference: 02-accounts_api_report.md §3 Multi-Field Login Design
             "The identifier field is polymorphic — it may contain any of the
             four unique-constrained fields."
 
@@ -177,7 +177,7 @@ class TestRBACPermissionsList(TestCase):
           • The list is non-empty (Django always has built-in permissions).
           • Every item contains the required keys:
               "id", "name", "codename", "full_codename"
-            as defined in accounts_api_report.md §2 (PermissionSerializer).
+            as defined in 02-accounts_api_report.md §2 (PermissionSerializer).
           • "full_codename" follows the "app_label.codename" pattern.
         """
         self._authenticate_as(_ADMIN_FIELDS["username"], _ADMIN_PASSWORD)
@@ -208,7 +208,7 @@ class TestRBACPermissionsList(TestCase):
 
         # ── Item structure ────────────────────────────────────────────
         # PermissionSerializer fields: id, name, codename, full_codename
-        # (accounts_api_report.md §2, accounts/serializers.py PermissionSerializer)
+        # (02-accounts_api_report.md §2, accounts/serializers.py PermissionSerializer)
         required_keys = {"id", "name", "codename", "full_codename"}
         for item in items:
             missing = required_keys - item.keys()
@@ -248,7 +248,7 @@ class TestRBACPermissionsList(TestCase):
         """
         [2.1] Unauthenticated request receives HTTP 401 Unauthorized.
 
-        Doc-defined behaviour: accounts_api_report.md §1
+        Doc-defined behaviour: 02-accounts_api_report.md §1
             "Access Level: Authenticated (Admin in practice)"
         The view uses permission_classes = [IsAuthenticated].
         DRF returns HTTP 401 when no valid credentials are supplied,

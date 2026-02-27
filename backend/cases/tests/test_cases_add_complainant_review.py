@@ -4,7 +4,7 @@ Integration tests for scenario 3.7: add complainant + cadet complainant review.
 Reference docs:
 - md-files/project-doc.md §4.2.1
   (cases can have multiple complainants; Cadet approves/rejects complainant info)
-- md-files/swagger_documentation_report.md §3.2
+- md-files/24-swagger_documentation_report.md §3.2
   (POST /api/cases/{id}/complainants/, POST /api/cases/{id}/review-complainant/)
 """
 

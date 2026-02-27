@@ -14,11 +14,11 @@ Response serializer:  UserDetailSerializer — returns:
                       (accounts/serializers.py — UserDetailSerializer.Meta.fields)
 
 Auth scheme:          JWT Bearer  (settings.py → DEFAULT_AUTHENTICATION_CLASSES
-                       = JWTAuthentication; accounts_api_report.md §5)
+                       = JWTAuthentication; 02-accounts_api_report.md §5)
 Login endpoint:       POST /api/accounts/auth/login/
 Login payload:        {"identifier": "...", "password": "..."}
 Login response keys:  {"access": "...", "refresh": "...", "user": {...}}
-                      (accounts_api_report.md §3; accounts/views.py LoginView)
+                      (02-accounts_api_report.md §3; accounts/views.py LoginView)
 
 Engineering constraints:
   * django.test.TestCase + rest_framework.test.APIClient.
@@ -93,7 +93,7 @@ class TestMeEndpoint(TestCase):
         """
         POST to the login endpoint and return the JWT access token string.
 
-        Login schema (accounts_api_report.md §3):
+        Login schema (02-accounts_api_report.md §3):
             Request:  {"identifier": "...", "password": "..."}
             Response: {"access": "...", "refresh": "...", "user": {...}}
         """
@@ -115,7 +115,7 @@ class TestMeEndpoint(TestCase):
 
         Auth scheme: Bearer JWT
         (settings.py DEFAULT_AUTHENTICATION_CLASSES = JWTAuthentication,
-         accounts_api_report.md §5)
+         02-accounts_api_report.md §5)
         """
         if token is None:
             token = self._login_and_get_token()
@@ -127,7 +127,7 @@ class TestMeEndpoint(TestCase):
         """
         GET /me/ with a valid Bearer token must return HTTP 200.
 
-        accounts_api_report.md §1: GET /me/ → Authenticated; 200 OK.
+        02-accounts_api_report.md §1: GET /me/ → Authenticated; 200 OK.
         """
         self._authenticate()
         resp = self.client.get(self.me_url)
@@ -224,7 +224,7 @@ class TestMeEndpoint(TestCase):
 
         project-doc §4.1:
             "Every user creates an account … with a 'base user' role."
-        accounts_api_report.md §4:
+        02-accounts_api_report.md §4:
             role_detail is a nested object: {id, name, description, hierarchy_level}
         """
         self._authenticate()
@@ -246,7 +246,7 @@ class TestMeEndpoint(TestCase):
         """
         The 'permissions' field must be a list (possibly empty for Base User).
 
-        accounts_api_report.md §4:
+        02-accounts_api_report.md §4:
             permissions: flat list of 'app_label.codename' strings for
             frontend conditional rendering.
         accounts/models.py — User.permissions_list returns list(get_all_permissions()).
@@ -267,7 +267,7 @@ class TestMeEndpoint(TestCase):
         """
         GET /me/ without credentials must return HTTP 401 Unauthorized.
 
-        accounts_api_report.md §1:
+        02-accounts_api_report.md §1:
             GET /me/ — Access Level: Authenticated (IsAuthenticated)
         accounts/views.py MeView: permission_classes = [IsAuthenticated]
         """
@@ -322,7 +322,7 @@ class TestMeEndpoint(TestCase):
         """
         PATCH /me/ must allow the user to update their own email and name.
 
-        accounts_api_report.md §1: PATCH /me/ → Authenticated; updates
+        02-accounts_api_report.md §1: PATCH /me/ → Authenticated; updates
         email, phone_number, first_name, last_name.
         accounts/serializers.py MeUpdateSerializer.Meta.fields.
         """

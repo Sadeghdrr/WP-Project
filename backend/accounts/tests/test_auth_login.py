@@ -10,7 +10,7 @@ Endpoint under test:  POST /api/accounts/auth/login/
 Request payload:      {"identifier": "<username|email|phone|national_id>",
                        "password": "<password>"}
 Success response:     HTTP 200, body contains {"access": "...", "refresh": "...",
-                      "user": {...}} (accounts_api_report.md §3)
+                      "user": {...}} (02-accounts_api_report.md §3)
 Failure response:     HTTP 400 — serializer raises ValidationError when
                       credentials are invalid (CustomTokenObtainPairSerializer.validate)
 """
@@ -48,7 +48,7 @@ class TestAuthLoginMultiIdentifier(TestCase):
         the following: username, national ID, phone number, or email.
         Naturally, all these fields must be unique."
 
-    Token shape verified against: accounts_api_report.md §3 (Multi-Field Login)
+    Token shape verified against: 02-accounts_api_report.md §3 (Multi-Field Login)
         Response payload: {"access": "...", "refresh": "...", "user": {...}}
     """
 
@@ -79,7 +79,7 @@ class TestAuthLoginMultiIdentifier(TestCase):
         """
         POST to the login endpoint and return the Response.
 
-        Request schema (accounts_api_report.md §3, LoginRequestSerializer):
+        Request schema (02-accounts_api_report.md §3, LoginRequestSerializer):
             {"identifier": "<username|email|phone|national_id>",
              "password": "<password>"}
         """
@@ -198,7 +198,7 @@ class TestAuthLoginMultiIdentifier(TestCase):
 
         The serializer (CustomTokenObtainPairSerializer.validate) raises
         ValidationError which DRF converts to HTTP 400.
-        accounts_api_report.md @extend_schema: 400 for invalid credentials.
+        02-accounts_api_report.md @extend_schema: 400 for invalid credentials.
         """
         resp = self._post_login(_USER_FIELDS["username"], "WrongPassword!")
 
@@ -237,7 +237,7 @@ class TestAuthLoginMultiIdentifier(TestCase):
 
         Django's ModelBackend.user_can_authenticate() returns False for
         inactive users; MultiFieldAuthBackend inherits this check.
-        accounts_api_report.md §3: "verifies is_active".
+        02-accounts_api_report.md §3: "verifies is_active".
         """
         # Create a second, inactive user so we don't mutate setUpTestData state.
         inactive = User.objects.create_user(
@@ -298,7 +298,7 @@ class TestAuthLoginMultiIdentifier(TestCase):
         """
         Assert the response body contains the expected JWT token keys.
 
-        accounts_api_report.md §3 — response payload:
+        02-accounts_api_report.md §3 — response payload:
             {"access": "...", "refresh": "...", "user": {...}}
         """
         self.assertIn(
@@ -325,7 +325,7 @@ class TestAuthLoginMultiIdentifier(TestCase):
         """
         Assert the nested 'user' object matches the test user.
 
-        accounts_api_report.md §3:
+        02-accounts_api_report.md §3:
             Response includes "user" serialized via UserDetailSerializer.
         """
         self.assertIn("user", resp.data, msg="Login response must include 'user' object.")

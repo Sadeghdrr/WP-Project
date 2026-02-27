@@ -3,9 +3,9 @@ Integration tests for scenario 3.1: a normal user creates a complaint case.
 
 Reference docs:
 - md-files/project-doc.md §4.2.1 (complaint-based case creation flow)
-- md-files/swagger_documentation_report.md §3.1/§3.2
+- md-files/24-swagger_documentation_report.md §3.1/§3.2
   (POST /api/accounts/auth/login/, POST /api/cases/)
-- md-files/cases_services_complaint_flow_report.md §3.1 Step 1
+- md-files/16-cases_services_complaint_flow_report.md §3.1 Step 1
   (201 Created, initial status = "complaint_registered")
 """
 

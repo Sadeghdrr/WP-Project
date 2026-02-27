@@ -3,7 +3,7 @@ Integration tests — Most Wanted flow scenario 9.1 (shared file for 9.1–9.2).
 
 Source of truth:
 - md-files/project-doc.md §4.7 (Most Wanted rules and formulas)
-- md-files/swagger_documentation_report.md §3.3 (Most Wanted endpoint)
+- md-files/24-swagger_documentation_report.md §3.3 (Most Wanted endpoint)
 """
 
 from __future__ import annotations

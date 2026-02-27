@@ -3,7 +3,7 @@ Integration tests for scenario 3.4: officer approves case -> OPEN.
 
 Reference docs:
 - md-files/project-doc.md §4.2.1 (Cadet forwards to Police Officer, Officer approves)
-- md-files/swagger_documentation_report.md §3.2
+- md-files/24-swagger_documentation_report.md §3.2
   (POST /api/cases/{id}/officer-review/, GET /api/cases/{id}/, GET /api/cases/{id}/status-log/)
 """
 
