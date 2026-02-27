@@ -1,16 +1,18 @@
 # =============================================================================
 # WP-Project/docker-compose.yaml
 #
-# Local development stack — no nginx.
-# Static files are served by WhiteNoise (built into Django/Gunicorn).
+# Single compose file for both dev and production-like runtime.
+# Default mode is dev (APP_ENV=dev or unset).
+# CI/CD can switch frontend runtime by setting APP_ENV=prod.
 #
 # Usage:
-#   docker compose --env-file ./.env up --build
+#   Dev:  docker compose --env-file ./.env up --build
+#   Prod: APP_ENV=prod docker compose --env-file ./.env up -d --build --force-recreate
 #
 # Services:
 #   db        — PostgreSQL 16
 #   backend   — Django via Gunicorn (port 8000)
-#   frontend  — Vite dev server with HMR (port 5173)
+#   frontend  — Vite (dev server in APP_ENV=dev, preview build in APP_ENV=prod)
 #
 # Important: set DB_HOST=db in WP-Project/.env when using this compose file.
 # =============================================================================
@@ -67,6 +69,8 @@ services:
       dockerfile: Dockerfile
     env_file:
       - ./.env
+    environment:
+      APP_ENV: ${APP_ENV:-dev}
     ports:
       - "5173:5173"
     volumes:
@@ -76,7 +80,14 @@ services:
       # prevents the host mount from hiding them when node_modules is absent locally.
       - /app/frontend/node_modules
     working_dir: /app/frontend
-    command: npm run dev -- --host 0.0.0.0 --port 5173
+    command: >
+      sh -c '
+      if [ "${APP_ENV:-dev}" = "prod" ]; then
+        npx vite build && npx vite preview --host 0.0.0.0 --port 5173;
+      else
+        npm run dev -- --host 0.0.0.0 --port 5173;
+      fi
+      '
     restart: unless-stopped
 
 # ── Named volumes ─────────────────────────────────────────────────────────────
