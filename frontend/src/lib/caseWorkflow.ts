@@ -160,6 +160,24 @@ export const STATUS_ACTIONS: Partial<Record<CaseStatus, WorkflowAction[]>> = {
       variant: "primary",
       requiredPermissions: ["cases.can_assign_detective"],
     },
+    {
+      key: "assign_sergeant",
+      label: "Assign Sergeant",
+      variant: "primary",
+      requiredPermissions: ["cases.can_assign_detective"],
+    },
+    {
+      key: "assign_captain",
+      label: "Assign Captain",
+      variant: "primary",
+      requiredPermissions: ["cases.can_assign_detective"],
+    },
+    {
+      key: "assign_judge",
+      label: "Assign Judge",
+      variant: "primary",
+      requiredPermissions: ["cases.can_forward_to_judiciary"],
+    },
   ],
   investigation: [
     // Suspect lifecycle is managed per-suspect.
