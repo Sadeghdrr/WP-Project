@@ -178,7 +178,8 @@ CASE_SCOPE_RULES: list[tuple[str, Any]] = [
     # Coroner — cases with unverified biological evidence
     (f"cases.{CasesPerms.CAN_SCOPE_CORONER_CASES}",
      lambda qs, u: qs.filter(
-         evidences__biologicalevidence__verified_by=None,
+         evidences__biologicalevidence__isnull=False,
+         evidences__biologicalevidence__verified_by__isnull=True,
      ).distinct()),
     # Judge — only judiciary/closed cases assigned to them
     (f"cases.{CasesPerms.CAN_SCOPE_JUDICIARY_CASES}",

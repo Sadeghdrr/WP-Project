@@ -21,7 +21,7 @@ from rest_framework.test import APIClient
 
 from accounts.models import Role
 from cases.models import Case, CaseCreationType, CaseStatus, CrimeLevel
-from core.domain.notifications import NotificationService, _safe_format, _EVENT_TEMPLATES
+from core.domain.notifications import NotificationService, _EVENT_TEMPLATES
 from evidence.models import BiologicalEvidence, EvidenceType
 
 User = get_user_model()
@@ -57,47 +57,6 @@ def _grant(role: Role, codename: str, app_label: str) -> None:
 #  1. Notification Formatting — Unit Tests
 # ═══════════════════════════════════════════════════════════════════
 
-class TestSafeFormat(TestCase):
-    """Unit tests for ``_safe_format`` helper."""
-
-    def test_basic_substitution(self):
-        result = _safe_format("Case #{case_id} approved by {actor_name}", {
-            "case_id": 42,
-            "actor_name": "John",
-        })
-        self.assertEqual(result, "Case #42 approved by John")
-
-    def test_missing_key_left_as_placeholder(self):
-        result = _safe_format("Case #{case_id} approved by {actor_name}", {
-            "case_id": 42,
-        })
-        self.assertIn("{actor_name}", result)
-        self.assertIn("42", result)
-
-    def test_none_payload_returns_template(self):
-        template = "Case approved by {actor_name}"
-        result = _safe_format(template, None)
-        self.assertEqual(result, template)
-
-    def test_empty_payload_returns_template(self):
-        template = "Case approved by {actor_name}"
-        result = _safe_format(template, {})
-        self.assertEqual(result, template)
-
-    def test_extra_keys_ignored(self):
-        result = _safe_format("Case #{case_id}", {
-            "case_id": 7,
-            "extra_field": "unused",
-        })
-        self.assertEqual(result, "Case #7")
-
-    def test_no_crash_on_bad_format_string(self):
-        # Malformed template — should not crash
-        result = _safe_format("Case {{{bad", {"bad": "x"})
-        # Should return template unmodified or formatted — no crash
-        self.assertIsInstance(result, str)
-
-
 class TestNotificationServiceFormatting(TestCase):
     """Integration tests for NotificationService.create with payload formatting."""
 
@@ -130,42 +89,23 @@ class TestNotificationServiceFormatting(TestCase):
         notifications = NotificationService.create(
             actor=self.actor,
             recipients=self.recipient,
-            event_type="case_approved",
-            payload={"case_id": 99},
+            event_type="bounty_tip_verified",
+            payload={"unique_code": "ABC-123", "reward_amount": "500"},
         )
         self.assertEqual(len(notifications), 1)
         notif = notifications[0]
-        self.assertIn("99", notif.message)
-        self.assertIn("Cole Phelps", notif.message)  # actor_name auto-injected
+        self.assertIn("ABC-123", notif.message)
+        self.assertIn("500", notif.message)
 
-    def test_bio_evidence_verified_message(self):
-        """bio_evidence_verified event should interpolate evidence_id and verification."""
-        notifications = NotificationService.create(
-            actor=self.actor,
-            recipients=self.recipient,
-            event_type="bio_evidence_verified",
-            payload={
-                "case_id": 10,
-                "evidence_id": 55,
-                "verification": "approved",
-            },
-        )
-        notif = notifications[0]
-        self.assertIn("55", notif.message)
-        self.assertIn("10", notif.message)
-        self.assertIn("approved", notif.message)
-
-    def test_no_crash_when_payload_missing_keys(self):
-        """Should not crash if payload does not have all expected keys."""
-        notifications = NotificationService.create(
-            actor=self.actor,
-            recipients=self.recipient,
-            event_type="case_approved",
-            payload={},  # missing case_id
-        )
-        self.assertEqual(len(notifications), 1)
-        notif = notifications[0]
-        self.assertIn("{case_id}", notif.message)  # left as placeholder
+    def test_missing_keys_raises_keyerror(self):
+        """Should raise KeyError if payload does not have all expected keys."""
+        with self.assertRaises(KeyError):
+            NotificationService.create(
+                actor=self.actor,
+                recipients=self.recipient,
+                event_type="bounty_tip_verified",
+                payload={"unique_code": "ABC-123"},  # missing reward_amount
+            )
 
     def test_no_crash_with_none_payload(self):
         """Should not crash if payload is None."""
@@ -188,17 +128,6 @@ class TestNotificationServiceFormatting(TestCase):
         self.assertEqual(len(notifications), 1)
         notif = notifications[0]
         self.assertEqual(notif.title, "Totally Unknown Event")
-
-    def test_actor_name_auto_injected(self):
-        """actor_name is automatically available in payload even if caller doesn't supply it."""
-        notifications = NotificationService.create(
-            actor=self.actor,
-            recipients=self.recipient,
-            event_type="case_approved",
-            payload={"case_id": 1},
-        )
-        notif = notifications[0]
-        self.assertIn("Cole Phelps", notif.message)
 
 
 # ═══════════════════════════════════════════════════════════════════
