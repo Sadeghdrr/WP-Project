@@ -175,6 +175,11 @@ CASE_SCOPE_RULES: list[tuple[str, Any]] = [
     # Cadet — early complaint stages
     (f"cases.{CasesPerms.CAN_SCOPE_COMPLAINT_QUEUE}",
      lambda qs, u: qs.filter(status__in=CADET_VISIBLE_STATUSES)),
+    # Coroner — cases with unverified biological evidence
+    (f"cases.{CasesPerms.CAN_SCOPE_CORONER_CASES}",
+     lambda qs, u: qs.filter(
+         evidences__biologicalevidence__verified_by=None,
+     ).distinct()),
     # Judge — only judiciary/closed cases assigned to them
     (f"cases.{CasesPerms.CAN_SCOPE_JUDICIARY_CASES}",
      lambda qs, u: qs.filter(
@@ -942,7 +947,7 @@ class CaseWorkflowService:
             Case in ``PENDING_APPROVAL`` status with
             ``creation_type == CRIME_SCENE``.
         requesting_user : User
-            Must have ``CAN_APPROVE_CASE`` and rank ≥ Officer.
+            Must have ``CAN_APPROVE_CASE`` and rank ≥ case creator's rank.
 
         Returns
         -------
@@ -953,9 +958,11 @@ class CaseWorkflowService:
         -----------------------
         1. Assert case.status == PENDING_APPROVAL.
         2. Assert case.creation_type == CRIME_SCENE.
-        3. Set case.approved_by = requesting_user.
-        4. transition_state(case, OPEN, requesting_user).
-        5. Return case.
+        3. Assert requesting_user has CAN_APPROVE_CASE permission.
+        4. Assert requesting_user.hierarchy_level >= case.created_by.hierarchy_level.
+        5. Set case.approved_by = requesting_user.
+        6. transition_state(case, OPEN, requesting_user).
+        7. Return case.
         """
         if case.status != CaseStatus.PENDING_APPROVAL:
             raise InvalidTransition(
@@ -967,6 +974,20 @@ class CaseWorkflowService:
         if case.creation_type != CaseCreationType.CRIME_SCENE:
             raise DomainError(
                 "Only crime-scene cases can be approved via this endpoint."
+            )
+
+        # Permission check — must have CAN_APPROVE_CASE
+        if not requesting_user.has_perm(f"cases.{CasesPerms.CAN_APPROVE_CASE}"):
+            raise PermissionDenied(
+                "You do not have permission to approve crime-scene cases."
+            )
+
+        # Hierarchy enforcement — approver rank must be >= creator rank
+        approver_level = getattr(requesting_user, "hierarchy_level", 0)
+        creator_level = getattr(case.created_by, "hierarchy_level", 0)
+        if approver_level < creator_level:
+            raise PermissionDenied(
+                "Your rank is insufficient to approve a case created by a higher-ranking officer."
             )
 
         # Set approved_by before transitioning

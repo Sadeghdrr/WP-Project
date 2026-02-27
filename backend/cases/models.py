@@ -204,6 +204,7 @@ class Case(TimeStampedModel):
             (CasesPerms.CAN_SCOPE_COMPLAINT_QUEUE, "See early complaint queue (Cadet)"),
             (CasesPerms.CAN_SCOPE_JUDICIARY_CASES, "See judiciary/closed cases (Judge)"),
             (CasesPerms.CAN_SCOPE_OWN_CASES, "See only own-involved cases"),
+            (CasesPerms.CAN_SCOPE_CORONER_CASES, "See cases with unverified bio evidence (Coroner)"),
             # Workflow guard permissions
             (CasesPerms.CAN_CREATE_CRIME_SCENE, "Can create a crime-scene case"),
             (CasesPerms.CAN_AUTO_APPROVE_CRIME_SCENE, "Crime-scene cases auto-open on creation"),

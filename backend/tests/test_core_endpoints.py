@@ -279,6 +279,7 @@ class TestCoreEndpoints(TestCase):
         self.assertEqual(levels, sorted(levels, reverse=True))
 
     def test_dashboard_detective_scope_shows_only_assigned_cases(self):
+        """Dashboard is now public — even authenticated detectives see department-wide stats."""
         token = self.login(self.detective_a)
         self.auth(token)
 
@@ -286,19 +287,10 @@ class TestCoreEndpoints(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK, msg=response.data)
         data = response.data
 
-        self.assertEqual(data["total_cases"], 1)
-        self.assertEqual(data["active_cases"], 1)
-        self.assertEqual(data["closed_cases"], 0)
-
-        status_counts = self._status_counts(data)
-        self.assertEqual(status_counts.get(CaseStatus.OPEN), 1)
-        self.assertNotIn(CaseStatus.INVESTIGATION, status_counts)
-        self.assertNotIn(CaseStatus.CLOSED, status_counts)
-
-        self.assertEqual(
-            sum(item["count"] for item in data["cases_by_crime_level"]),
-            1,
-        )
+        # Public dashboard returns department-wide aggregates (3 cases total)
+        self.assertEqual(data["total_cases"], 3)
+        self.assertEqual(data["active_cases"], 2)
+        self.assertEqual(data["closed_cases"], 1)
 
     def test_dashboard_captain_scope_includes_broader_case_set(self):
         token = self.login(self.captain_user)
@@ -339,9 +331,15 @@ class TestCoreEndpoints(TestCase):
         self.assertEqual(status_counts.get(CaseStatus.INVESTIGATION), 1)
         self.assertEqual(status_counts.get(CaseStatus.CLOSED), 1)
 
-    def test_dashboard_requires_authentication(self):
+    def test_dashboard_allows_anonymous_access(self):
+        """Dashboard is a public endpoint — anonymous requests should return 200."""
         response = self.client.get(self.dashboard_url)
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.data
+        # Anonymous user gets department-wide stats (default="all" scope)
+        self.assertIn("total_cases", data)
+        self.assertIn("active_cases", data)
+        self.assertIn("closed_cases", data)
 
     def test_search_returns_relevant_case_suspect_and_evidence_hits(self):
         alpha_case = self._create_case_for_search(

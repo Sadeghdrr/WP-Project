@@ -122,6 +122,9 @@ class CasesPerms:
     CAN_SCOPE_OWN_CASES = "can_scope_own_cases"
     """See only cases where the user is a complainant or creator."""
 
+    CAN_SCOPE_CORONER_CASES = "can_scope_coroner_cases"
+    """See cases containing unverified biological evidence (Coroner)."""
+
     # ── Workflow guard permissions ──────────────────────────────────
     CAN_CREATE_CRIME_SCENE = "can_create_crime_scene"
     """Allowed to create a crime-scene case (Officer and above)."""

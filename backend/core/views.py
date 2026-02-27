@@ -62,13 +62,15 @@ class DashboardStatsView(APIView):
         - ``401 Unauthorized``: Missing or invalid credentials.
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
+    authentication_classes = []  # No authentication required
 
     @extend_schema(
         summary="Dashboard statistics",
         description=(
-            "Return aggregated dashboard statistics scoped to the authenticated user’s role. "
-            "Captains and Police Chiefs see department-wide metrics; Detectives see only their assigned cases."
+            "Return aggregated department-wide dashboard statistics. "
+            "This endpoint is public and does not require authentication. "
+            "Returns department-wide aggregate metrics (no user-specific data)."
         ),
         responses={200: OpenApiResponse(response=DashboardStatsSerializer, description="Dashboard stats.")},
         tags=["Dashboard"],
@@ -78,16 +80,8 @@ class DashboardStatsView(APIView):
         Handle GET request — delegate to
         ``DashboardAggregationService``.
 
-        Args:
-            request: The incoming DRF request with an authenticated
-                     user.
-
-        Returns:
-            A ``Response`` containing the serialised dashboard stats.
-
-        Raises:
-            NotImplementedError: Propagated from the service layer
-                                 (structural draft).
+        Returns department-wide aggregate stats.  No authentication
+        required; no user-specific data is returned.
         """
         service = DashboardAggregationService(user=request.user)
         data = service.get_stats()
