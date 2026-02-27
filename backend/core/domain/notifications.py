@@ -61,7 +61,7 @@ _EVENT_TEMPLATES: dict[str, tuple[str, str]] = {
     "trial_created":         ("Trial Recorded",          "A trial verdict has been recorded for a suspect in your case."),
     "bounty_tip_submitted":  ("Bounty Tip Submitted",    "A citizen has submitted a bounty tip."),
     "bounty_tip_reviewed":   ("Bounty Tip Reviewed",     "A bounty tip has been reviewed and forwarded for detective verification."),
-    "bounty_tip_verified":   ("Bounty Tip Verified",     "A bounty tip you submitted has been verified."),
+    "bounty_tip_verified":   ("Bounty Tip Verified",     "A bounty tip you submitted has been verified with {unique_code} code and {reward_amount} amount."),
     "bounty_tip_rejected":   ("Bounty Tip Rejected",     "A bounty tip you submitted has been rejected."),
     "bail_payment":          ("Bail Payment",             "A bail payment has been processed."),
     "assignment_changed":    ("Assignment Updated",       "You have been assigned to or removed from a case."),
@@ -146,7 +146,7 @@ class NotificationService:
             notif = Notification.objects.create(
                 recipient=recipient,
                 title=title,
-                message=message,
+                message=message.format(**payload) if payload else message,
                 content_type=content_type,
                 object_id=object_id,
             )
