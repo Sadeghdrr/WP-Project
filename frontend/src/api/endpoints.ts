@@ -94,4 +94,5 @@ export const API = {
   SYSTEM_CONSTANTS: "/core/constants/",
   GLOBAL_SEARCH: "/core/search/",
   NOTIFICATIONS: "/core/notifications/",
+  NOTIFICATION_READ: (id: number) => `/core/notifications/${id}/read/`,
 } as const;

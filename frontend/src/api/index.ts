@@ -27,3 +27,4 @@ export * as suspectsApi from "./suspects";
 export type { BountyTipFilters } from "./suspects";
 export * as boardApi from "./board";
 export * as adminApi from "./admin";
+export * as notificationsApi from "./notifications";

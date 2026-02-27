@@ -49,7 +49,6 @@ const NAV_SECTIONS: readonly NavSection[] = [
         ],
       },
       { to: "/profile", label: "Profile" },
-      { to: "/notifications", label: "Notifications" },
     ],
   },
 ];
