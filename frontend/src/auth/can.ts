@@ -53,47 +53,27 @@ export function canAny(
   return permissions.some((p) => userPermissions.has(p));
 }
 
-/**
- * Check if the user's hierarchy level meets the minimum threshold.
- *
- * @param userHierarchy - The user's hierarchy_level (from JWT or /me)
- * @param minLevel - Minimum hierarchy level required
- */
-export function hasMinHierarchy(
-  userHierarchy: number,
-  minLevel: number,
-): boolean {
-  return userHierarchy >= minLevel;
-}
-
 // ---------------------------------------------------------------------------
 // Compound check
 // ---------------------------------------------------------------------------
 
 /**
- * Combined guard check: all permissions AND minimum hierarchy.
+ * Combined guard check: all listed permissions must be present.
  * Used by route guards and the <ProtectedRoute> component.
  *
  * @param userPermissions - Set of permission strings
- * @param userHierarchy - User's hierarchy_level
- * @param requirements - Guard requirements
+ * @param requirements - Guard requirements (permissions array)
  * @returns true if all requirements are met
  */
 export function checkAccess(
   userPermissions: ReadonlySet<string>,
-  userHierarchy: number,
   requirements: {
     permissions?: readonly string[];
-    minHierarchy?: number;
   },
 ): boolean {
-  const { permissions, minHierarchy: minLevel } = requirements;
+  const { permissions } = requirements;
 
   if (permissions && permissions.length > 0 && !canAll(userPermissions, permissions)) {
-    return false;
-  }
-
-  if (minLevel !== undefined && !hasMinHierarchy(userHierarchy, minLevel)) {
     return false;
   }
 

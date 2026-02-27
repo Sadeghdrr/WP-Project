@@ -31,7 +31,6 @@ function mockUseAuth(overrides: Partial<AuthContextValue> = {}) {
     status: "unauthenticated",
     user: null,
     permissionSet: new Set(),
-    hierarchyLevel: 0,
     login: vi.fn().mockResolvedValue({ ok: true }),
     register: vi.fn().mockResolvedValue({ ok: true }),
     logout: vi.fn(),

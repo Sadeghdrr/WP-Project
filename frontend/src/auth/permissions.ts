@@ -24,6 +24,8 @@ export const ACCOUNTS = {
   ADD_USER: "accounts.add_user",
   CHANGE_USER: "accounts.change_user",
   DELETE_USER: "accounts.delete_user",
+  // Workflow
+  CAN_MANAGE_USERS: "accounts.can_manage_users",
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -54,6 +56,23 @@ export const CASES = {
   CAN_CHANGE_CASE_STATUS: "cases.can_change_case_status",
   CAN_FORWARD_TO_JUDICIARY: "cases.can_forward_to_judiciary",
   CAN_APPROVE_CRITICAL_CASE: "cases.can_approve_critical_case",
+  // Scope
+  CAN_SCOPE_ALL_CASES: "cases.can_scope_all_cases",
+  CAN_SCOPE_SUPERVISED_CASES: "cases.can_scope_supervised_cases",
+  CAN_SCOPE_ASSIGNED_CASES: "cases.can_scope_assigned_cases",
+  CAN_SCOPE_OFFICER_CASES: "cases.can_scope_officer_cases",
+  CAN_SCOPE_COMPLAINT_QUEUE: "cases.can_scope_complaint_queue",
+  CAN_SCOPE_JUDICIARY_CASES: "cases.can_scope_judiciary_cases",
+  CAN_SCOPE_OWN_CASES: "cases.can_scope_own_cases",
+  // Workflow guard
+  CAN_CREATE_CRIME_SCENE: "cases.can_create_crime_scene",
+  CAN_AUTO_APPROVE_CRIME_SCENE: "cases.can_auto_approve_crime_scene",
+  CAN_VIEW_CASE_REPORT: "cases.can_view_case_report",
+  // Assignment capability
+  CAN_BE_ASSIGNED_DETECTIVE: "cases.can_be_assigned_detective",
+  CAN_BE_ASSIGNED_SERGEANT: "cases.can_be_assigned_sergeant",
+  CAN_BE_ASSIGNED_CAPTAIN: "cases.can_be_assigned_captain",
+  CAN_BE_ASSIGNED_JUDGE: "cases.can_be_assigned_judge",
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -128,6 +147,14 @@ export const SUSPECTS = {
   CAN_REVIEW_BOUNTY_TIP: "suspects.can_review_bounty_tip",
   CAN_VERIFY_BOUNTY_TIP: "suspects.can_verify_bounty_tip",
   CAN_SET_BAIL_AMOUNT: "suspects.can_set_bail_amount",
+  // Scope
+  CAN_SCOPE_ALL_SUSPECTS: "suspects.can_scope_all_suspects",
+  CAN_SCOPE_ASSIGNED_SUSPECTS: "suspects.can_scope_assigned_suspects",
+  CAN_SCOPE_SUPERVISED_SUSPECTS: "suspects.can_scope_supervised_suspects",
+  CAN_SCOPE_EXAMINED_SUSPECTS: "suspects.can_scope_examined_suspects",
+  CAN_SCOPE_OWN_SUSPECTS: "suspects.can_scope_own_suspects",
+  // Workflow guard
+  CAN_LOOKUP_BOUNTY_REWARD: "suspects.can_lookup_bounty_reward",
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -151,6 +178,8 @@ export const BOARD = {
   CHANGE_BOARDCONNECTION: "board.change_boardconnection",
   DELETE_BOARDCONNECTION: "board.delete_boardconnection",
   CAN_EXPORT_BOARD: "board.can_export_board",
+  CAN_CREATE_BOARD: "board.can_create_board",
+  CAN_VIEW_ANY_BOARD: "board.can_view_any_board",
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -161,6 +190,9 @@ export const CORE = {
   ADD_NOTIFICATION: "core.add_notification",
   CHANGE_NOTIFICATION: "core.change_notification",
   DELETE_NOTIFICATION: "core.delete_notification",
+  // Workflow
+  CAN_VIEW_FULL_DASHBOARD: "core.can_view_full_dashboard",
+  CAN_SEARCH_ALL: "core.can_search_all",
 } as const;
 
 // ---------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 /**
  * Permission utility tests — pure functions (no React).
  *
- * Covers: can, canAll, canAny, hasMinHierarchy, checkAccess, buildPermissionSet
+ * Covers: can, canAll, canAny, checkAccess, buildPermissionSet
  */
 
 import { describe, it, expect } from "vitest";
@@ -9,7 +9,6 @@ import {
   can,
   canAll,
   canAny,
-  hasMinHierarchy,
   checkAccess,
   buildPermissionSet,
 } from "../auth/can";
@@ -79,55 +78,26 @@ describe("canAny()", () => {
 });
 
 // ---------------------------------------------------------------------------
-// hasMinHierarchy()
-// ---------------------------------------------------------------------------
-
-describe("hasMinHierarchy()", () => {
-  it("returns true when user hierarchy meets minimum", () => {
-    expect(hasMinHierarchy(5, 3)).toBe(true);
-  });
-
-  it("returns true when hierarchy equals the minimum exactly", () => {
-    expect(hasMinHierarchy(3, 3)).toBe(true);
-  });
-
-  it("returns false when hierarchy is below minimum", () => {
-    expect(hasMinHierarchy(2, 3)).toBe(false);
-  });
-});
-
-// ---------------------------------------------------------------------------
 // checkAccess()
 // ---------------------------------------------------------------------------
 
 describe("checkAccess()", () => {
   it("returns true when no requirements are specified", () => {
-    expect(checkAccess(PERMS, 1, {})).toBe(true);
+    expect(checkAccess(PERMS, {})).toBe(true);
   });
 
-  it("returns true when all permission + hierarchy requirements are met", () => {
+  it("returns true when all permission requirements are met", () => {
     expect(
-      checkAccess(PERMS, 5, {
+      checkAccess(PERMS, {
         permissions: ["cases.view_case"],
-        minHierarchy: 3,
       }),
     ).toBe(true);
   });
 
-  it("returns false when permissions are met but hierarchy is too low", () => {
+  it("returns false when permissions are missing", () => {
     expect(
-      checkAccess(PERMS, 1, {
-        permissions: ["cases.view_case"],
-        minHierarchy: 3,
-      }),
-    ).toBe(false);
-  });
-
-  it("returns false when hierarchy is met but permissions are missing", () => {
-    expect(
-      checkAccess(PERMS, 5, {
+      checkAccess(PERMS, {
         permissions: ["cases.delete_case"],
-        minHierarchy: 3,
       }),
     ).toBe(false);
   });

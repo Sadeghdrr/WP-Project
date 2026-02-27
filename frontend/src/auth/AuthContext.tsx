@@ -45,8 +45,6 @@ export interface AuthContextValue {
   user: User | null;
   /** Pre-built permission set for O(1) checks */
   permissionSet: ReadonlySet<string>;
-  /** User's hierarchy level (0 if no user) */
-  hierarchyLevel: number;
   /** Login with identifier + password */
   login: (req: LoginRequest) => Promise<{ ok: true } | { ok: false; error: ApiError }>;
   /** Register then auto-login */
@@ -75,10 +73,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
     [user],
   );
 
-  const hierarchyLevel = useMemo(
-    () => user?.role_detail?.hierarchy_level ?? 0,
-    [user],
-  );
 
   // ── Internal helpers ────────────────────────────────────────────────
 
@@ -233,12 +227,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
       status,
       user,
       permissionSet,
-      hierarchyLevel,
       login,
       register,
       logout,
     }),
-    [status, user, permissionSet, hierarchyLevel, login, register, logout],
+    [status, user, permissionSet, login, register, logout],
   );
 
   return (

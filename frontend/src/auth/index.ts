@@ -26,7 +26,6 @@ export {
   can,
   canAll,
   canAny,
-  hasMinHierarchy,
   checkAccess,
   buildPermissionSet,
 } from "./can";

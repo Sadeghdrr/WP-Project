@@ -31,18 +31,18 @@ const STATUS_LABEL: Record<string, string> = {
 
 function TipActionCell({
   tip,
-  hierarchyLevel,
+  permissionSet,
 }: {
   tip: BountyTipListItem;
-  hierarchyLevel: number;
+  permissionSet: ReadonlySet<string>;
 }) {
   const { reviewTip, verifyTip } = useBountyTipActions();
   const [notes, setNotes] = useState("");
 
-  // Officer (hierarchy >= 3) can review pending tips
-  const canReview = tip.status === "pending" && hierarchyLevel >= 3;
-  // Detective (hierarchy >= 4) can verify officer_reviewed tips
-  const canVerify = tip.status === "officer_reviewed" && hierarchyLevel >= 4;
+  // Officer with review permission can review pending tips
+  const canReview = tip.status === "pending" && permissionSet.has("suspects.can_review_bounty_tip");
+  // Detective with verify permission can verify officer_reviewed tips
+  const canVerify = tip.status === "officer_reviewed" && permissionSet.has("suspects.can_verify_bounty_tip");
 
   const handleReview = useCallback(
     (decision: "accept" | "reject") => {
@@ -129,7 +129,7 @@ function TipActionCell({
  * may verify. Links to submit new tip and verify reward.
  */
 export default function BountyTipsPage() {
-  const { hierarchyLevel } = useAuth();
+  const { permissionSet } = useAuth();
   const [statusFilter, setStatusFilter] = useState("");
 
   const filters: BountyTipFilters = {};
@@ -164,7 +164,7 @@ export default function BountyTipsPage() {
           <Link to="/bounty-tips/new" className={css.btnPrimary}>
             + Submit Tip
           </Link>
-          {hierarchyLevel >= 3 && (
+          {permissionSet.has("suspects.can_lookup_bounty_reward") && (
             <Link to="/bounty-tips/verify" className={css.btnSecondary}>
               Verify Reward
             </Link>
@@ -193,44 +193,44 @@ export default function BountyTipsPage() {
         />
       ) : (
         <div className={css.tableWrap}>
-        <table className={css.table}>
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>Informant</th>
-              <th>Suspect</th>
-              <th>Case</th>
-              <th>Status</th>
-              <th>Claimed</th>
-              <th>Date</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {tips.map((tip) => (
-              <tr key={tip.id}>
-                <td>{tip.id}</td>
-                <td>{tip.informant_name ?? `User #${tip.informant}`}</td>
-                <td>{tip.suspect ?? "—"}</td>
-                <td>
-                  {tip.case ? (
-                    <Link to={`/cases/${tip.case}`}>#{tip.case}</Link>
-                  ) : (
-                    "—"
-                  )}
-                </td>
-                <td>
-                  <span className={`${css.badge} ${STATUS_BADGE[tip.status] ?? ""}`}>
-                    {STATUS_LABEL[tip.status] ?? tip.status_display}
-                  </span>
-                </td>
-                <td>{tip.is_claimed ? "Yes" : "No"}</td>
-                <td>{new Date(tip.created_at).toLocaleDateString()}</td>
-                <TipActionCell tip={tip} hierarchyLevel={hierarchyLevel} />
+          <table className={css.table}>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Informant</th>
+                <th>Suspect</th>
+                <th>Case</th>
+                <th>Status</th>
+                <th>Claimed</th>
+                <th>Date</th>
+                <th>Actions</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {tips.map((tip) => (
+                <tr key={tip.id}>
+                  <td>{tip.id}</td>
+                  <td>{tip.informant_name ?? `User #${tip.informant}`}</td>
+                  <td>{tip.suspect ?? "—"}</td>
+                  <td>
+                    {tip.case ? (
+                      <Link to={`/cases/${tip.case}`}>#{tip.case}</Link>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
+                  <td>
+                    <span className={`${css.badge} ${STATUS_BADGE[tip.status] ?? ""}`}>
+                      {STATUS_LABEL[tip.status] ?? tip.status_display}
+                    </span>
+                  </td>
+                  <td>{tip.is_claimed ? "Yes" : "No"}</td>
+                  <td>{new Date(tip.created_at).toLocaleDateString()}</td>
+                  <TipActionCell tip={tip} permissionSet={permissionSet} />
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </div>

@@ -19,9 +19,9 @@ import css from "./UserManagementPage.module.css";
  *   - Activate / deactivate user
  */
 export default function UserManagementPage() {
-  const { hierarchyLevel } = useAuth();
+  const { permissionSet } = useAuth();
 
-  if (hierarchyLevel < 100) {
+  if (!permissionSet.has("accounts.can_manage_users")) {
     return (
       <div className={css.container}>
         <h1>Access Denied</h1>

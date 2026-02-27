@@ -8,14 +8,14 @@ import css from "./AdminPage.module.css";
  * Admin Panel overview page.
  * Requirement (§7 CP2): Non-Django admin with similar functionality (200 pts).
  *
- * Accessible only to System Administrators (hierarchy_level >= 100).
+ * Accessible only to users with the `accounts.can_manage_users` permission.
  * Shows quick stats and navigation to Users / Roles sub-pages.
  */
 export default function AdminPage() {
-  const { user, hierarchyLevel } = useAuth();
+  const { user, permissionSet } = useAuth();
 
-  // Guard: non-admins see a denial message
-  if (hierarchyLevel < 100) {
+  // Guard: users without admin permission see a denial message
+  if (!permissionSet.has("accounts.can_manage_users")) {
     return (
       <div className={css.accessDenied}>
         <h2>Access Denied</h2>

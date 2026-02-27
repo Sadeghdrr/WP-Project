@@ -11,7 +11,6 @@
  * Guard behaviour:
  *   - authRequired: false  → public page, no token check
  *   - authRequired: true   → token must exist (any role)
- *   - minHierarchy          → user.hierarchy_level >= value
  *   - requiredPermissions   → user must have ALL listed permissions
  */
 
@@ -26,8 +25,6 @@ export interface RouteConfig {
   title: string;
   /** Whether authentication is required to access this route */
   authRequired: boolean;
-  /** Minimum role hierarchy level needed (0 = any authenticated user) */
-  minHierarchy?: number;
   /** Permission codenames the user must possess (AND logic) */
   requiredPermissions?: string[];
   /** Whether the route component should be lazy-loaded */
@@ -35,23 +32,6 @@ export interface RouteConfig {
   /** Child routes */
   children?: RouteConfig[];
 }
-
-// ---------------------------------------------------------------------------
-// Well-known hierarchy levels (from project-doc.md §3.1 + accounts.Role)
-// ---------------------------------------------------------------------------
-
-export const HIERARCHY = {
-  BASE_USER: 0,
-  JUDGE: 2,
-  CORONER: 3,
-  CADET: 4,
-  POLICE_OFFICER: 6,
-  DETECTIVE: 7,
-  SERGEANT: 8,
-  CAPTAIN: 9,
-  POLICE_CHIEF: 10,
-  SYSTEM_ADMIN: 100,
-} as const;
 
 // ---------------------------------------------------------------------------
 // Route tree
@@ -101,7 +81,7 @@ export const routes: RouteConfig[] = [
     path: "/most-wanted",
     title: "Most Wanted",
     authRequired: true,
-    minHierarchy: HIERARCHY.BASE_USER,
+    requiredPermissions: ["suspects.view_suspect"],
     lazy: true,
   },
 
@@ -116,14 +96,14 @@ export const routes: RouteConfig[] = [
         path: "new/complaint",
         title: "File Complaint",
         authRequired: true,
-        minHierarchy: 1, // Any authenticated user above Base User
+        requiredPermissions: ["cases.add_casecomplainant"],
         lazy: true,
       },
       {
         path: "new/crime-scene",
         title: "Report Crime Scene",
         authRequired: true,
-        minHierarchy: HIERARCHY.POLICE_OFFICER,
+        requiredPermissions: ["cases.can_create_crime_scene"],
         lazy: true,
       },
       {
@@ -142,7 +122,7 @@ export const routes: RouteConfig[] = [
             path: "evidence/new",
             title: "Add Evidence",
             authRequired: true,
-            minHierarchy: HIERARCHY.DETECTIVE,
+            requiredPermissions: ["evidence.add_evidence"],
             lazy: true,
           },
           {
@@ -155,21 +135,20 @@ export const routes: RouteConfig[] = [
             path: "suspects",
             title: "Case Suspects",
             authRequired: true,
-            minHierarchy: HIERARCHY.DETECTIVE,
+            requiredPermissions: ["suspects.view_suspect"],
             lazy: true,
           },
           {
             path: "suspects/:suspectId",
             title: "Suspect Detail",
             authRequired: true,
-            minHierarchy: HIERARCHY.DETECTIVE,
+            requiredPermissions: ["suspects.view_suspect"],
             lazy: true,
           },
           {
             path: "interrogations",
             title: "Interrogations",
             authRequired: true,
-            minHierarchy: HIERARCHY.DETECTIVE,
             requiredPermissions: ["suspects.can_conduct_interrogation"],
             lazy: true,
           },
@@ -177,7 +156,6 @@ export const routes: RouteConfig[] = [
             path: "trial",
             title: "Trial",
             authRequired: true,
-            minHierarchy: HIERARCHY.JUDGE,
             requiredPermissions: ["suspects.can_judge_trial"],
             lazy: true,
           },
@@ -191,7 +169,7 @@ export const routes: RouteConfig[] = [
     path: "/detective-board/:caseId",
     title: "Detective Board",
     authRequired: true,
-    minHierarchy: HIERARCHY.DETECTIVE,
+    requiredPermissions: ["board.view_detectiveboard"],
     lazy: true,
   },
 
@@ -200,7 +178,7 @@ export const routes: RouteConfig[] = [
     path: "/reports",
     title: "General Reporting",
     authRequired: true,
-    minHierarchy: HIERARCHY.JUDGE,
+    requiredPermissions: ["cases.can_view_case_report"],
     lazy: true,
   },
 
@@ -221,7 +199,7 @@ export const routes: RouteConfig[] = [
         path: "verify",
         title: "Verify Reward",
         authRequired: true,
-        minHierarchy: HIERARCHY.POLICE_OFFICER,
+        requiredPermissions: ["suspects.can_lookup_bounty_reward"],
         lazy: true,
       },
     ],
@@ -232,21 +210,21 @@ export const routes: RouteConfig[] = [
     path: "/admin",
     title: "Admin Panel",
     authRequired: true,
-    minHierarchy: HIERARCHY.SYSTEM_ADMIN,
+    requiredPermissions: ["accounts.can_manage_users"],
     lazy: true,
     children: [
       {
         path: "users",
         title: "User Management",
         authRequired: true,
-        minHierarchy: HIERARCHY.SYSTEM_ADMIN,
+        requiredPermissions: ["accounts.can_manage_users"],
         lazy: true,
       },
       {
         path: "roles",
         title: "Role Management",
         authRequired: true,
-        minHierarchy: HIERARCHY.SYSTEM_ADMIN,
+        requiredPermissions: ["accounts.can_manage_users"],
         lazy: true,
       },
     ],
