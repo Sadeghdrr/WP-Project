@@ -36,9 +36,6 @@ export const API = {
   CASE_CADET_REVIEW: (caseId: number) => `/cases/${caseId}/cadet-review/`,
   CASE_OFFICER_REVIEW: (caseId: number) => `/cases/${caseId}/officer-review/`,
   CASE_APPROVE_CRIME_SCENE: (caseId: number) => `/cases/${caseId}/approve-crime-scene/`,
-  CASE_DECLARE_SUSPECTS: (caseId: number) => `/cases/${caseId}/declare-suspects/`,
-  CASE_SERGEANT_REVIEW: (caseId: number) => `/cases/${caseId}/sergeant-review/`,
-  CASE_FORWARD_JUDICIARY: (caseId: number) => `/cases/${caseId}/forward-judiciary/`,
   CASE_TRANSITION: (caseId: number) => `/cases/${caseId}/transition/`,
 
   // Case assignment
@@ -60,9 +57,17 @@ export const API = {
   // Suspects
   SUSPECTS: "/suspects/",
   suspect: (id: number) => `/suspects/${id}/`,
-  INTERROGATIONS: "/suspects/interrogations/",
-  TRIALS: "/suspects/trials/",
-  BAIL: "/suspects/bail/",
+  SUSPECT_APPROVE: (id: number) => `/suspects/${id}/approve/`,
+  SUSPECT_ARREST: (id: number) => `/suspects/${id}/arrest/`,
+  SUSPECT_TRANSITION: (id: number) => `/suspects/${id}/transition-status/`,
+  SUSPECT_CAPTAIN_VERDICT: (id: number) => `/suspects/${id}/captain-verdict/`,
+  SUSPECT_CHIEF_APPROVAL: (id: number) => `/suspects/${id}/chief-approval/`,
+  suspectInterrogations: (suspectId: number) => `/suspects/${suspectId}/interrogations/`,
+  suspectInterrogation: (suspectId: number, id: number) => `/suspects/${suspectId}/interrogations/${id}/`,
+  suspectTrials: (suspectId: number) => `/suspects/${suspectId}/trials/`,
+  suspectTrial: (suspectId: number, id: number) => `/suspects/${suspectId}/trials/${id}/`,
+  suspectBails: (suspectId: number) => `/suspects/${suspectId}/bails/`,
+  suspectBail: (suspectId: number, id: number) => `/suspects/${suspectId}/bails/${id}/`,
   MOST_WANTED: "/suspects/most-wanted/",
 
   // Bounty Tips — mounted at /api/bounty-tips/ (not under /suspects/)

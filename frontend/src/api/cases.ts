@@ -125,24 +125,6 @@ export function approveCrimeScene(caseId: number): Promise<ApiResponse<CaseDetai
   return apiPost<CaseDetail>(API.CASE_APPROVE_CRIME_SCENE(caseId));
 }
 
-/** Detective declares suspects identified */
-export function declareSuspects(caseId: number): Promise<ApiResponse<CaseDetail>> {
-  return apiPost<CaseDetail>(API.CASE_DECLARE_SUSPECTS(caseId));
-}
-
-/** Sergeant approves/rejects suspect list */
-export function sergeantReview(
-  caseId: number,
-  data: ReviewDecisionRequest,
-): Promise<ApiResponse<CaseDetail>> {
-  return apiPost<CaseDetail>(API.CASE_SERGEANT_REVIEW(caseId), data);
-}
-
-/** Captain/Chief forwards case to judiciary */
-export function forwardToJudiciary(caseId: number): Promise<ApiResponse<CaseDetail>> {
-  return apiPost<CaseDetail>(API.CASE_FORWARD_JUDICIARY(caseId));
-}
-
 /** Generic state transition */
 export function transitionCase(
   caseId: number,

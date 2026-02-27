@@ -30,12 +30,6 @@ export type CaseStatus =
   | "pending_approval"
   | "open"
   | "investigation"
-  | "suspect_identified"
-  | "sergeant_review"
-  | "arrest_ordered"
-  | "interrogation"
-  | "captain_review"
-  | "chief_review"
   | "judiciary"
   | "closed";
 

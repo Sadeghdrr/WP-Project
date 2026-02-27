@@ -9,6 +9,7 @@ import { useState, useCallback, useEffect } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { useCaseDetail, useCaseActions } from "../../hooks/useCases";
 import { useEvidence } from "../../hooks/useEvidence";
+import { useCaseSuspects } from "../../hooks/useSuspects";
 import { useBoardForCase, useCreateBoard } from "../../hooks";
 import { useAuth } from "../../auth/useAuth";
 import { Skeleton, ErrorState, EmptyState } from "../../components/ui";
@@ -23,6 +24,13 @@ import {
 } from "../../lib/caseWorkflow";
 import type { WorkflowAction } from "../../lib/caseWorkflow";
 import type { CaseStatus, CrimeLevel, CaseDetail, CaseStatusLog } from "../../types";
+import {
+  SUSPECT_STATUS_LABELS,
+  SUSPECT_STATUS_COLORS,
+  APPROVAL_STATUS_LABELS,
+  APPROVAL_STATUS_COLORS,
+} from "../../lib/suspectWorkflow";
+import type { SuspectStatus, SergeantApprovalStatus } from "../../types";
 import styles from "./CaseDetailPage.module.css";
 
 // ---------------------------------------------------------------------------
@@ -393,6 +401,9 @@ export default function CaseDetailPage() {
         {/* Evidence Section */}
         <EvidenceSection caseId={caseData.id} />
 
+        {/* Suspects Section */}
+        <SuspectsSection caseId={caseData.id} caseStatus={caseData.status} />
+
         {/* Detective Board Section */}
         <DetectiveBoardSection caseId={caseData.id} />
 
@@ -497,6 +508,93 @@ function EvidenceSection({ caseId }: { caseId: number }) {
         <Link to={`/cases/${caseId}/evidence`} className={styles.btnDefault}>
           View All Evidence
         </Link>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Suspects Section
+// ---------------------------------------------------------------------------
+
+function SuspectStatusBadgeInline({ status }: { status: SuspectStatus }) {
+  const color = SUSPECT_STATUS_COLORS[status] ?? "gray";
+  const label = SUSPECT_STATUS_LABELS[status] ?? status;
+  const cls = `badge${color.charAt(0).toUpperCase() + color.slice(1)}` as keyof typeof styles;
+  return <span className={`${styles.badge} ${styles[cls] ?? styles.badgeGray}`}>{label}</span>;
+}
+
+function ApprovalBadgeInline({ status }: { status: SergeantApprovalStatus }) {
+  const color = APPROVAL_STATUS_COLORS[status] ?? "gray";
+  const label = APPROVAL_STATUS_LABELS[status] ?? status;
+  const cls = `badge${color.charAt(0).toUpperCase() + color.slice(1)}` as keyof typeof styles;
+  return <span className={`${styles.badge} ${styles[cls] ?? styles.badgeGray}`}>{label}</span>;
+}
+
+function SuspectsSection({ caseId, caseStatus }: { caseId: number; caseStatus: CaseStatus }) {
+  const { data: suspects, isLoading } = useCaseSuspects(caseId);
+  const { permissionSet } = useAuth();
+
+  // Show section for investigation, judiciary, or closed cases
+  const showSection =
+    caseStatus === "investigation" || caseStatus === "judiciary" || caseStatus === "closed";
+  if (!showSection) return null;
+
+  const canIdentify = permissionSet.has("suspects.can_identify_suspect");
+  const count = suspects?.length ?? 0;
+
+  return (
+    <div className={styles.section}>
+      <h2>Suspects ({isLoading ? "…" : count})</h2>
+      {isLoading ? (
+        <p style={{ color: "#6b7280", fontSize: "0.875rem" }}>Loading suspects…</p>
+      ) : count > 0 ? (
+        <table className={styles.subTable}>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Status</th>
+              <th>Approval</th>
+            </tr>
+          </thead>
+          <tbody>
+            {suspects!.slice(0, 8).map((s) => (
+              <tr key={s.id}>
+                <td>
+                  <Link to={`/cases/${caseId}/suspects/${s.id}`} style={{ color: "var(--color-primary, #4f46e5)" }}>
+                    {s.full_name}
+                  </Link>
+                </td>
+                <td><SuspectStatusBadgeInline status={s.status} /></td>
+                <td><ApprovalBadgeInline status={s.sergeant_approval_status} /></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : (
+        <p style={{ color: "#6b7280", fontSize: "0.875rem" }}>
+          No suspects identified for this case yet.
+        </p>
+      )}
+      <div style={{ display: "flex", gap: "0.75rem", marginTop: "0.75rem" }}>
+        {canIdentify && caseStatus === "investigation" && (
+          <Link to={`/cases/${caseId}/suspects`} className={styles.btnPrimary}>
+            + Identify Suspect
+          </Link>
+        )}
+        <Link to={`/cases/${caseId}/suspects`} className={styles.btnDefault}>
+          View All Suspects
+        </Link>
+        {(caseStatus === "investigation" || caseStatus === "judiciary") && (
+          <>
+            <Link to={`/cases/${caseId}/interrogations`} className={styles.btnDefault}>
+              Interrogations
+            </Link>
+            <Link to={`/cases/${caseId}/trial`} className={styles.btnDefault}>
+              Trial
+            </Link>
+          </>
+        )}
       </div>
     </div>
   );
@@ -754,26 +852,8 @@ function WorkflowPanel({
         case "assign_detective":
           // Handled by handleAssignDetective
           break;
-        case "declare_suspects":
-          await actions.declareSuspects.mutateAsync();
-          break;
-        case "sergeant_approve":
-          await actions.sergeantReview.mutateAsync({ decision: "approve" });
-          break;
-        case "sergeant_reject":
-          await actions.sergeantReview.mutateAsync({ decision: "reject", message });
-          break;
-        case "transition_interrogation":
-          await actions.transitionCase.mutateAsync({ target_status: "interrogation" });
-          break;
-        case "transition_captain_review":
-          await actions.transitionCase.mutateAsync({ target_status: "captain_review" });
-          break;
-        case "forward_judiciary":
-          await actions.forwardToJudiciary.mutateAsync();
-          break;
-        case "escalate_chief":
-          await actions.transitionCase.mutateAsync({ target_status: "chief_review" });
+        case "transition_judiciary":
+          await actions.transitionCase.mutateAsync({ target_status: "judiciary" });
           break;
         case "close_case":
           await actions.transitionCase.mutateAsync({ target_status: "closed" });
@@ -801,9 +881,6 @@ function WorkflowPanel({
     actions.cadetReview.isPending ||
     actions.officerReview.isPending ||
     actions.approveCrimeScene.isPending ||
-    actions.declareSuspects.isPending ||
-    actions.sergeantReview.isPending ||
-    actions.forwardToJudiciary.isPending ||
     actions.transitionCase.isPending ||
     actions.assignDetective.isPending;
 
