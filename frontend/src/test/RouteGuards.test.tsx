@@ -3,7 +3,7 @@
  *
  * Tests:
  *   1. ProtectedRoute renders children when authenticated
- *   2. ProtectedRoute redirects to /login when unauthenticated
+ *   2. ProtectedRoute redirects to / when unauthenticated
  *   3. ProtectedRoute shows loading state while bootstrapping
  *   4. GuestRoute renders children when unauthenticated
  *   5. GuestRoute redirects to /dashboard when authenticated
@@ -60,7 +60,7 @@ describe("ProtectedRoute", () => {
     expect(screen.getByTestId("protected-child")).toBeInTheDocument();
   });
 
-  it("redirects to /login when unauthenticated", () => {
+  it("redirects to / when unauthenticated", () => {
     mockUseAuth({ status: "unauthenticated" });
     render(
       <MemoryRouter initialEntries={["/app"]}>
@@ -68,12 +68,12 @@ describe("ProtectedRoute", () => {
           <Route element={<ProtectedRoute />}>
             <Route path="/app" element={<div data-testid="protected-child">Protected</div>} />
           </Route>
-          <Route path="/login" element={<div data-testid="login-page">Login</div>} />
+          <Route path="/" element={<div data-testid="dashboard-page">Dashboard</div>} />
         </Routes>
       </MemoryRouter>,
     );
     expect(screen.queryByTestId("protected-child")).not.toBeInTheDocument();
-    expect(screen.getByTestId("login-page")).toBeInTheDocument();
+    expect(screen.getByTestId("dashboard-page")).toBeInTheDocument();
   });
 
   it("shows loading state while auth is bootstrapping", () => {

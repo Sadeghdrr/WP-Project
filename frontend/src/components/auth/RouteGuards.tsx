@@ -13,7 +13,7 @@ import { Navigate, Outlet } from "react-router-dom";
 import { useAuth } from "../../auth/useAuth";
 
 /**
- * Wraps authenticated routes. Redirects to /login when unauthenticated.
+ * Wraps authenticated routes. Redirects to / when unauthenticated.
  * While auth is bootstrapping (status === "loading"), shows a loading state
  * to prevent flash-of-login-page.
  */
