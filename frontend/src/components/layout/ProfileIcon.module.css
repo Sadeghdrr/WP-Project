@@ -1,0 +1,28 @@
+.profileWrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.profileButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: var(--space-xs);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.profileButton:hover {
+  background-color: var(--color-hover);
+  color: var(--color-text);
+}
+
+.profileIcon {
+  width: 20px;
+  height: 20px;
+}

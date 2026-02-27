@@ -2,6 +2,7 @@ import { Link, NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../../auth/useAuth";
 import { GlobalSearch } from "../search";
 import NotificationBell from "./NotificationBell";
+import ProfileIcon from "./ProfileIcon";
 import styles from "./Header.module.css";
 
 interface HeaderProps {
@@ -34,6 +35,8 @@ export default function Header({ onMenuToggle }: HeaderProps) {
       {user && <GlobalSearch />}
 
       {user && <NotificationBell />}
+
+      {user && <ProfileIcon />}
 
       <nav className={styles.nav}>
         <NavLink

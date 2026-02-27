@@ -48,7 +48,7 @@ const NAV_SECTIONS: readonly NavSection[] = [
           P.ACCOUNTS.CHANGE_ROLE,
         ],
       },
-      { to: "/profile", label: "Profile" },
+
     ],
   },
 ];
