@@ -398,6 +398,7 @@ ROLE_PERMISSIONS_MAP: dict[tuple[str, str, int], list[str]] = {
     ): [
         # Cases (read-only)
         CasesPerms.VIEW_CASE,
+        CasesPerms.CAN_SCOPE_CORONER_CASES,
         # Evidence (view all + verify biological)
         EvidencePerms.VIEW_EVIDENCE, EvidencePerms.CHANGE_EVIDENCE,
         EvidencePerms.VIEW_TESTIMONYEVIDENCE,
@@ -459,6 +460,7 @@ ROLE_PERMISSIONS_MAP: dict[tuple[str, str, int], list[str]] = {
         SuspectsPerms.VIEW_SUSPECT,       # Most Wanted page is public
         SuspectsPerms.VIEW_BOUNTYTIP,
         SuspectsPerms.ADD_BOUNTYTIP,
+        SuspectsPerms.CAN_LOOKUP_BOUNTY_REWARD,
         SuspectsPerms.VIEW_BAIL,
         CasesPerms.ADD_CASE,
         CasesPerms.VIEW_CASE,
