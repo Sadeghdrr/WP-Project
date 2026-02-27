@@ -127,7 +127,7 @@ export function useSuspectBails(suspectId: number | undefined) {
 
 export function useCreateSuspect() {
   const qc = useQueryClient();
-  return useMutation<Suspect, Error, SuspectCreateRequest>({
+  return useMutation<Suspect, Error, SuspectCreateRequest | FormData>({
     mutationFn: async (data) => {
       const res = await suspectsApi.createSuspect(data);
       if (!res.ok) throw new Error(res.error.message);

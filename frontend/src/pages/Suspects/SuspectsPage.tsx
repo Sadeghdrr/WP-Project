@@ -194,25 +194,51 @@ function CreateSuspectForm({
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
   const [description, setDescription] = useState("");
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+
+  const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] ?? null;
+    setPhotoFile(file);
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (ev) => setPhotoPreview(ev.target?.result as string);
+      reader.readAsDataURL(file);
+    } else {
+      setPhotoPreview(null);
+    }
+  };
 
   const handleSubmit = useCallback(
     async (e: React.FormEvent) => {
       e.preventDefault();
       try {
-        await createMutation.mutateAsync({
-          case: caseId,
-          full_name: fullName.trim(),
-          national_id: nationalId.trim() || undefined,
-          phone_number: phone.trim() || undefined,
-          address: address.trim() || undefined,
-          description: description.trim() || undefined,
-        });
+        if (photoFile) {
+          const fd = new FormData();
+          fd.append("case", String(caseId));
+          fd.append("full_name", fullName.trim());
+          if (nationalId.trim()) fd.append("national_id", nationalId.trim());
+          if (phone.trim()) fd.append("phone_number", phone.trim());
+          if (address.trim()) fd.append("address", address.trim());
+          if (description.trim()) fd.append("description", description.trim());
+          fd.append("photo", photoFile);
+          await createMutation.mutateAsync(fd);
+        } else {
+          await createMutation.mutateAsync({
+            case: caseId,
+            full_name: fullName.trim(),
+            national_id: nationalId.trim() || undefined,
+            phone_number: phone.trim() || undefined,
+            address: address.trim() || undefined,
+            description: description.trim() || undefined,
+          });
+        }
         onSuccess();
       } catch (err) {
         onError(err instanceof Error ? err.message : "Failed to create suspect");
       }
     },
-    [caseId, fullName, nationalId, phone, address, description, createMutation, onSuccess, onError],
+    [caseId, fullName, nationalId, phone, address, description, photoFile, createMutation, onSuccess, onError],
   );
 
   return (
@@ -265,6 +291,30 @@ function CreateSuspectForm({
             value={description}
             onChange={(e) => setDescription(e.target.value)}
           />
+        </div>
+        <div className={styles.formGroup}>
+          <label className={styles.formLabel}>Photo</label>
+          <input
+            type="file"
+            accept="image/*"
+            onChange={handlePhotoChange}
+            className={styles.formInput}
+            style={{ padding: "0.25rem" }}
+          />
+          {photoPreview && (
+            <img
+              src={photoPreview}
+              alt="Preview"
+              style={{
+                marginTop: "0.5rem",
+                width: 96,
+                height: 96,
+                objectFit: "cover",
+                borderRadius: "0.375rem",
+                border: "1px solid #d1d5db",
+              }}
+            />
+          )}
         </div>
         <div className={styles.actionButtons}>
           <button type="button" className={styles.btnDefault} onClick={onClose}>

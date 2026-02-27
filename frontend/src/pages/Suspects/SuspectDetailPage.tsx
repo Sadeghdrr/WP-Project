@@ -13,6 +13,7 @@ import { useParams, Link } from "react-router-dom";
 import { useSuspectDetail, useSuspectActions, useSuspectInterrogations, useSuspectTrials, useSuspectBails } from "../../hooks/useSuspects";
 import { useAuth } from "../../auth/useAuth";
 import { Skeleton, ErrorState, EmptyState } from "../../components/ui";
+import ImageRenderer from "../../components/ui/ImageRenderer";
 import {
   SUSPECT_STATUS_LABELS,
   SUSPECT_STATUS_COLORS,
@@ -153,6 +154,17 @@ export default function SuspectDetailPage() {
         {/* Profile */}
         <div className={styles.section}>
           <h2>Suspect Profile</h2>
+          {suspect.photo && (
+            <div style={{ marginBottom: "1rem" }}>
+              <ImageRenderer
+                src={suspect.photo}
+                alt={`Photo of ${suspect.full_name}`}
+                caption={suspect.full_name}
+                preview
+                style={{ width: 120, height: 120, borderRadius: "0.5rem", overflow: "hidden" }}
+              />
+            </div>
+          )}
           <div className={styles.metaGrid}>
             <MetaItem label="Full Name" value={suspect.full_name} />
             <MetaItem label="National ID" value={suspect.national_id || "—"} />

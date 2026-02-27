@@ -19,6 +19,7 @@ import type {
   CaseGenericTransitionRequest,
   AssignPersonnelRequest,
   CaseStatusLog,
+  CaseComplainant,
 } from "../types";
 
 // ---------------------------------------------------------------------------
@@ -167,6 +168,29 @@ export function assignJudge(
   data: AssignPersonnelRequest,
 ): Promise<ApiResponse<CaseDetail>> {
   return apiPost<CaseDetail>(API.CASE_ASSIGN_JUDGE(caseId), data);
+}
+
+// ---------------------------------------------------------------------------
+// Complainants
+// ---------------------------------------------------------------------------
+
+export function fetchComplainants(caseId: number): Promise<ApiResponse<CaseComplainant[]>> {
+  return apiGet<CaseComplainant[]>(API.COMPLAINANTS(caseId));
+}
+
+export function addComplainant(
+  caseId: number,
+  data: { user_id: number },
+): Promise<ApiResponse<CaseComplainant>> {
+  return apiPost<CaseComplainant>(API.COMPLAINANTS(caseId), data);
+}
+
+export function reviewComplainant(
+  caseId: number,
+  complainantId: number,
+  data: { decision: "approve" | "reject" },
+): Promise<ApiResponse<CaseComplainant>> {
+  return apiPost<CaseComplainant>(API.COMPLAINANT_REVIEW(caseId, complainantId), data);
 }
 
 // ---------------------------------------------------------------------------

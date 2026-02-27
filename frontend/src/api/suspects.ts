@@ -5,7 +5,7 @@
  * interrogations, trials, bails, most wanted, bounty tips.
  */
 
-import { apiGet, apiPost, apiPatch, apiDelete } from "./client";
+import { apiGet, apiPost, apiPatch, apiDelete, apiPostForm } from "./client";
 import type { ApiResponse } from "./client";
 import { API } from "./endpoints";
 import type {
@@ -71,10 +71,13 @@ export function fetchSuspectDetail(id: number): Promise<ApiResponse<Suspect>> {
   return apiGet<Suspect>(API.suspect(id));
 }
 
-/** Create (identify) a new suspect. */
+/** Create (identify) a new suspect. Accepts JSON or FormData (for photo upload). */
 export function createSuspect(
-  data: SuspectCreateRequest,
+  data: SuspectCreateRequest | FormData,
 ): Promise<ApiResponse<Suspect>> {
+  if (data instanceof FormData) {
+    return apiPostForm<Suspect>(API.SUSPECTS, data);
+  }
   return apiPost<Suspect>(API.SUSPECTS, data);
 }
 

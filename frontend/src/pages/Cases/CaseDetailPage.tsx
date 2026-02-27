@@ -7,7 +7,7 @@
 
 import { useState, useCallback, useEffect } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
-import { useCaseDetail, useCaseActions } from "../../hooks/useCases";
+import { useCaseDetail, useCaseActions, useComplainantMutations } from "../../hooks/useCases";
 import { useEvidence } from "../../hooks/useEvidence";
 import { useCaseSuspects } from "../../hooks/useSuspects";
 import { useBoardForCase, useCreateBoard } from "../../hooks";
@@ -23,7 +23,7 @@ import {
   isTerminalStatus,
 } from "../../lib/caseWorkflow";
 import type { WorkflowAction } from "../../lib/caseWorkflow";
-import type { CaseStatus, CrimeLevel, CaseDetail, CaseStatusLog } from "../../types";
+import type { CaseStatus, CrimeLevel, CaseDetail, CaseStatusLog, CaseComplainant } from "../../types";
 import {
   SUSPECT_STATUS_LABELS,
   SUSPECT_STATUS_COLORS,
@@ -32,6 +32,7 @@ import {
 } from "../../lib/suspectWorkflow";
 import type { SuspectStatus, SergeantApprovalStatus } from "../../types";
 import styles from "./CaseDetailPage.module.css";
+import {P} from "../../auth";
 
 // ---------------------------------------------------------------------------
 // Sub-components
@@ -160,7 +161,7 @@ export default function CaseDetailPage() {
     return (
       <div className={styles.container}>
         <Link to="/cases" className={styles.backLink}>← Back to Cases</Link>
-        <EmptyState heading="Case Not Found" message="No data available for this case." />
+        <EmptyState title="Case Not Found" description="No data available for this case." />
       </div>
     );
   }
@@ -335,43 +336,12 @@ export default function CaseDetailPage() {
         </div>
 
         {/* Complainants */}
-        {caseData.complainants && caseData.complainants.length > 0 && (
-          <div className={styles.section}>
-            <h2>Complainants ({caseData.complainants.length})</h2>
-            <table className={styles.subTable}>
-              <thead>
-                <tr>
-                  <th>User</th>
-                  <th>Primary</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {caseData.complainants.map((c) => (
-                  <tr key={c.id}>
-                    <td>
-                      {c.user_display || `User #${c.user}`}
-                    </td>
-                    <td>{c.is_primary ? "Yes" : "No"}</td>
-                    <td>
-                      <span
-                        className={`${styles.badge} ${
-                          c.status === "approved"
-                            ? styles.badgeGreen
-                            : c.status === "rejected"
-                              ? styles.badgeRed
-                              : styles.badgeYellow
-                        }`}
-                      >
-                        {c.status}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+        <ComplainantsSection
+          caseData={caseData}
+          permissionSet={permissionSet}
+          setToast={setToast}
+          onMutate={() => refetch()}
+        />
 
         {/* Witnesses */}
         {caseData.witnesses && caseData.witnesses.length > 0 && (
@@ -708,6 +678,176 @@ function StatusTimeline({ logs }: { logs: CaseStatusLog[] }) {
         </div>
       ))}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Complainants Section
+// ---------------------------------------------------------------------------
+
+interface ComplainantsSectionProps {
+  caseData: CaseDetail;
+  permissionSet: ReadonlySet<string>;
+  setToast: (t: { message: string; type: "success" | "error" } | null) => void;
+  onMutate: () => void;
+}
+
+function ComplainantsSection({ caseData, permissionSet, setToast, onMutate }: ComplainantsSectionProps) {
+  const { addComplainant, reviewComplainant } = useComplainantMutations(caseData.id);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [newUserId, setNewUserId] = useState("");
+
+  const canAdd = permissionSet.has(P.CASES.ADD_CASECOMPLAINANT);
+  const canReview = permissionSet.has(P.CASES.CHANGE_CASECOMPLAINANT);
+  const complainants = caseData.complainants ?? [];
+
+  const handleAdd = async () => {
+    const uid = Number(newUserId);
+    if (!uid || isNaN(uid)) return;
+    try {
+      await addComplainant.mutateAsync({ user_id: uid });
+      setToast({ message: "Complainant added successfully", type: "success" });
+      setShowAddModal(false);
+      setNewUserId("");
+      onMutate();
+    } catch (err) {
+      setToast({
+        message: err instanceof Error ? err.message : "Failed to add complainant",
+        type: "error",
+      });
+    }
+  };
+
+  const handleReview = async (c: CaseComplainant, decision: "approve" | "reject") => {
+    try {
+      await reviewComplainant.mutateAsync({ complainantId: c.id, decision });
+      setToast({ message: `Complainant ${decision}`, type: "success" });
+      onMutate();
+    } catch (err) {
+      setToast({
+        message: err instanceof Error ? err.message : "Review failed",
+        type: "error",
+      });
+    }
+  };
+
+  return (
+    <>
+      <div className={styles.section}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
+          <h2 style={{ margin: 0 }}>Complainants ({complainants.length})</h2>
+          {canAdd && (
+            <button
+              className={styles.btnPrimary}
+              type="button"
+              onClick={() => { setShowAddModal(true); setNewUserId(""); }}
+            >
+              + Add Complainant
+            </button>
+          )}
+        </div>
+
+        {complainants.length === 0 ? (
+          <p style={{ color: "#6b7280", fontSize: "0.875rem" }}>No complainants registered.</p>
+        ) : (
+          <table className={styles.subTable}>
+            <thead>
+              <tr>
+                <th>User</th>
+                <th>Primary</th>
+                <th>Status</th>
+                {canReview && <th>Actions</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {complainants.map((c) => (
+                <tr key={c.id}>
+                  <td>{c.user_display || `User #${c.user}`}</td>
+                  <td>{c.is_primary ? "Yes" : "No"}</td>
+                  <td>
+                    <span
+                      className={`${styles.badge} ${
+                        c.status === "approved"
+                          ? styles.badgeGreen
+                          : c.status === "rejected"
+                            ? styles.badgeRed
+                            : styles.badgeYellow
+                      }`}
+                    >
+                      {c.status}
+                    </span>
+                  </td>
+                  {canReview && (
+                    <td>
+                      {c.status === "pending" && (
+                        <div style={{ display: "flex", gap: "0.4rem" }}>
+                          <button
+                            className={styles.btnPrimary}
+                            type="button"
+                            disabled={reviewComplainant.isPending}
+                            onClick={() => handleReview(c, "approve")}
+                          >
+                            Approve
+                          </button>
+                          <button
+                            className={styles.btnDanger}
+                            type="button"
+                            disabled={reviewComplainant.isPending}
+                            onClick={() => handleReview(c, "reject")}
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      )}
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* Add Complainant Modal */}
+      {showAddModal && (
+        <div className={styles.modalOverlay} onClick={() => setShowAddModal(false)}>
+          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+            <h3>Add Complainant</h3>
+            <label style={{ fontSize: "0.875rem", color: "#6b7280", marginBottom: "0.5rem", display: "block" }}>
+              Enter the User ID of the complainant to add:
+            </label>
+            <input
+              type="number"
+              placeholder="User ID"
+              value={newUserId}
+              onChange={(e) => setNewUserId(e.target.value)}
+              autoFocus
+              style={{
+                width: "100%",
+                padding: "0.5rem 0.75rem",
+                border: "1px solid #d1d5db",
+                borderRadius: "0.375rem",
+                fontSize: "0.9375rem",
+                boxSizing: "border-box",
+              }}
+            />
+            <div className={styles.modalActions}>
+              <button className={styles.btnDefault} type="button" onClick={() => setShowAddModal(false)}>
+                Cancel
+              </button>
+              <button
+                className={styles.btnPrimary}
+                type="button"
+                disabled={!newUserId || addComplainant.isPending}
+                onClick={handleAdd}
+              >
+                {addComplainant.isPending ? "Adding…" : "Add"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 

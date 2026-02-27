@@ -19,6 +19,7 @@ import type {
   ResubmitComplaintRequest,
   CaseGenericTransitionRequest,
   AssignPersonnelRequest,
+  CaseComplainant,
 } from "../types";
 
 // ---------------------------------------------------------------------------
@@ -179,6 +180,42 @@ export function useCaseActions(caseId: number) {
     assignCaptain,
     assignJudge,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Complainant mutations
+// ---------------------------------------------------------------------------
+
+export function useComplainantMutations(caseId: number) {
+  const qc = useQueryClient();
+
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: caseDetailKey(caseId) });
+  };
+
+  const addComplainant = useMutation<CaseComplainant, Error, { user_id: number }>({
+    mutationFn: async (data) => {
+      const res = await casesApi.addComplainant(caseId, data);
+      if (!res.ok) throw new Error(res.error.message);
+      return res.data;
+    },
+    onSuccess: invalidate,
+  });
+
+  const reviewComplainant = useMutation<
+    CaseComplainant,
+    Error,
+    { complainantId: number; decision: "approve" | "reject" }
+  >({
+    mutationFn: async ({ complainantId, decision }) => {
+      const res = await casesApi.reviewComplainant(caseId, complainantId, { decision });
+      if (!res.ok) throw new Error(res.error.message);
+      return res.data;
+    },
+    onSuccess: invalidate,
+  });
+
+  return { addComplainant, reviewComplainant };
 }
 
 // ---------------------------------------------------------------------------
