@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('cases', '0003_alter_case_options'),
+        ('cases', '0004_add_coroner_scope_permission'),
     ]
 
     operations = [
