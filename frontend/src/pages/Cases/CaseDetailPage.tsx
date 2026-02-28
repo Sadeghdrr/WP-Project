@@ -8,9 +8,11 @@
 import { useState, useCallback, useEffect } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { useCaseDetail, useCaseActions, useComplainantMutations } from "../../hooks/useCases";
+  import { useUsers } from "../../hooks/useAdmin";
 import { useEvidence } from "../../hooks/useEvidence";
 import { useCaseSuspects } from "../../hooks/useSuspects";
 import { useBoardForCase, useCreateBoard } from "../../hooks";
+import { useDebounce } from "../../hooks/useDebounce";
 import { useAuth } from "../../auth/useAuth";
 import { Skeleton, ErrorState, EmptyState } from "../../components/ui";
 import * as casesApi from "../../api/cases";
@@ -24,6 +26,7 @@ import {
 } from "../../lib/caseWorkflow";
 import type { WorkflowAction } from "../../lib/caseWorkflow";
 import type { CaseStatus, CrimeLevel, CaseDetail, CaseStatusLog, CaseComplainant } from "../../types";
+import type { UserListItem } from "../../types/admin";
 import {
   SUSPECT_STATUS_LABELS,
   SUSPECT_STATUS_COLORS,
@@ -62,6 +65,143 @@ function Toast({ message, type, onClose }: { message: string; type: "success" | 
   return (
     <div className={`${styles.toast} ${type === "success" ? styles.toastSuccess : styles.toastError}`}>
       {message}
+    </div>
+  );
+}
+
+function formatUserOption(user: UserListItem) {
+  const fullName = `${user.first_name} ${user.last_name}`.trim();
+  const primaryLabel = fullName || user.username;
+  const secondaryParts = [
+    user.username !== primaryLabel ? `@${user.username}` : null,
+    user.role_name,
+    user.email,
+  ]
+    .filter(Boolean)
+    .join(" • ");
+
+  return secondaryParts ? `${primaryLabel} (${secondaryParts})` : primaryLabel;
+}
+
+interface UserSelectorModalProps {
+  title: string;
+  prompt: string;
+  confirmLabel: string;
+  searchPlaceholder: string;
+  isPending: boolean;
+  onClose: () => void;
+  onConfirm: (userId: number) => void;
+  selectedUserId: number | null;
+  onSelectUserId: (userId: number | null) => void;
+  searchTerm: string;
+  onSearchTermChange: (value: string) => void;
+  roleName?: string;
+  excludedUserIds?: number[];
+}
+
+function UserSelectorModal({
+  title,
+  prompt,
+  confirmLabel,
+  searchPlaceholder,
+  isPending,
+  onClose,
+  onConfirm,
+  selectedUserId,
+  onSelectUserId,
+  searchTerm,
+  onSearchTermChange,
+  roleName,
+  excludedUserIds = [],
+}: UserSelectorModalProps) {
+  const debouncedSearch = useDebounce(searchTerm, 250);
+  const { data: users, isLoading, error } = useUsers({
+    search: debouncedSearch || undefined,
+  });
+
+  const normalizedRoleName = roleName?.trim().toLowerCase();
+  const availableUsers = (users ?? []).filter((user) => {
+    if (excludedUserIds.includes(user.id)) return false;
+    if (!normalizedRoleName) return true;
+    return user.role_name?.trim().toLowerCase() === normalizedRoleName;
+  });
+
+  useEffect(() => {
+    if (selectedUserId !== null && !availableUsers.some((user) => user.id === selectedUserId)) {
+      onSelectUserId(null);
+    }
+  }, [availableUsers, onSelectUserId, selectedUserId]);
+
+  return (
+    <div className={styles.modalOverlay} onClick={onClose}>
+      <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+        <h3>{title}</h3>
+        <label style={{ fontSize: "0.875rem", color: "#6b7280", marginBottom: "0.5rem", display: "block" }}>
+          {prompt}
+        </label>
+        <input
+          type="text"
+          placeholder={searchPlaceholder}
+          value={searchTerm}
+          onChange={(e) => onSearchTermChange(e.target.value)}
+          autoFocus
+          style={{
+            width: "100%",
+            padding: "0.5rem 0.75rem",
+            border: "1px solid #d1d5db",
+            borderRadius: "0.375rem",
+            fontSize: "0.9375rem",
+            boxSizing: "border-box",
+            marginBottom: "0.75rem",
+          }}
+        />
+        <select
+          value={selectedUserId ?? ""}
+          onChange={(e) => onSelectUserId(e.target.value ? Number(e.target.value) : null)}
+          style={{
+            width: "100%",
+            padding: "0.5rem 0.75rem",
+            border: "1px solid #d1d5db",
+            borderRadius: "0.375rem",
+            fontSize: "0.9375rem",
+            boxSizing: "border-box",
+          }}
+        >
+          <option value="">
+            {isLoading ? "Loading users..." : availableUsers.length === 0 ? "No matching users found" : "Select a user"}
+          </option>
+          {availableUsers.map((user) => (
+            <option key={user.id} value={user.id}>
+              {formatUserOption(user)}
+            </option>
+          ))}
+        </select>
+        {roleName && (
+          <p style={{ marginTop: "0.5rem", marginBottom: 0, fontSize: "0.8125rem", color: "#6b7280" }}>
+            Showing users with the {roleName} role.
+          </p>
+        )}
+        {error && (
+          <p style={{ marginTop: "0.5rem", marginBottom: 0, fontSize: "0.8125rem", color: "#b91c1c" }}>
+            {error instanceof Error ? error.message : "Failed to load users."}
+          </p>
+        )}
+        <div className={styles.modalActions}>
+          <button className={styles.btnDefault} type="button" onClick={onClose}>
+            Cancel
+          </button>
+          <button
+            className={styles.btnPrimary}
+            type="button"
+            disabled={selectedUserId === null || isPending || isLoading}
+            onClick={() => {
+              if (selectedUserId !== null) onConfirm(selectedUserId);
+            }}
+          >
+            {isPending ? "Saving…" : confirmLabel}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -695,20 +835,21 @@ interface ComplainantsSectionProps {
 function ComplainantsSection({ caseData, permissionSet, setToast, onMutate }: ComplainantsSectionProps) {
   const { addComplainant, reviewComplainant } = useComplainantMutations(caseData.id);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [newUserId, setNewUserId] = useState("");
+  const [newUserId, setNewUserId] = useState<number | null>(null);
+  const [userSearch, setUserSearch] = useState("");
 
   const canAdd = permissionSet.has(P.CASES.ADD_CASECOMPLAINANT);
   const canReview = permissionSet.has(P.CASES.CHANGE_CASECOMPLAINANT);
   const complainants = caseData.complainants ?? [];
 
   const handleAdd = async () => {
-    const uid = Number(newUserId);
-    if (!uid || isNaN(uid)) return;
+    if (newUserId === null) return;
     try {
-      await addComplainant.mutateAsync({ user_id: uid });
+      await addComplainant.mutateAsync({ user_id: newUserId });
       setToast({ message: "Complainant added successfully", type: "success" });
       setShowAddModal(false);
-      setNewUserId("");
+      setNewUserId(null);
+      setUserSearch("");
       onMutate();
     } catch (err) {
       setToast({
@@ -740,7 +881,11 @@ function ComplainantsSection({ caseData, permissionSet, setToast, onMutate }: Co
             <button
               className={styles.btnPrimary}
               type="button"
-              onClick={() => { setShowAddModal(true); setNewUserId(""); }}
+              onClick={() => {
+                setShowAddModal(true);
+                setNewUserId(null);
+                setUserSearch("");
+              }}
             >
               + Add Complainant
             </button>
@@ -810,42 +955,22 @@ function ComplainantsSection({ caseData, permissionSet, setToast, onMutate }: Co
 
       {/* Add Complainant Modal */}
       {showAddModal && (
-        <div className={styles.modalOverlay} onClick={() => setShowAddModal(false)}>
-          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
-            <h3>Add Complainant</h3>
-            <label style={{ fontSize: "0.875rem", color: "#6b7280", marginBottom: "0.5rem", display: "block" }}>
-              Enter the User ID of the complainant to add:
-            </label>
-            <input
-              type="number"
-              placeholder="User ID"
-              value={newUserId}
-              onChange={(e) => setNewUserId(e.target.value)}
-              autoFocus
-              style={{
-                width: "100%",
-                padding: "0.5rem 0.75rem",
-                border: "1px solid #d1d5db",
-                borderRadius: "0.375rem",
-                fontSize: "0.9375rem",
-                boxSizing: "border-box",
-              }}
-            />
-            <div className={styles.modalActions}>
-              <button className={styles.btnDefault} type="button" onClick={() => setShowAddModal(false)}>
-                Cancel
-              </button>
-              <button
-                className={styles.btnPrimary}
-                type="button"
-                disabled={!newUserId || addComplainant.isPending}
-                onClick={handleAdd}
-              >
-                {addComplainant.isPending ? "Adding…" : "Add"}
-              </button>
-            </div>
-          </div>
-        </div>
+        <UserSelectorModal
+          title="Add Complainant"
+          prompt="Search for a user, then select who should be added as a complainant."
+          confirmLabel="Add"
+          searchPlaceholder="Search by name, username, or email"
+          isPending={addComplainant.isPending}
+          onClose={() => setShowAddModal(false)}
+          onConfirm={() => {
+            void handleAdd();
+          }}
+          selectedUserId={newUserId}
+          onSelectUserId={setNewUserId}
+          searchTerm={userSearch}
+          onSearchTermChange={setUserSearch}
+          excludedUserIds={complainants.map((complainant) => complainant.user)}
+        />
       )}
     </>
   );
@@ -878,7 +1003,8 @@ function WorkflowPanel({
   const actions = useCaseActions(caseData.id);
 
   // State for personnel assignment modals (detective / sergeant / captain / judge)
-  const [assignUserId, setAssignUserId] = useState("");
+  const [assignUserId, setAssignUserId] = useState<number | null>(null);
+  const [assignUserSearch, setAssignUserSearch] = useState("");
   const [pendingAssignKey, setPendingAssignKey] = useState<string | null>(null);
 
   // State for edit & resubmit
@@ -907,7 +1033,8 @@ function WorkflowPanel({
         action.key === "assign_captain" ||
         action.key === "assign_judge"
       ) {
-        setAssignUserId("");
+        setAssignUserId(null);
+        setAssignUserSearch("");
         setPendingAssignKey(action.key);
         return;
       }
@@ -934,22 +1061,22 @@ function WorkflowPanel({
   };
 
   const handleAssignUser = async () => {
-    if (!pendingAssignKey) return;
-    const uid = Number(assignUserId);
-    if (!uid || isNaN(uid)) return;
+    if (!pendingAssignKey || assignUserId === null) return;
     const roleLabel = ASSIGN_LABELS[pendingAssignKey] ?? "Personnel";
     try {
       if (pendingAssignKey === "assign_detective") {
-        await actions.assignDetective.mutateAsync({ user_id: uid });
+        await actions.assignDetective.mutateAsync({ user_id: assignUserId });
       } else if (pendingAssignKey === "assign_sergeant") {
-        await actions.assignSergeant.mutateAsync({ user_id: uid });
+        await actions.assignSergeant.mutateAsync({ user_id: assignUserId });
       } else if (pendingAssignKey === "assign_captain") {
-        await actions.assignCaptain.mutateAsync({ user_id: uid });
+        await actions.assignCaptain.mutateAsync({ user_id: assignUserId });
       } else if (pendingAssignKey === "assign_judge") {
-        await actions.assignJudge.mutateAsync({ user_id: uid });
+        await actions.assignJudge.mutateAsync({ user_id: assignUserId });
       }
       setToast({ message: `${roleLabel} assigned successfully`, type: "success" });
       setPendingAssignKey(null);
+      setAssignUserId(null);
+      setAssignUserSearch("");
     } catch (err) {
       setToast({
         message: err instanceof Error ? err.message : `Failed to assign ${roleLabel.toLowerCase()}`,
@@ -1140,46 +1267,22 @@ function WorkflowPanel({
 
       {/* Assign personnel modal (detective / sergeant / captain / judge) */}
       {pendingAssignKey && (
-        <div className={styles.modalOverlay} onClick={() => setPendingAssignKey(null)}>
-          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
-            <h3>Assign {ASSIGN_LABELS[pendingAssignKey] ?? "Personnel"}</h3>
-            <label style={{ fontSize: "0.875rem", color: "#6b7280", marginBottom: "0.5rem", display: "block" }}>
-              Enter the User ID of the {(ASSIGN_LABELS[pendingAssignKey] ?? "personnel").toLowerCase()} to assign:
-            </label>
-            <input
-              type="number"
-              placeholder="User ID"
-              value={assignUserId}
-              onChange={(e) => setAssignUserId(e.target.value)}
-              autoFocus
-              style={{
-                width: "100%",
-                padding: "0.5rem 0.75rem",
-                border: "1px solid #d1d5db",
-                borderRadius: "0.375rem",
-                fontSize: "0.9375rem",
-                boxSizing: "border-box",
-              }}
-            />
-            <div className={styles.modalActions}>
-              <button
-                className={styles.btnDefault}
-                onClick={() => setPendingAssignKey(null)}
-                type="button"
-              >
-                Cancel
-              </button>
-              <button
-                className={styles.btnPrimary}
-                onClick={handleAssignUser}
-                disabled={!assignUserId || isAnyLoading}
-                type="button"
-              >
-                {isAnyLoading ? "Assigning…" : "Assign"}
-              </button>
-            </div>
-          </div>
-        </div>
+        <UserSelectorModal
+          title={`Assign ${ASSIGN_LABELS[pendingAssignKey] ?? "Personnel"}`}
+          prompt={`Search and select the ${(ASSIGN_LABELS[pendingAssignKey] ?? "personnel").toLowerCase()} to assign.`}
+          confirmLabel="Assign"
+          searchPlaceholder="Search by name, username, or email"
+          isPending={isAnyLoading}
+          onClose={() => setPendingAssignKey(null)}
+          onConfirm={() => {
+            void handleAssignUser();
+          }}
+          selectedUserId={assignUserId}
+          onSelectUserId={setAssignUserId}
+          searchTerm={assignUserSearch}
+          onSearchTermChange={setAssignUserSearch}
+          roleName={ASSIGN_LABELS[pendingAssignKey]}
+        />
       )}
 
       {/* Edit & Resubmit form */}
