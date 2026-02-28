@@ -134,7 +134,7 @@ describe("API client", () => {
     const result = await apiFetch("/register/", { method: "POST" });
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error.message).toBe("Validation error");
+      expect(result.error.message).toBe("This field is required.");
       expect(result.error.fieldErrors).toEqual({
         username: ["This field is required."],
         email: ["Enter a valid email."],
