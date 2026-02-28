@@ -20,6 +20,7 @@ import {
   useState,
 } from "react";
 import type { ReactNode } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { setAccessToken } from "../api/client";
 import { setOnUnauthorized } from "../api/client";
 import { loginApi, registerApi, refreshTokenApi, fetchMeApi } from "../api/auth";
@@ -64,6 +65,7 @@ interface AuthProviderProps {
 }
 
 export function AuthProvider({ children }: AuthProviderProps) {
+  const queryClient = useQueryClient();
   const [status, setStatus] = useState<AuthStatus>("loading");
   const [user, setUser] = useState<User | null>(null);
 
@@ -73,30 +75,35 @@ export function AuthProvider({ children }: AuthProviderProps) {
     [user],
   );
 
-
   // ── Internal helpers ────────────────────────────────────────────────
 
-  /** Set tokens in memory + storage, then fetch current user. */
-  const establishSession = useCallback(
-    async (access: string, refresh: string): Promise<boolean> => {
+  /** Clear all user-scoped client state when the active session changes. */
+  const clearSession = useCallback(() => {
+    setAccessToken(null);
+    clearStoredRefreshToken();
+    queryClient.clear();
+    setUser(null);
+    setStatus("unauthenticated");
+  }, [queryClient]);
+
+  /** Mark the current user as active and drop data cached for any previous user. */
+  const applyAuthenticatedUser = useCallback(
+    (userData: User) => {
+      queryClient.clear();
+      setUser(userData);
+      setStatus("authenticated");
+    },
+    [queryClient],
+  );
+
+  /** Start a fresh authenticated session and replace any previous user's cache. */
+  const applyAuthenticatedSession = useCallback(
+    (access: string, refresh: string, userData: User) => {
       setAccessToken(access);
       storeRefreshToken(refresh);
-
-      const meResult = await fetchMeApi();
-      if (meResult.ok) {
-        setUser(meResult.data);
-        setStatus("authenticated");
-        return true;
-      }
-
-      // /me failed — clear everything
-      setAccessToken(null);
-      clearStoredRefreshToken();
-      setUser(null);
-      setStatus("unauthenticated");
-      return false;
+      applyAuthenticatedUser(userData);
     },
-    [],
+    [applyAuthenticatedUser],
   );
 
   /** Try to refresh the access token using the stored refresh token. */
@@ -127,10 +134,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     // Register 401 handler — when any API call gets 401, clear session
     setOnUnauthorized(() => {
       if (!cancelled) {
-        setAccessToken(null);
-        clearStoredRefreshToken();
-        setUser(null);
-        setStatus("unauthenticated");
+        clearSession();
       }
     });
 
@@ -143,16 +147,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
         if (cancelled) return;
 
         if (meResult.ok) {
-          setUser(meResult.data);
-          setStatus("authenticated");
+          applyAuthenticatedUser(meResult.data);
           return;
         }
       }
 
       // No valid session
-      setAccessToken(null);
-      clearStoredRefreshToken();
-      setStatus("unauthenticated");
+      clearSession();
     }
 
     bootstrap();
@@ -161,7 +162,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       cancelled = true;
       setOnUnauthorized(null);
     };
-  }, [tryRefresh]);
+  }, [applyAuthenticatedUser, clearSession, tryRefresh]);
 
   // ── Actions ─────────────────────────────────────────────────────────
 
@@ -174,14 +175,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
 
       const { access, refresh, user: userData } = result.data;
-      setAccessToken(access);
-      storeRefreshToken(refresh);
-      setUser(userData);
-      setStatus("authenticated");
+      applyAuthenticatedSession(access, refresh, userData);
 
       return { ok: true as const };
     },
-    [],
+    [applyAuthenticatedSession],
   );
 
   const register = useCallback(
@@ -204,22 +202,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
 
       const { access, refresh, user: userData } = loginResult.data;
-      setAccessToken(access);
-      storeRefreshToken(refresh);
-      setUser(userData);
-      setStatus("authenticated");
+      applyAuthenticatedSession(access, refresh, userData);
 
       return { ok: true as const };
     },
-    [],
+    [applyAuthenticatedSession],
   );
 
   const logout = useCallback(() => {
-    setAccessToken(null);
-    clearStoredRefreshToken();
-    setUser(null);
-    setStatus("unauthenticated");
-  }, []);
+    clearSession();
+  }, [clearSession]);
 
   // ── Context value ───────────────────────────────────────────────────
   const value = useMemo<AuthContextValue>(
